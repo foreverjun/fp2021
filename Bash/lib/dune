@@ -1,0 +1,9 @@
+(library
+ (name bash_lib)
+ (public_name Bash.Lib)
+ (modules Ast Parser Tests)
+ (modules_without_implementation ast)
+ (libraries base angstrom ppx_show.runtime)
+ (preprocess
+  (pps ppx_expect ppx_show))
+ (inline_tests))

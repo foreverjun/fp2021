@@ -1,0 +1,31 @@
+(lang dune 2.9)
+
+(generate_opam_files true)
+
+(cram enable)
+
+(license LGPL-3.0-only)
+
+(authors "Timofey Pushkin")
+
+(maintainers "Timofey Pushkin")
+
+(bug_reports "https://github.com/TimPushkin/fp2021/issues")
+
+(homepage "https://github.com/TimPushkin/fp2021")
+
+(package
+ (name Bash)
+ (synopsis "An implementation of Bash mini-language")
+ (description
+  "An OCaml-based implementation of Bash mini-language for functional programming course.")
+ (version 0.1)
+ (depends
+  dune
+  angstrom
+  (ppx_inline_test :with-test)
+  ppx_expect
+  ppx_show
+  (odoc :with-doc)
+  (ocamlformat :build)
+  base))
