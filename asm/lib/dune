@@ -1,5 +1,5 @@
 (library
- (name asm_lib)
+ (name Asm_lib)
  (public_name asm.Lib)
  (modules Ast asm Interpret Parser Printast Pprintast utils Tests) ; TODO сюда писать все файлы из lib
  (modules_without_implementation ast)

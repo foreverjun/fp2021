@@ -21,8 +21,7 @@ Features in progress (and TODOs):
 ## How to work with repo 
 // TODO: перевести на англ
 
-- Pазработка велась при помощи `IntelliJ IDEA` с
-  плагином [`ReasonML`](https://plugins.jetbrains.com/plugin/9440-reasonml)
+- Pазработка велась при помощи `VS Code`
 - Дистрибутив: `Fedora`
 
 ### Подготовка среды
@@ -66,8 +65,7 @@ ocaml -version
 opam install dune
 ```
 
-Настройка плагина в `IntelliJ IDEA` инструкция
-по [ссылке](https://giraud.github.io/reasonml-idea-plugin/docs/language-support/ocaml)
+- [Настройка](https://ocaml.org/learn/tutorials/up_and_running.html) `VS Code`
 
 + установка либ, которые предложет dune при запуске `dune build` в директории `/Lambda`
     + stdio

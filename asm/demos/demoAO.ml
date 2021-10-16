@@ -1,6 +1,6 @@
-open Lambda_lib
+open Asm_lib
 open Ast
-open Lambda
+open Asm
 
 type 'a status =
   | Done of 'a

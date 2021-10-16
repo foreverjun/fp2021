@@ -1,4 +1,4 @@
 (executable
  (name runULC)
  (modules runULC QCTests)
- (libraries asm_lib qcheck-core qcheck-core.runner))
+ (libraries Asm_lib qcheck-core qcheck-core.runner))

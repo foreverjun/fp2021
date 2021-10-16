@@ -1,7 +1,7 @@
 open Format
 open QCheck.Gen
-open Lambda_lib
-open Lambda_lib.Utils
+open Asm_lib
+open Asm_lib.Utils
 
 let varname = map Char.chr (int_range (Char.code 'a') (Char.code 'z'))
 
