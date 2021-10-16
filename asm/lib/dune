@@ -1,0 +1,9 @@
+(library
+ (name asm_lib)
+ (public_name asm.Lib)
+ (modules Ast asm Interpret Parser Printast Pprintast utils Tests) ; TODO сюда писать все файлы из lib
+ (modules_without_implementation ast)
+ (libraries base angstrom ppx_show.runtime)
+ (preprocess
+  (pps ppx_expect ppx_show))
+ (inline_tests))
