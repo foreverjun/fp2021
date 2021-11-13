@@ -1,16 +1,4 @@
 (executable
- (name demoAO)
- (modules demoAO)
- (public_name demoAO)
- (libraries Asm_lib))
-
-(executable
- (name demoNO)
- (modules demoNO)
- (public_name demoNO)
- (libraries Asm_lib))
-
-(executable
  (name demoParse)
  (modules demoParse)
  (public_name demoParse)
