@@ -16,7 +16,7 @@ let chainl1 e op =
   e >>= fun init -> go init
 ;;
 
-(* ---------- Basic Basg syntax --------- *)
+(* ---------- Basic Bash syntax --------- *)
 
 let reserved =
   [ "if"
@@ -71,7 +71,7 @@ let equal = string "==" *> return (fun x y -> Equal (x, y))
 let nequal = string "!=" *> return (fun x y -> NEqual (x, y))
 
 (* Operands *)
-let parens p = char '(' *> p <* char ')'
+let parens p = char '(' *> blank *> p <* blank <* char ')'
 
 let num =
   option "" (string "+" <|> string "-")
@@ -82,33 +82,48 @@ let num =
   >>| fun s -> Num (int_of_string (sign ^ s))
 ;;
 
-(* Arithmetic parser *)
+(** Arithmetic parser *)
 let arithm_p =
   fix (fun arithm_p ->
-      let factor = parens arithm_p <|> num in
-      let term = chainl1 factor (mul <|> div) in
-      let expr = chainl1 term (plus <|> minus) in
-      let comp = chainl1 expr (lesseq <|> greatereq <|> less <|> greater) in
-      chainl1 comp (equal <|> nequal))
+      let factor = blank *> (parens arithm_p <|> num) <* blank in
+      let term = chainl1 factor (blank *> (mul <|> div) <* blank) in
+      let expr = chainl1 term (blank *> (plus <|> minus) <* blank) in
+      let comp =
+        chainl1 expr (blank *> (lesseq <|> greatereq <|> less <|> greater) <* blank)
+      in
+      chainl1 comp (blank *> (equal <|> nequal) <* blank))
 ;;
 
 (* Tests *)
 
-let test_arithm_p s = Result.get_ok (parse_string ~consume:Consume.All arithm_p s)
+let test_arithm_p s res =
+  Result.get_ok (parse_string ~consume:Consume.All arithm_p s) = res
+;;
 
-let%test _ = test_arithm_p "100" = Num 100
-let%test _ = test_arithm_p "1+2" = Plus (Num 1, Num 2)
-let%test _ = test_arithm_p "2*3+4" = Plus (Mul (Num 2, Num 3), Num 4)
-let%test _ = test_arithm_p "(((5)))" = Num 5
+let fail_arithm_p s =
+  let _ = Result.get_error (parse_string ~consume:Consume.All arithm_p s) in
+  true
+;;
+
+let%test _ = test_arithm_p "100" (Num 100)
+let%test _ = test_arithm_p "   1 +     2" (Plus (Num 1, Num 2))
+let%test _ = test_arithm_p "2 * 3 + 4" (Plus (Mul (Num 2, Num 3), Num 4))
+let%test _ = test_arithm_p "(( (5)) )" (Num 5)
 
 let%test _ =
-  test_arithm_p "(1<2)+(3>=4)/10"
-  = Plus (Less (Num 1, Num 2), Div (GreaterEq (Num 3, Num 4), Num 10))
+  test_arithm_p
+    "(1 < 2) + (3 >= 4) / 10"
+    (Plus (Less (Num 1, Num 2), Div (GreaterEq (Num 3, Num 4), Num 10)))
 ;;
 
 let%test _ =
-  test_arithm_p "11+3*4-1<=17/9!=5"
-  = NEqual
-      ( LessEq (Minus (Plus (Num 11, Mul (Num 3, Num 4)), Num 1), Div (Num 17, Num 9))
-      , Num 5 )
+  test_arithm_p
+    "11 + 3 * 4 - 1 <= 17 / 9 != 5"
+    (NEqual
+       ( LessEq (Minus (Plus (Num 11, Mul (Num 3, Num 4)), Num 1), Div (Num 17, Num 9))
+       , Num 5 ))
 ;;
+
+let%test _ = fail_arithm_p "5 5"
+let%test _ = fail_arithm_p "(()"
+let%test _ = fail_arithm_p "+ -"
