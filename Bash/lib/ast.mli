@@ -3,24 +3,16 @@
 type name = Name of string
 (* names of variables and functions; consist of letters, numbers, underscores, and begin with a letter or underscore *)
 
-type word = Word of string * expansion list
-(* tokens which are subject to expansions *)
-
-and expansion =
-  | BraceExp
-  | ParameterExp
-  | CommandSubst
-  | ArithmExp
-  | WordSpl
-  | FilenameExp
-  | QuoteRem
+type word = Word of string
 (*
-Redirection: all (error if expands to more than one word)
-For (with list): all
+Tokens which were subject to expansions:
+Redirection: BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem (error if expands to more than one word)
+For (with list): BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem
 Case: ParameterExp, CommandSubst, ArithmExp, QuoteRem
 Case item: ParameterExp, CommandSubst, ArithmExp
-Simple command: all
+Simple command: BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem
 Assignment: ParameterExp, CommandSubst, ArithmExp, QuoteRem
+* means that the expansion may produce more than one word
 *)
 
 type redir = Redir of int * redir_op * word
