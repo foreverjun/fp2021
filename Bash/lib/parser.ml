@@ -16,6 +16,15 @@ let chainl1 e op =
   e >>= fun init -> go init
 ;;
 
+let int_p =
+  option "" (string "+" <|> string "-")
+  >>= fun sign ->
+  take_while1 (function
+      | '0' .. '9' -> true
+      | _ -> false)
+  >>| fun s -> int_of_string (sign ^ s)
+;;
+
 (** Check if parser p returns result res on string s *)
 let test_p p s res = Result.get_ok (parse_string ~consume:Consume.All p s) = res
 
@@ -84,15 +93,7 @@ let nequal = string "!=" *> return (fun x y -> NEqual (x, y))
 
 (* Operands *)
 let parens p = char '(' *> blank *> p <* blank <* char ')'
-
-let num =
-  option "" (string "+" <|> string "-")
-  >>= fun sign ->
-  take_while1 (function
-      | '0' .. '9' -> true
-      | _ -> false)
-  >>| fun s -> Num (int_of_string (sign ^ s))
-;;
+let num = int_p >>| fun n -> Num n
 
 (** Arithmetic parser *)
 let arithm_p =
@@ -134,6 +135,87 @@ let%test _ = fail_arithm_p "5 5"
 let%test _ = fail_arithm_p "(()"
 let%test _ = fail_arithm_p "+ -"
 
+(* -------------------- Word and expansions -------------------- *)
+
+(** Word parser *)
+let word_p = take_while1 (fun c -> not (is_metachar c)) >>| fun s -> Word s
+
+(* Brace expansion *)
+
+let brace_exp =
+  let prefix =
+    take_till (function
+        | '{' -> true
+        | c when is_metachar c -> true
+        | _ -> false)
+  in
+  let seq =
+    let elems_by p = p <* string ".." >>= fun s -> p >>| fun e -> s, e in
+    let incr = option 1 (string ".." *> int_p >>| fun i -> max 1 (abs i)) in
+    let range s e i =
+      let rec up n acc = if n >= s then up (n - i) (n :: acc) else acc in
+      let rec dn n acc = if n <= s then dn (n + i) (n :: acc) else acc in
+      let act_e = s + ((e - s) / i * i) in
+      if s <= e then up act_e [] else dn act_e []
+    in
+    let range_by f s e i = List.map f (range s e i) in
+    elems_by (any_char >>| Char.code)
+    >>= (function
+          | s, e -> incr >>| range_by (fun c -> String.make 1 (Char.chr c)) s e)
+    <|> (elems_by int_p
+        >>= function
+        | s, e -> incr >>| range_by (fun n -> string_of_int n) s e)
+  in
+  let strs =
+    let str =
+      take_while (function
+          | ',' | '}' -> false
+          | c when is_metachar c -> false
+          | _ -> true)
+    in
+    peek_char
+    >>= function
+    | Some '}' -> fail "Empty strs"
+    | _ -> str >>= fun h -> many (char ',' *> str) >>| fun tl -> h :: tl
+  in
+  let postfix =
+    take_till (function
+        | c when is_metachar c -> true
+        | _ -> false)
+  in
+  option "" prefix
+  >>= fun pre ->
+  char '{' *> (seq <|> strs)
+  <* char '}'
+  >>= fun body ->
+  option "" postfix
+  >>| fun post ->
+  (* Printf.printf "%s + " pre;
+  List.iter (Printf.printf "%s ") body;
+  Printf.printf "+ %s\n" post; *)
+  List.map (fun s -> pre ^ s ^ post) body
+;;
+
+(* Tests *)
+
+let test_brace_exp = test_p brace_exp
+let fail_brace_exp = fail_p brace_exp
+
+let%test _ = test_brace_exp "ab{c,d,e}fd" [ "abcfd"; "abdfd"; "abefd" ]
+let%test _ = test_brace_exp "ab{c,d,e}" [ "abc"; "abd"; "abe" ]
+let%test _ = test_brace_exp "{c,d,e}fd" [ "cfd"; "dfd"; "efd" ]
+let%test _ = test_brace_exp "ab{,,}fd" [ "abfd"; "abfd"; "abfd" ]
+let%test _ = fail_brace_exp "ab{}fd"
+let%test _ = test_brace_exp "1a{1..3}b5" [ "1a1b5"; "1a2b5"; "1a3b5" ]
+let%test _ = test_brace_exp "1a{1..1}b5" [ "1a1b5" ]
+let%test _ = test_brace_exp "1a{1..4..2}b5" [ "1a1b5"; "1a3b5" ]
+let%test _ = test_brace_exp "1a{1..4..-2}b5" [ "1a1b5"; "1a3b5" ]
+let%test _ = test_brace_exp "1a{1..4..0}b5" [ "1a1b5"; "1a2b5"; "1a3b5"; "1a4b5" ]
+let%test _ = test_brace_exp "1a{3..1}b5" [ "1a3b5"; "1a2b5"; "1a1b5" ]
+let%test _ = test_brace_exp "1a{-5..0..2}b5" [ "1a-5b5"; "1a-3b5"; "1a-1b5" ]
+let%test _ = test_brace_exp "1a{d..a..2}b5" [ "1adb5"; "1abb5" ]
+let%test _ = fail_brace_exp "1a{d..a..}b5"
+
 (* -------------------- Simple command -------------------- *)
 
 (** Name parser *)
@@ -151,9 +233,6 @@ let name_p =
   | Some c when is_name_beg c -> take_while is_namechar >>| fun s -> Name s
   | _ -> fail "Name should begin with a letter or underscore"
 ;;
-
-(** Word parser *)
-let word_p = take_while1 (fun c -> not (is_metachar c)) >>| fun s -> Word s
 
 (** Assignment parser *)
 let assignt_p =
