@@ -1,8 +1,9 @@
 (** AST *)
 
-type name = string (* names of variables and functions *)
+type name = Name of string
+(* names of variables and functions; consist of letters, numbers, underscores, and begin with a letter or underscore *)
 
-type word = string * expansion list
+type word = Word of string * expansion list
 (* words which are subject to expansions *)
 
 and expansion =
@@ -14,7 +15,7 @@ and expansion =
   | FilenameExp
   | QuoteRem
 
-type redir = int * redir_op * word
+type redir = Redir of int * redir_op * word
 (* descriptor + operator + word *)
 
 and redir_op =
@@ -25,13 +26,13 @@ and redir_op =
   | Dupl_otp
 (* [n]>&word *)
 
-type script = script_elem list
+type script = Script of script_elem list
 
 and script_elem =
-  | Func of func
+  | FuncDecl of func
   | Pipelines of pipeline_list
 
-and func = name * compound * redir list
+and func = Func of name * compound * redir list
 (* [ function ] name () compound-command [redir] *)
 
 and pipeline_list =
@@ -56,7 +57,7 @@ and compound =
   | ArifmExpr of arithm * redir list
   | SimpleCommand of cmd * redir list
 
-and while_loop = pipeline_list * pipeline_list
+and while_loop = WhileLoop of pipeline_list * pipeline_list
 (* while list; do list; done *)
 
 and for_loop =
@@ -70,14 +71,13 @@ and if_stmt =
   | IfElse of pipeline_list * pipeline_list * pipeline_list
 (* if list; then list; else list; fi *)
 
-and case_stmt = word * case_item list
+and case_stmt = CaseStmt of word * case_item list
 (* case word in [ case_item ] ... esac *)
 
-and case_item = word * word list * pipeline_list
+and case_item = CaseItem of word * word list * pipeline_list
 (* [(] pattern [ | pattern ] ... ) list ;; *)
 
 (* TODO: make clear if this amount of operators is enough *)
-(* Unary minus is planned to be represented as -x = 0 - x *)
 and arithm =
   (* (( ... )) *)
   | Num of int
@@ -93,9 +93,9 @@ and arithm =
   | NEqual of arithm * arithm
 
 and cmd =
-  | Assignment of assignment * assignment list (* assignment [ other_assignments ] *)
-  | Command of assignment list * word * word list
+  | Assignt of assignt * assignt list (* assignment [ other_assignments ] *)
+  | Command of assignt list * word * word list
 (* [ assignments ] command [ parameters ] *)
 
-and assignment = name * word option
+and assignt = AssigntStmt of name * word option
 (* name=[ value ] *)

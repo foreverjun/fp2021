@@ -1,12 +1,12 @@
 open Angstrom
 open Ast
 
-(* ---------- Interface ---------- *)
+(* -------------------- Interface -------------------- *)
 
 let parse = parse_string
 (* TODO: create main parser function here *)
 
-(* ---------- Common parsers ---------- *)
+(* -------------------- Common helper functions -------------------- *)
 
 (** [chainl1 e op] parses one or more occurrences of [e], separated by [op].
 Returns a value obtained by a left associative application of [op] to the values
@@ -16,7 +16,19 @@ let chainl1 e op =
   e >>= fun init -> go init
 ;;
 
-(* ---------- Basic Bash syntax --------- *)
+(** Check if parser p returns result res on string s *)
+let test_p p s res = Result.get_ok (parse_string ~consume:Consume.All p s) = res
+
+(** Check if parser p fails on string s *)
+let fail_p p s =
+  try
+    let _ = Result.get_error (parse_string ~consume:Consume.All p s) in
+    true
+  with
+  | Invalid_argument _ -> false
+;;
+
+(* -------------------- Basic Bash syntax -------------------- *)
 
 let reserved =
   [ "if"
@@ -56,7 +68,7 @@ let blank = take_while is_blank
 let delim = take_while is_cmd_delim
 let metachar = take_while is_metachar
 
-(* ---------- Arithmetic ---------- *)
+(* -------------------- Arithmetic -------------------- *)
 
 (* Operators *)
 let plus = char '+' *> return (fun x y -> Plus (x, y))
@@ -96,14 +108,8 @@ let arithm_p =
 
 (* Tests *)
 
-let test_arithm_p s res =
-  Result.get_ok (parse_string ~consume:Consume.All arithm_p s) = res
-;;
-
-let fail_arithm_p s =
-  let _ = Result.get_error (parse_string ~consume:Consume.All arithm_p s) in
-  true
-;;
+let test_arithm_p = test_p arithm_p
+let fail_arithm_p = fail_p arithm_p
 
 let%test _ = test_arithm_p "100" (Num 100)
 let%test _ = test_arithm_p "   1 +     2" (Plus (Num 1, Num 2))
@@ -127,3 +133,84 @@ let%test _ =
 let%test _ = fail_arithm_p "5 5"
 let%test _ = fail_arithm_p "(()"
 let%test _ = fail_arithm_p "+ -"
+
+(* -------------------- Simple command -------------------- *)
+
+(** Name parser *)
+let name_p =
+  let is_name_beg = function
+    | 'a' .. 'z' | 'A' .. 'Z' | '_' -> true
+    | _ -> false
+  in
+  let is_namechar = function
+    | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true
+    | _ -> false
+  in
+  peek_char
+  >>= function
+  | Some c when is_name_beg c -> take_while is_namechar >>| fun s -> Name s
+  | _ -> fail "Name should begin with a letter or underscore"
+;;
+
+(** Word parser *)
+let word_p = take_while1 (fun c -> not (is_metachar c)) >>| fun s -> Word (s, [])
+
+(** Assignment parser *)
+let assignt_p =
+  let some x = Some x in
+  name_p
+  >>= fun n -> char '=' *> option None (word_p >>| some) >>| fun w -> AssigntStmt (n, w)
+;;
+
+(** Simple command parser *)
+let cmd_p =
+  blank *> many (assignt_p <* blank)
+  >>= fun assignts ->
+  many (word_p <* blank)
+  <* blank
+  >>= fun words ->
+  match assignts, words with
+  | _, hd :: tl -> return (Command (assignts, hd, tl))
+  | hd :: tl, [] -> return (Assignt (hd, tl))
+  | [], [] -> fail "Empty simple command"
+;;
+
+(* Tests *)
+
+let test_cmd_p = test_p cmd_p
+let fail_cmd_p = fail_p cmd_p
+
+let%test _ =
+  test_cmd_p "A=123" (Assignt (AssigntStmt (Name "A", Some (Word ("123", []))), []))
+;;
+
+let%test _ = test_cmd_p "A=" (Assignt (AssigntStmt (Name "A", None), []))
+
+let%test _ =
+  test_cmd_p
+    "    A=123      B=567      _ckd24=df!5[]%$~7        "
+    (Assignt
+       ( AssigntStmt (Name "A", Some (Word ("123", [])))
+       , [ AssigntStmt (Name "B", Some (Word ("567", [])))
+         ; AssigntStmt (Name "_ckd24", Some (Word ("df!5[]%$~7", [])))
+         ] ))
+;;
+
+let%test _ = test_cmd_p "1A=123" (Command ([], Word ("1A=123", []), []))
+
+let%test _ =
+  test_cmd_p
+    "cmd arg1 arg2"
+    (Command ([], Word ("cmd", []), [ Word ("arg1", []); Word ("arg2", []) ]))
+;;
+
+let%test _ =
+  test_cmd_p
+    "    VAR1=123    VAR2=    cmd     arg1     arg2    "
+    (Command
+       ( [ AssigntStmt (Name "VAR1", Some (Word ("123", [])))
+         ; AssigntStmt (Name "VAR2", None)
+         ]
+       , Word ("cmd", [])
+       , [ Word ("arg1", []); Word ("arg2", []) ] ))
+;;
