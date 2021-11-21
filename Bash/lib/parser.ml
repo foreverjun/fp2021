@@ -157,9 +157,13 @@ let word_p = take_while1 (fun c -> not (is_metachar c)) >>| fun s -> Word (s, []
 
 (** Assignment parser *)
 let assignt_p =
-  let some x = Some x in
   name_p
-  >>= fun n -> char '=' *> option None (word_p >>| some) >>| fun w -> AssigntStmt (n, w)
+  >>= fun n ->
+  char '=' *> option None (word_p >>| fun w -> Some w)
+  >>| function
+  | Some (Word (s, _)) ->
+    AssigntStmt (n, Some (Word (s, [ ParameterExp; CommandSubst; ArithmExp; QuoteRem ])))
+  | None -> AssigntStmt (n, None)
 ;;
 
 (** Simple command parser *)
@@ -169,7 +173,22 @@ let cmd_p =
   many (word_p <* blank)
   <* blank
   >>= fun words ->
-  match assignts, words with
+  let e_words =
+    List.map
+      (fun (Word (s, _)) ->
+        Word
+          ( s
+          , [ BraceExp
+            ; ParameterExp
+            ; CommandSubst
+            ; ArithmExp
+            ; WordSpl
+            ; FilenameExp
+            ; QuoteRem
+            ] ))
+      words
+  in
+  match assignts, e_words with
   | _, hd :: tl -> return (Command (assignts, hd, tl))
   | hd :: tl, [] -> return (Assignt (hd, tl))
   | [], [] -> fail "Empty simple command"
@@ -181,7 +200,13 @@ let test_cmd_p = test_p cmd_p
 let fail_cmd_p = fail_p cmd_p
 
 let%test _ =
-  test_cmd_p "A=123" (Assignt (AssigntStmt (Name "A", Some (Word ("123", []))), []))
+  test_cmd_p
+    "A=123"
+    (Assignt
+       ( AssigntStmt
+           ( Name "A"
+           , Some (Word ("123", [ ParameterExp; CommandSubst; ArithmExp; QuoteRem ])) )
+       , [] ))
 ;;
 
 let%test _ = test_cmd_p "A=" (Assignt (AssigntStmt (Name "A", None), []))
@@ -190,27 +215,114 @@ let%test _ =
   test_cmd_p
     "    A=123      B=567      _ckd24=df!5[]%$~7        "
     (Assignt
-       ( AssigntStmt (Name "A", Some (Word ("123", [])))
-       , [ AssigntStmt (Name "B", Some (Word ("567", [])))
-         ; AssigntStmt (Name "_ckd24", Some (Word ("df!5[]%$~7", [])))
+       ( AssigntStmt
+           ( Name "A"
+           , Some (Word ("123", [ ParameterExp; CommandSubst; ArithmExp; QuoteRem ])) )
+       , [ AssigntStmt
+             ( Name "B"
+             , Some (Word ("567", [ ParameterExp; CommandSubst; ArithmExp; QuoteRem ])) )
+         ; AssigntStmt
+             ( Name "_ckd24"
+             , Some
+                 (Word ("df!5[]%$~7", [ ParameterExp; CommandSubst; ArithmExp; QuoteRem ]))
+             )
          ] ))
 ;;
 
-let%test _ = test_cmd_p "1A=123" (Command ([], Word ("1A=123", []), []))
+let%test _ =
+  test_cmd_p
+    "1A=123"
+    (Command
+       ( []
+       , Word
+           ( "1A=123"
+           , [ BraceExp
+             ; ParameterExp
+             ; CommandSubst
+             ; ArithmExp
+             ; WordSpl
+             ; FilenameExp
+             ; QuoteRem
+             ] )
+       , [] ))
+;;
 
 let%test _ =
   test_cmd_p
     "cmd arg1 arg2"
-    (Command ([], Word ("cmd", []), [ Word ("arg1", []); Word ("arg2", []) ]))
+    (Command
+       ( []
+       , Word
+           ( "cmd"
+           , [ BraceExp
+             ; ParameterExp
+             ; CommandSubst
+             ; ArithmExp
+             ; WordSpl
+             ; FilenameExp
+             ; QuoteRem
+             ] )
+       , [ Word
+             ( "arg1"
+             , [ BraceExp
+               ; ParameterExp
+               ; CommandSubst
+               ; ArithmExp
+               ; WordSpl
+               ; FilenameExp
+               ; QuoteRem
+               ] )
+         ; Word
+             ( "arg2"
+             , [ BraceExp
+               ; ParameterExp
+               ; CommandSubst
+               ; ArithmExp
+               ; WordSpl
+               ; FilenameExp
+               ; QuoteRem
+               ] )
+         ] ))
 ;;
 
 let%test _ =
   test_cmd_p
     "    VAR1=123    VAR2=    cmd     arg1     arg2    "
     (Command
-       ( [ AssigntStmt (Name "VAR1", Some (Word ("123", [])))
+       ( [ AssigntStmt
+             ( Name "VAR1"
+             , Some (Word ("123", [ ParameterExp; CommandSubst; ArithmExp; QuoteRem ])) )
          ; AssigntStmt (Name "VAR2", None)
          ]
-       , Word ("cmd", [])
-       , [ Word ("arg1", []); Word ("arg2", []) ] ))
+       , Word
+           ( "cmd"
+           , [ BraceExp
+             ; ParameterExp
+             ; CommandSubst
+             ; ArithmExp
+             ; WordSpl
+             ; FilenameExp
+             ; QuoteRem
+             ] )
+       , [ Word
+             ( "arg1"
+             , [ BraceExp
+               ; ParameterExp
+               ; CommandSubst
+               ; ArithmExp
+               ; WordSpl
+               ; FilenameExp
+               ; QuoteRem
+               ] )
+         ; Word
+             ( "arg2"
+             , [ BraceExp
+               ; ParameterExp
+               ; CommandSubst
+               ; ArithmExp
+               ; WordSpl
+               ; FilenameExp
+               ; QuoteRem
+               ] )
+         ] ))
 ;;

@@ -4,7 +4,7 @@ type name = Name of string
 (* names of variables and functions; consist of letters, numbers, underscores, and begin with a letter or underscore *)
 
 type word = Word of string * expansion list
-(* words which are subject to expansions *)
+(* tokens which are subject to expansions *)
 
 and expansion =
   | BraceExp
@@ -14,6 +14,14 @@ and expansion =
   | WordSpl
   | FilenameExp
   | QuoteRem
+(*
+Redirection: all (error if expands to more than one word)
+For (with list): all
+Case: ParameterExp, CommandSubst, ArithmExp, QuoteRem
+Case item: ParameterExp, CommandSubst, ArithmExp
+Simple command: all
+Assignment: ParameterExp, CommandSubst, ArithmExp, QuoteRem
+*)
 
 type redir = Redir of int * redir_op * word
 (* descriptor + operator + word *)
