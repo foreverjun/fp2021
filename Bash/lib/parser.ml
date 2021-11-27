@@ -173,10 +173,10 @@ let brace_exp =
           | c when is_metachar c -> false
           | _ -> true)
     in
-    peek_char
+    sep_by1 (char ',') str
     >>= function
-    | Some '}' -> fail "Empty strs"
-    | _ -> str >>= fun h -> many (char ',' *> str) >>| fun tl -> h :: tl
+    | [ _ ] -> fail "Single string"
+    | strs -> return strs
   in
   let postfix =
     take_till (function
@@ -188,15 +188,10 @@ let brace_exp =
   char '{' *> (seq <|> strs)
   <* char '}'
   >>= fun body ->
-  option "" postfix
-  >>| fun post ->
-  (* Printf.printf "%s + " pre;
-  List.iter (Printf.printf "%s ") body;
-  Printf.printf "+ %s\n" post; *)
-  List.map (fun s -> pre ^ s ^ post) body
+  option "" postfix >>| fun post -> List.map (fun s -> pre ^ s ^ post) body
 ;;
 
-(* Tests *)
+(* Tests for brace expansion *)
 
 let test_brace_exp = test_p brace_exp
 let fail_brace_exp = fail_p brace_exp
@@ -206,6 +201,7 @@ let%test _ = test_brace_exp "ab{c,d,e}" [ "abc"; "abd"; "abe" ]
 let%test _ = test_brace_exp "{c,d,e}fd" [ "cfd"; "dfd"; "efd" ]
 let%test _ = test_brace_exp "ab{,,}fd" [ "abfd"; "abfd"; "abfd" ]
 let%test _ = fail_brace_exp "ab{}fd"
+let%test _ = fail_brace_exp "ab{c}fd"
 let%test _ = test_brace_exp "1a{1..3}b5" [ "1a1b5"; "1a2b5"; "1a3b5" ]
 let%test _ = test_brace_exp "1a{1..1}b5" [ "1a1b5" ]
 let%test _ = test_brace_exp "1a{1..4..2}b5" [ "1a1b5"; "1a3b5" ]
