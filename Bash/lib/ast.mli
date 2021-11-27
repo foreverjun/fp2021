@@ -8,19 +8,38 @@ type var =
   | Subscript of name * string
 (* name[subscript] *)
 
-type word = Word of string
-(*
-Tokens which are subject to expansions in the folowwing cases:
-Redirection: BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem (error if expands to more than one word)
-For (with list): BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem
-Case: ParameterExp, CommandSubst, ArithmExp, QuoteRem
-Case item: ParameterExp, CommandSubst, ArithmExp
-Simple command: BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem
-Assignment: ParameterExp, CommandSubst, ArithmExp, QuoteRem
-* means that the expansion may produce more than one word
-*)
+type word =
+  (*
+  Tokens which are subject to expansions in the following cases:
+  Redirection: BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem (error if expands to more than one word)
+  For (with list): BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem
+  Case: ParameterExp, CommandSubst, ArithmExp, QuoteRem
+  Case item: ParameterExp, CommandSubst, ArithmExp
+  Simple command: BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem
+  Assignment: ParameterExp, CommandSubst, ArithmExp, QuoteRem
+  * means that the expansion may produce more than one word
+  *)
+  | Word of string (* If none of the expansions below are applicable *)
+  | ParamExp of param_exp (* Parameter expansion *)
+  | CmdSubst of cmd (* $(command) *)
+  | ArithmExp of arithm
+(* $((...)) *)
 
-type redir = Redir of int * redir_op * word
+and param_exp =
+  | Param of var (* $name, ${name} *)
+  | Length of var (* ${#name} *)
+  | Substring of var * int * int (* ${name:offset[:length]} *)
+  | CutMinBeg of var * string (* ${name#word} *)
+  | CutMaxBeg of var * string (* ${name##word} *)
+  | CutMinEnd of var * string (* ${name%word} *)
+  | CutMaxEnd of var * string (* ${name%%word} *)
+  | SubstFirst of var * string * string (* ${name/pattern[/string]} *)
+  | SubstAll of var * string * string (* ${name//pattern[/string]} *)
+  | SubstBeg of var * string * string (* ${name/#pattern[/string]} *)
+  | SubstEnd of var * string * string
+(* ${name/%pattern[/string]} *)
+
+and redir = Redir of int * redir_op * word
 (* descriptor + operator + word *)
 
 and redir_op =
@@ -31,7 +50,7 @@ and redir_op =
   | Dupl_otp
 (* [n]>&word *)
 
-type script = Script of script_elem list
+and script = Script of script_elem list
 
 and script_elem =
   | FuncDecl of func
