@@ -238,7 +238,12 @@ let name_p =
 let assignt_p =
   name_p
   >>= fun n ->
-  char '=' *> option None (word_p >>| fun w -> Some w) >>| fun w -> AssigntStmt (n, w)
+  char '='
+  *> (char '(' *> blank *> sep_by blank word_p
+     <* blank
+     <* char ')'
+     >>| (fun ws -> CompoundAssignt (n, ws))
+     <|> (option None (word_p >>| fun w -> Some w) >>| fun w -> SimpleAssignt (n, w)))
 ;;
 
 (** Simple command parser *)
@@ -259,20 +264,38 @@ let cmd_p =
 let test_cmd_p = test_p cmd_p
 let fail_cmd_p = fail_p cmd_p
 
-let%test _ = test_cmd_p "A=123" (Assignt (AssigntStmt (Name "A", Some (Word "123")), []))
-let%test _ = test_cmd_p "A=" (Assignt (AssigntStmt (Name "A", None), []))
+let%test _ =
+  test_cmd_p "A=123" (Assignt (SimpleAssignt (Name "A", Some (Word "123")), []))
+;;
+
+let%test _ = test_cmd_p "A=" (Assignt (SimpleAssignt (Name "A", None), []))
 
 let%test _ =
   test_cmd_p
     "    A=123      B=567      _ckd24=df!5[]%$~7        "
     (Assignt
-       ( AssigntStmt (Name "A", Some (Word "123"))
-       , [ AssigntStmt (Name "B", Some (Word "567"))
-         ; AssigntStmt (Name "_ckd24", Some (Word "df!5[]%$~7"))
+       ( SimpleAssignt (Name "A", Some (Word "123"))
+       , [ SimpleAssignt (Name "B", Some (Word "567"))
+         ; SimpleAssignt (Name "_ckd24", Some (Word "df!5[]%$~7"))
          ] ))
 ;;
 
 let%test _ = test_cmd_p "1A=123" (Command ([], Word "1A=123", []))
+let%test _ = test_cmd_p "ARR=()" (Assignt (CompoundAssignt (Name "ARR", []), []))
+
+let%test _ =
+  test_cmd_p
+    "ARR=( 1   2  abc    )"
+    (Assignt (CompoundAssignt (Name "ARR", [ Word "1"; Word "2"; Word "abc" ]), []))
+;;
+
+let%test _ =
+  test_cmd_p
+    "ARR1=( 1   2  abc    )        ARR2=(bcd)"
+    (Assignt
+       ( CompoundAssignt (Name "ARR1", [ Word "1"; Word "2"; Word "abc" ])
+       , [ CompoundAssignt (Name "ARR2", [ Word "bcd" ]) ] ))
+;;
 
 let%test _ =
   test_cmd_p "cmd arg1 arg2" (Command ([], Word "cmd", [ Word "arg1"; Word "arg2" ]))
@@ -282,7 +305,9 @@ let%test _ =
   test_cmd_p
     "    VAR1=123    VAR2=    cmd     arg1     arg2    "
     (Command
-       ( [ AssigntStmt (Name "VAR1", Some (Word "123")); AssigntStmt (Name "VAR2", None) ]
+       ( [ SimpleAssignt (Name "VAR1", Some (Word "123"))
+         ; SimpleAssignt (Name "VAR2", None)
+         ]
        , Word "cmd"
        , [ Word "arg1"; Word "arg2" ] ))
 ;;

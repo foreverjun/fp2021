@@ -1,11 +1,16 @@
 (** AST *)
 
 type name = Name of string
-(* names of variables and functions; consist of letters, numbers, underscores, and begin with a letter or underscore *)
+(* Names of variables and functions; consist of letters, numbers, underscores, and begin with a letter or underscore *)
+
+type var =
+  | SimpleVar of name (* name *)
+  | Subscript of name * string
+(* name[subscript] *)
 
 type word = Word of string
 (*
-Tokens which were subject to expansions:
+Tokens which are subject to expansions in the folowwing cases:
 Redirection: BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem (error if expands to more than one word)
 For (with list): BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem
 Case: ParameterExp, CommandSubst, ArithmExp, QuoteRem
@@ -54,7 +59,7 @@ and compound =
   | For of for_loop * redir list
   | If of if_stmt * redir list
   | Case of case_stmt * redir list
-  | ArifmExpr of arithm * redir list
+  | ArithmExpr of arithm * redir list
   | SimpleCommand of cmd * redir list
 
 and while_loop = WhileLoop of pipeline_list * pipeline_list
@@ -97,5 +102,7 @@ and cmd =
   | Command of assignt list * word * word list
 (* [ assignments ] command [ parameters ] *)
 
-and assignt = AssigntStmt of name * word option
-(* name=[ value ] *)
+and assignt =
+  | SimpleAssignt of name * word option (* name=[ value ] *)
+  | CompoundAssignt of name * word list
+(* name=(word1 ... wordn), if no words are provided, the array is not set *)
