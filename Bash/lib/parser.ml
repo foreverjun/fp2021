@@ -3,8 +3,7 @@ open Ast
 
 (* -------------------- Interface -------------------- *)
 
-let parse = parse_string
-(* TODO: create main parser function here *)
+let parse p s = parse_string ~consume:All p s
 
 (* -------------------- Common helper functions -------------------- *)
 
@@ -26,15 +25,32 @@ let int_p =
 ;;
 
 (** Check if parser p returns result res on string s *)
-let test_p p s res = Result.get_ok (parse_string ~consume:Consume.All p s) = res
+let succ_p pp p s exp =
+  match parse p s with
+  | Error _ -> false
+  | Ok res when exp = res -> true
+  | Ok res ->
+    let open Format in
+    let fmt = std_formatter in
+    pp_print_string fmt "\n-------------------- Expected --------------------\n";
+    pp fmt exp;
+    pp_print_string fmt "\n-------------------- Actual --------------------\n";
+    pp fmt res;
+    pp_print_string fmt "\n-------------------- End --------------------\n";
+    false
+;;
 
 (** Check if parser p fails on string s *)
-let fail_p p s =
-  try
-    let _ = Result.get_error (parse_string ~consume:Consume.All p s) in
-    true
-  with
-  | Invalid_argument _ -> false
+let fail_p pp p s =
+  match parse p s with
+  | Error _ -> true
+  | Ok res ->
+    let open Format in
+    let fmt = std_formatter in
+    pp_print_string fmt "\n-------------------- Actual --------------------\n";
+    pp fmt res;
+    pp_print_string fmt "\n-------------------- End --------------------\n";
+    false
 ;;
 
 (* -------------------- Basic Bash syntax -------------------- *)
@@ -108,13 +124,13 @@ let var_p =
   <|> return (SimpleVar n)
 ;;
 
-let test_var_p = test_p var_p
-let fail_var_p = fail_p var_p
+let succ_var_p = succ_p pp_var var_p
+let fail_var_p = fail_p pp_var var_p
 
-let%test _ = test_var_p "VAR" (SimpleVar (Name "VAR"))
-let%test _ = test_var_p "_var" (SimpleVar (Name "_var"))
-let%test _ = test_var_p "ARR[hi there]" (Subscript (Name "ARR", "hi there"))
-let%test _ = test_var_p "ARR[ ]" (Subscript (Name "ARR", " "))
+let%test _ = succ_var_p "VAR" (SimpleVar (Name "VAR"))
+let%test _ = succ_var_p "_var" (SimpleVar (Name "_var"))
+let%test _ = succ_var_p "ARR[hi there]" (Subscript (Name "ARR", "hi there"))
+let%test _ = succ_var_p "ARR[ ]" (Subscript (Name "ARR", " "))
 let%test _ = fail_var_p "321VAR"
 let%test _ = fail_var_p "ARR[]"
 
@@ -151,22 +167,22 @@ let arithm_p =
 
 (* Tests *)
 
-let test_arithm_p = test_p arithm_p
-let fail_arithm_p = fail_p arithm_p
+let succ_arithm_p = succ_p pp_arithm arithm_p
+let fail_arithm_p = fail_p pp_arithm arithm_p
 
-let%test _ = test_arithm_p "100" (Num 100)
-let%test _ = test_arithm_p "   1 +     2" (Plus (Num 1, Num 2))
-let%test _ = test_arithm_p "2 * 3 + 4" (Plus (Mul (Num 2, Num 3), Num 4))
-let%test _ = test_arithm_p "(( (5)) )" (Num 5)
+let%test _ = succ_arithm_p "100" (Num 100)
+let%test _ = succ_arithm_p "   1 +     2" (Plus (Num 1, Num 2))
+let%test _ = succ_arithm_p "2 * 3 + 4" (Plus (Mul (Num 2, Num 3), Num 4))
+let%test _ = succ_arithm_p "(( (5)) )" (Num 5)
 
 let%test _ =
-  test_arithm_p
+  succ_arithm_p
     "(1 < 2) + (3 >= 4) / 10"
     (Plus (Less (Num 1, Num 2), Div (GreaterEq (Num 3, Num 4), Num 10)))
 ;;
 
 let%test _ =
-  test_arithm_p
+  succ_arithm_p
     "11 + 3 * 4 - 1 <= 17 / 9 != 5"
     (NEqual
        ( LessEq (Minus (Plus (Num 11, Mul (Num 3, Num 4)), Num 1), Div (Num 17, Num 9))
@@ -174,7 +190,7 @@ let%test _ =
 ;;
 
 let%test _ =
-  test_arithm_p
+  succ_arithm_p
     "x + y + 1"
     (Plus (Plus (Var (SimpleVar (Name "x")), Var (SimpleVar (Name "y"))), Num 1))
 ;;
@@ -242,24 +258,26 @@ let brace_exp =
 
 (* Tests for brace expansion *)
 
-let test_brace_exp = test_p brace_exp
-let fail_brace_exp = fail_p brace_exp
+let succ_brace_exp = succ_p (Format.pp_print_list Format.pp_print_string) brace_exp
+let fail_brace_exp = fail_p (Format.pp_print_list Format.pp_print_string) brace_exp
 
-let%test _ = test_brace_exp "ab{c,d,e}fd" [ "abcfd"; "abdfd"; "abefd" ]
-let%test _ = test_brace_exp "ab{c,d,e}" [ "abc"; "abd"; "abe" ]
-let%test _ = test_brace_exp "{c,d,e}fd" [ "cfd"; "dfd"; "efd" ]
-let%test _ = test_brace_exp "ab{,,}fd" [ "abfd"; "abfd"; "abfd" ]
+let%test _ = succ_brace_exp "ab{c,d,e}fd" [ "abcfd"; "abdfd"; "abefd" ]
+let%test _ = succ_brace_exp "ab{c,d,e}" [ "abc"; "abd"; "abe" ]
+let%test _ = succ_brace_exp "{c,d,e}fd" [ "cfd"; "dfd"; "efd" ]
+let%test _ = succ_brace_exp "ab{,,}fd" [ "abfd"; "abfd"; "abfd" ]
 let%test _ = fail_brace_exp "ab{}fd"
 let%test _ = fail_brace_exp "ab{c}fd"
-let%test _ = test_brace_exp "1a{1..3}b5" [ "1a1b5"; "1a2b5"; "1a3b5" ]
-let%test _ = test_brace_exp "1a{1..1}b5" [ "1a1b5" ]
-let%test _ = test_brace_exp "1a{1..4..2}b5" [ "1a1b5"; "1a3b5" ]
-let%test _ = test_brace_exp "1a{1..4..-2}b5" [ "1a1b5"; "1a3b5" ]
-let%test _ = test_brace_exp "1a{1..4..0}b5" [ "1a1b5"; "1a2b5"; "1a3b5"; "1a4b5" ]
-let%test _ = test_brace_exp "1a{3..1}b5" [ "1a3b5"; "1a2b5"; "1a1b5" ]
-let%test _ = test_brace_exp "1a{-5..0..2}b5" [ "1a-5b5"; "1a-3b5"; "1a-1b5" ]
-let%test _ = test_brace_exp "1a{d..a..2}b5" [ "1adb5"; "1abb5" ]
+let%test _ = succ_brace_exp "1a{1..3}b5" [ "1a1b5"; "1a2b5"; "1a3b5" ]
+let%test _ = succ_brace_exp "1a{1..1}b5" [ "1a1b5" ]
+let%test _ = succ_brace_exp "1a{1..4..2}b5" [ "1a1b5"; "1a3b5" ]
+let%test _ = succ_brace_exp "1a{1..4..-2}b5" [ "1a1b5"; "1a3b5" ]
+let%test _ = succ_brace_exp "1a{1..4..0}b5" [ "1a1b5"; "1a2b5"; "1a3b5"; "1a4b5" ]
+let%test _ = succ_brace_exp "1a{3..1}b5" [ "1a3b5"; "1a2b5"; "1a1b5" ]
+let%test _ = succ_brace_exp "1a{-5..0..2}b5" [ "1a-5b5"; "1a-3b5"; "1a-1b5" ]
+let%test _ = succ_brace_exp "1a{d..a..2}b5" [ "1adb5"; "1abb5" ]
 let%test _ = fail_brace_exp "1a{d..a..}b5"
+
+(** Parameter expansion *)
 
 (* -------------------- Simple command -------------------- *)
 
@@ -290,19 +308,19 @@ let cmd_p =
 
 (* Tests *)
 
-let test_cmd_p = test_p cmd_p
-let fail_cmd_p = fail_p cmd_p
+let succ_cmd_p = succ_p pp_cmd cmd_p
+let fail_cmd_p = fail_p pp_cmd cmd_p
 
 let%test _ =
-  test_cmd_p
+  succ_cmd_p
     "A=123"
     (Assignt (SimpleAssignt (SimpleVar (Name "A"), Some (Word "123")), []))
 ;;
 
-let%test _ = test_cmd_p "A=" (Assignt (SimpleAssignt (SimpleVar (Name "A"), None), []))
+let%test _ = succ_cmd_p "A=" (Assignt (SimpleAssignt (SimpleVar (Name "A"), None), []))
 
 let%test _ =
-  test_cmd_p
+  succ_cmd_p
     "    A=123      B=567      _ckd24=df!5[]%$~7        "
     (Assignt
        ( SimpleAssignt (SimpleVar (Name "A"), Some (Word "123"))
@@ -311,27 +329,27 @@ let%test _ =
          ] ))
 ;;
 
-let%test _ = test_cmd_p "1A=123" (Command ([], Word "1A=123", []))
+let%test _ = succ_cmd_p "1A=123" (Command ([], Word "1A=123", []))
 
 let%test _ =
-  test_cmd_p
+  succ_cmd_p
     "ARR[3]=123"
     (Assignt (SimpleAssignt (Subscript (Name "ARR", "3"), Some (Word "123")), []))
 ;;
 
 let%test _ =
-  test_cmd_p "ARR=()" (Assignt (CompoundAssignt (SimpleVar (Name "ARR"), []), []))
+  succ_cmd_p "ARR=()" (Assignt (CompoundAssignt (SimpleVar (Name "ARR"), []), []))
 ;;
 
 let%test _ =
-  test_cmd_p
+  succ_cmd_p
     "ARR=( 1   2  abc    )"
     (Assignt
        (CompoundAssignt (SimpleVar (Name "ARR"), [ Word "1"; Word "2"; Word "abc" ]), []))
 ;;
 
 let%test _ =
-  test_cmd_p
+  succ_cmd_p
     "ARR1=( 1   2  abc    )        ARR2=(bcd)"
     (Assignt
        ( CompoundAssignt (SimpleVar (Name "ARR1"), [ Word "1"; Word "2"; Word "abc" ])
@@ -339,11 +357,11 @@ let%test _ =
 ;;
 
 let%test _ =
-  test_cmd_p "cmd arg1 arg2" (Command ([], Word "cmd", [ Word "arg1"; Word "arg2" ]))
+  succ_cmd_p "cmd arg1 arg2" (Command ([], Word "cmd", [ Word "arg1"; Word "arg2" ]))
 ;;
 
 let%test _ =
-  test_cmd_p
+  succ_cmd_p
     "    VAR1=123    VAR2=    cmd     arg1     arg2    "
     (Command
        ( [ SimpleAssignt (SimpleVar (Name "VAR1"), Some (Word "123"))
