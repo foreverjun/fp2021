@@ -3,15 +3,7 @@
       directive directiveList
       | directive 
       
-directive ⮕
-      generalDir 
-      | segmentDef
-      
-generalDir ⮕
-      equDir 
-      | =Dir
-      
-segmentDef ⮕ simpleSegDir ⟦ inSegDirList ⟧ 
+directive ⮕ simpleSegDir ⟦ inSegDirList ⟧ 
 
 simpleSegDir ⮕ SECTION segDir ;;  (изначально мы в секции текста.)
 
@@ -33,6 +25,10 @@ inSegmentDir ⮕
       | dataDir  
       | generalDir
       
+generalDir ⮕
+      equDir 
+      | =Dir
+      
 mnemonic ⮕ Имя инструкции.
 
 instruction ⮕ mnemonic ⟦ exprList ⟧
@@ -42,33 +38,20 @@ exprList ⮕  
       | expr 
       
 expr ⮕
-      expr orOp e01 
+      expr addOp e01 
       | e01   
       
-e01 ⮕
-      e01 AND e02 
-      | e02
+e01 ⮕ 
+      e01 mulOp e02 
+      | e01 shiftOp e02 
+      | e02 
       
-e02 ⮕ 
-      NOT e03 
+e02 ⮕
+      e02 addOp e03 
       | e03
       
-e03 ⮕ 
-      e03 addOp e04 
-      | e04
-      
-e04 ⮕ 
-      e04 mulOp e05 
-      | e04 shiftOp e05 
-      | e05 
-      
-e05 ⮕
-      e05 addOp e06 
-      | e06
-      
-e06 ⮕
-      ( expr )  
-      | ⟦ expr ⟧ 
+e03 ⮕
+      ( expr )
       | string  
       | constant 
       | id  
@@ -85,12 +68,21 @@ stringChar ⮕ 
       quote quote 
       | Любой символ, кроме кавычек.
       
-constant ⮕ digits
+constant ⮕ ⟦ sign ⟧  digits
 
 digits ⮕
-      decdigit hexdigit 
-      | digits decdigit  
-      | digits
+      0X⟦ hexdigits ⟧
+      | decNumber
+
+decNumber ⮕
+      decdigit decNumber
+      | decdigit
+      
+hexNumber ⮕
+      hexdigit hexNumber
+      | decdigit hexNumber
+      | hexdigit
+      | decdigit
       
 dataDir ⮕ dataItem ;;
 
@@ -113,15 +105,8 @@ initValue ⮕
       | string  
       | ?  
       | expr DUP ( scalarInstList ) 
-      | bcdConst
-      
-bcdConst ⮕ ⟦ sign ⟧ decNumber
 
 sign ⮕ + | -
-
-decNumber ⮕
-      decdigit decNumber
-      | decdigit
       
 equDir ⮕ textMacroId EQU expr ;;
 
@@ -152,13 +137,11 @@ id ⮕ 
       
 quote ⮕ " | ' 
 
-shiftOp ⮕ SHR | SHL
+shiftOp ⮕ >> | <<
 
-mulOp ⮕ * | / | MOD
+mulOp ⮕ * | / | %
 
 addOp ⮕ + | -
-
-orOp ⮕ OR | XOR
 
 ;; ⮕ endOfLine | comment 
 
