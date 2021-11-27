@@ -105,6 +105,7 @@ and case_item = CaseItem of word * word list * pipeline_list
 and arithm =
   (* (( ... )) *)
   | Num of int
+  | Var of var
   | Plus of arithm * arithm
   | Minus of arithm * arithm
   | Mul of arithm * arithm
@@ -122,6 +123,6 @@ and cmd =
 (* [ assignments ] command [ parameters ] *)
 
 and assignt =
-  | SimpleAssignt of name * word option (* name=[ value ] *)
-  | CompoundAssignt of name * word list
-(* name=(word1 ... wordn), if no words are provided, the array is not set *)
+  | SimpleAssignt of var * word option (* variable=[ value ] *)
+  | CompoundAssignt of var * word list
+(* variable=(word1 ... wordn), if no words are provided, the array is not set *)

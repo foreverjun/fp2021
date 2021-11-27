@@ -77,6 +77,47 @@ let blank = take_while is_blank
 let delim = take_while is_cmd_delim
 let metachar = take_while is_metachar
 
+(* -------------------- Variables -------------------- *)
+
+(** Name parser *)
+let name_p =
+  let is_name_beg = function
+    | 'a' .. 'z' | 'A' .. 'Z' | '_' -> true
+    | _ -> false
+  in
+  let is_namechar = function
+    | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true
+    | _ -> false
+  in
+  peek_char
+  >>= function
+  | Some c when is_name_beg c -> take_while is_namechar >>| fun s -> Name s
+  | _ -> fail "Name should begin with a letter or underscore"
+;;
+
+(** Variable parser *)
+let var_p =
+  name_p
+  >>= fun n ->
+  char '['
+  *> take_while1 (function
+         | ']' -> false
+         | _ -> true)
+  <* char ']'
+  >>| (fun subscr -> Subscript (n, subscr))
+  <|> return (SimpleVar n)
+;;
+
+let test_var_p = test_p var_p
+let fail_var_p = fail_p var_p
+
+let%test _ = test_var_p "VAR" (SimpleVar (Name "VAR"))
+let%test _ = test_var_p "_var" (SimpleVar (Name "_var"))
+let%test _ = test_var_p "ARR[hi there]" (Subscript (Name "ARR", "hi there"))
+let%test _ = test_var_p "ARR[ ]" (Subscript (Name "ARR", " "))
+let%test _ = fail_var_p "321VAR"
+let%test _ = fail_var_p "ARR[]"
+
 (* -------------------- Arithmetic -------------------- *)
 
 (* Operators *)
@@ -97,8 +138,9 @@ let num = int_p >>| fun n -> Num n
 
 (** Arithmetic parser *)
 let arithm_p =
+  let var = var_p >>| fun v -> Var v in
   fix (fun arithm_p ->
-      let factor = blank *> (parens arithm_p <|> num) <* blank in
+      let factor = blank *> (parens arithm_p <|> num <|> var) <* blank in
       let term = chainl1 factor (blank *> (mul <|> div) <* blank) in
       let expr = chainl1 term (blank *> (plus <|> minus) <* blank) in
       let comp =
@@ -131,9 +173,16 @@ let%test _ =
        , Num 5 ))
 ;;
 
+let%test _ =
+  test_arithm_p
+    "x + y + 1"
+    (Plus (Plus (Var (SimpleVar (Name "x")), Var (SimpleVar (Name "y"))), Num 1))
+;;
+
 let%test _ = fail_arithm_p "5 5"
 let%test _ = fail_arithm_p "(()"
 let%test _ = fail_arithm_p "+ -"
+let%test _ = fail_arithm_p "123ab"
 
 (* -------------------- Word and expansions -------------------- *)
 
@@ -214,32 +263,16 @@ let%test _ = fail_brace_exp "1a{d..a..}b5"
 
 (* -------------------- Simple command -------------------- *)
 
-(** Name parser *)
-let name_p =
-  let is_name_beg = function
-    | 'a' .. 'z' | 'A' .. 'Z' | '_' -> true
-    | _ -> false
-  in
-  let is_namechar = function
-    | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true
-    | _ -> false
-  in
-  peek_char
-  >>= function
-  | Some c when is_name_beg c -> take_while is_namechar >>| fun s -> Name s
-  | _ -> fail "Name should begin with a letter or underscore"
-;;
-
 (** Assignment parser *)
 let assignt_p =
-  name_p
-  >>= fun n ->
+  var_p
+  >>= fun v ->
   char '='
   *> (char '(' *> blank *> sep_by blank word_p
      <* blank
      <* char ')'
-     >>| (fun ws -> CompoundAssignt (n, ws))
-     <|> (option None (word_p >>| fun w -> Some w) >>| fun w -> SimpleAssignt (n, w)))
+     >>| (fun ws -> CompoundAssignt (v, ws))
+     <|> (option None (word_p >>| fun w -> Some w) >>| fun w -> SimpleAssignt (v, w)))
 ;;
 
 (** Simple command parser *)
@@ -261,36 +294,48 @@ let test_cmd_p = test_p cmd_p
 let fail_cmd_p = fail_p cmd_p
 
 let%test _ =
-  test_cmd_p "A=123" (Assignt (SimpleAssignt (Name "A", Some (Word "123")), []))
+  test_cmd_p
+    "A=123"
+    (Assignt (SimpleAssignt (SimpleVar (Name "A"), Some (Word "123")), []))
 ;;
 
-let%test _ = test_cmd_p "A=" (Assignt (SimpleAssignt (Name "A", None), []))
+let%test _ = test_cmd_p "A=" (Assignt (SimpleAssignt (SimpleVar (Name "A"), None), []))
 
 let%test _ =
   test_cmd_p
     "    A=123      B=567      _ckd24=df!5[]%$~7        "
     (Assignt
-       ( SimpleAssignt (Name "A", Some (Word "123"))
-       , [ SimpleAssignt (Name "B", Some (Word "567"))
-         ; SimpleAssignt (Name "_ckd24", Some (Word "df!5[]%$~7"))
+       ( SimpleAssignt (SimpleVar (Name "A"), Some (Word "123"))
+       , [ SimpleAssignt (SimpleVar (Name "B"), Some (Word "567"))
+         ; SimpleAssignt (SimpleVar (Name "_ckd24"), Some (Word "df!5[]%$~7"))
          ] ))
 ;;
 
 let%test _ = test_cmd_p "1A=123" (Command ([], Word "1A=123", []))
-let%test _ = test_cmd_p "ARR=()" (Assignt (CompoundAssignt (Name "ARR", []), []))
+
+let%test _ =
+  test_cmd_p
+    "ARR[3]=123"
+    (Assignt (SimpleAssignt (Subscript (Name "ARR", "3"), Some (Word "123")), []))
+;;
+
+let%test _ =
+  test_cmd_p "ARR=()" (Assignt (CompoundAssignt (SimpleVar (Name "ARR"), []), []))
+;;
 
 let%test _ =
   test_cmd_p
     "ARR=( 1   2  abc    )"
-    (Assignt (CompoundAssignt (Name "ARR", [ Word "1"; Word "2"; Word "abc" ]), []))
+    (Assignt
+       (CompoundAssignt (SimpleVar (Name "ARR"), [ Word "1"; Word "2"; Word "abc" ]), []))
 ;;
 
 let%test _ =
   test_cmd_p
     "ARR1=( 1   2  abc    )        ARR2=(bcd)"
     (Assignt
-       ( CompoundAssignt (Name "ARR1", [ Word "1"; Word "2"; Word "abc" ])
-       , [ CompoundAssignt (Name "ARR2", [ Word "bcd" ]) ] ))
+       ( CompoundAssignt (SimpleVar (Name "ARR1"), [ Word "1"; Word "2"; Word "abc" ])
+       , [ CompoundAssignt (SimpleVar (Name "ARR2"), [ Word "bcd" ]) ] ))
 ;;
 
 let%test _ =
@@ -301,8 +346,8 @@ let%test _ =
   test_cmd_p
     "    VAR1=123    VAR2=    cmd     arg1     arg2    "
     (Command
-       ( [ SimpleAssignt (Name "VAR1", Some (Word "123"))
-         ; SimpleAssignt (Name "VAR2", None)
+       ( [ SimpleAssignt (SimpleVar (Name "VAR1"), Some (Word "123"))
+         ; SimpleAssignt (SimpleVar (Name "VAR2"), None)
          ]
        , Word "cmd"
        , [ Word "arg1"; Word "arg2" ] ))
