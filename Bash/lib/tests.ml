@@ -86,50 +86,7 @@ let%test _ = fail_arithm_p "5 5"
 let%test _ = fail_arithm_p "(()"
 let%test _ = fail_arithm_p "+ -"
 let%test _ = fail_arithm_p "123ab"
-
-(* -------------------- Brace expansion -------------------- *)
-
-let succ_brace_exp = succ_p (Format.pp_print_list Format.pp_print_string) brace_exp
-let fail_brace_exp = fail_p (Format.pp_print_list Format.pp_print_string) brace_exp
-
-let%test _ = succ_brace_exp "ab{c,d,e}fd" [ "abcfd"; "abdfd"; "abefd" ]
-let%test _ = succ_brace_exp "ab{c,d,e}" [ "abc"; "abd"; "abe" ]
-let%test _ = succ_brace_exp "{c,d,e}fd" [ "cfd"; "dfd"; "efd" ]
-let%test _ = succ_brace_exp "ab{,,}fd" [ "abfd"; "abfd"; "abfd" ]
-let%test _ = fail_brace_exp "ab{}fd"
-let%test _ = fail_brace_exp "ab{c}fd"
-let%test _ = succ_brace_exp "1a{1..3}b5" [ "1a1b5"; "1a2b5"; "1a3b5" ]
-let%test _ = succ_brace_exp "1a{1..1}b5" [ "1a1b5" ]
-let%test _ = succ_brace_exp "1a{1..4..2}b5" [ "1a1b5"; "1a3b5" ]
-let%test _ = succ_brace_exp "1a{1..4..-2}b5" [ "1a1b5"; "1a3b5" ]
-let%test _ = succ_brace_exp "1a{1..4..0}b5" [ "1a1b5"; "1a2b5"; "1a3b5"; "1a4b5" ]
-let%test _ = succ_brace_exp "1a{3..1}b5" [ "1a3b5"; "1a2b5"; "1a1b5" ]
-let%test _ = succ_brace_exp "1a{-5..0..2}b5" [ "1a-5b5"; "1a-3b5"; "1a-1b5" ]
-let%test _ = succ_brace_exp "1a{d..a..2}b5" [ "1adb5"; "1abb5" ]
-let%test _ = fail_brace_exp "1a{d..a..}b5"
-
-(* -------------------- Parameter expansion -------------------- *)
-
-let succ_param_exp = succ_p pp_param_exp param_exp_p
-let fail_param_exp = fail_p pp_param_exp param_exp_p
-
-let%test _ = succ_param_exp "$ABC" (Param (SimpleVar (Name "ABC")))
-let%test _ = succ_param_exp "${ABC}" (Param (SimpleVar (Name "ABC")))
-let%test _ = succ_param_exp "${#ABC}" (Length (SimpleVar (Name "ABC")))
-let%test _ = succ_param_exp "${ABC:-20}" (Substring (SimpleVar (Name "ABC"), -20, 0))
-let%test _ = succ_param_exp "${ABC:5:5}" (Substring (SimpleVar (Name "ABC"), 5, 5))
-let%test _ = succ_param_exp "${ABC#*.ml}" (CutMinBeg (SimpleVar (Name "ABC"), "*.ml"))
-let%test _ = succ_param_exp "${ABC##*.ml}" (CutMaxBeg (SimpleVar (Name "ABC"), "*.ml"))
-let%test _ = succ_param_exp "${ABC%*.ml}" (CutMinEnd (SimpleVar (Name "ABC"), "*.ml"))
-let%test _ = succ_param_exp "${ABC%%*.ml}" (CutMaxEnd (SimpleVar (Name "ABC"), "*.ml"))
-let%test _ = succ_param_exp "${ABC/a}" (SubstOne (SimpleVar (Name "ABC"), "a", ""))
-let%test _ = succ_param_exp "${ABC/a/b}" (SubstOne (SimpleVar (Name "ABC"), "a", "b"))
-let%test _ = succ_param_exp "${ABC//a}" (SubstAll (SimpleVar (Name "ABC"), "a", ""))
-let%test _ = succ_param_exp "${ABC//a/b}" (SubstAll (SimpleVar (Name "ABC"), "a", "b"))
-let%test _ = succ_param_exp "${ABC/#a}" (SubstBeg (SimpleVar (Name "ABC"), "a", ""))
-let%test _ = succ_param_exp "${ABC/#a/b}" (SubstBeg (SimpleVar (Name "ABC"), "a", "b"))
-let%test _ = succ_param_exp "${ABC/%a}" (SubstEnd (SimpleVar (Name "ABC"), "a", ""))
-let%test _ = succ_param_exp "${ABC/%a/b}" (SubstEnd (SimpleVar (Name "ABC"), "a", "b"))
+let%test _ = fail_arithm_p "2 + 2 == 4))"
 
 (* -------------------- Simple command -------------------- *)
 
@@ -195,3 +152,80 @@ let%test _ =
        , Word "cmd"
        , [ Word "arg1"; Word "arg2" ] ))
 ;;
+
+(* -------------------- Brace expansion -------------------- *)
+
+let succ_brace_exp = succ_p (Format.pp_print_list Format.pp_print_string) brace_exp
+let fail_brace_exp = fail_p (Format.pp_print_list Format.pp_print_string) brace_exp
+
+let%test _ = succ_brace_exp "ab{c,d,e}fd" [ "abcfd"; "abdfd"; "abefd" ]
+let%test _ = succ_brace_exp "ab{c,d,e}" [ "abc"; "abd"; "abe" ]
+let%test _ = succ_brace_exp "{c,d,e}fd" [ "cfd"; "dfd"; "efd" ]
+let%test _ = succ_brace_exp "ab{,,}fd" [ "abfd"; "abfd"; "abfd" ]
+let%test _ = fail_brace_exp "ab{}fd"
+let%test _ = fail_brace_exp "ab{c}fd"
+let%test _ = succ_brace_exp "1a{1..3}b5" [ "1a1b5"; "1a2b5"; "1a3b5" ]
+let%test _ = succ_brace_exp "1a{1..1}b5" [ "1a1b5" ]
+let%test _ = succ_brace_exp "1a{1..4..2}b5" [ "1a1b5"; "1a3b5" ]
+let%test _ = succ_brace_exp "1a{1..4..-2}b5" [ "1a1b5"; "1a3b5" ]
+let%test _ = succ_brace_exp "1a{1..4..0}b5" [ "1a1b5"; "1a2b5"; "1a3b5"; "1a4b5" ]
+let%test _ = succ_brace_exp "1a{3..1}b5" [ "1a3b5"; "1a2b5"; "1a1b5" ]
+let%test _ = succ_brace_exp "1a{-5..0..2}b5" [ "1a-5b5"; "1a-3b5"; "1a-1b5" ]
+let%test _ = succ_brace_exp "1a{d..a..2}b5" [ "1adb5"; "1abb5" ]
+let%test _ = fail_brace_exp "1a{d..a..}b5"
+
+(* -------------------- Parameter expansion -------------------- *)
+
+let succ_param_exp = succ_p pp_param_exp param_exp_p
+let fail_param_exp = fail_p pp_param_exp param_exp_p
+
+let%test _ = succ_param_exp "$ABC" (Param (SimpleVar (Name "ABC")))
+let%test _ = succ_param_exp "${ABC}" (Param (SimpleVar (Name "ABC")))
+let%test _ = succ_param_exp "${#ABC}" (Length (SimpleVar (Name "ABC")))
+let%test _ = succ_param_exp "${ABC:-20}" (Substring (SimpleVar (Name "ABC"), -20, 0))
+let%test _ = succ_param_exp "${ABC:5:5}" (Substring (SimpleVar (Name "ABC"), 5, 5))
+let%test _ = succ_param_exp "${ABC#*.ml}" (CutMinBeg (SimpleVar (Name "ABC"), "*.ml"))
+let%test _ = succ_param_exp "${ABC##*.ml}" (CutMaxBeg (SimpleVar (Name "ABC"), "*.ml"))
+let%test _ = succ_param_exp "${ABC%*.ml}" (CutMinEnd (SimpleVar (Name "ABC"), "*.ml"))
+let%test _ = succ_param_exp "${ABC%%*.ml}" (CutMaxEnd (SimpleVar (Name "ABC"), "*.ml"))
+let%test _ = succ_param_exp "${ABC/a}" (SubstOne (SimpleVar (Name "ABC"), "a", ""))
+let%test _ = succ_param_exp "${ABC/a/b}" (SubstOne (SimpleVar (Name "ABC"), "a", "b"))
+let%test _ = succ_param_exp "${ABC//a}" (SubstAll (SimpleVar (Name "ABC"), "a", ""))
+let%test _ = succ_param_exp "${ABC//a/b}" (SubstAll (SimpleVar (Name "ABC"), "a", "b"))
+let%test _ = succ_param_exp "${ABC/#a}" (SubstBeg (SimpleVar (Name "ABC"), "a", ""))
+let%test _ = succ_param_exp "${ABC/#a/b}" (SubstBeg (SimpleVar (Name "ABC"), "a", "b"))
+let%test _ = succ_param_exp "${ABC/%a}" (SubstEnd (SimpleVar (Name "ABC"), "a", ""))
+let%test _ = succ_param_exp "${ABC/%a/b}" (SubstEnd (SimpleVar (Name "ABC"), "a", "b"))
+
+(* -------------------- Command substitution -------------------- *)
+
+let succ_cmd_subst = succ_p pp_word cmd_subst
+let fail_cmd_subst = fail_p pp_word cmd_subst
+
+let%test _ =
+  succ_cmd_subst
+    "$(X=2)"
+    (CmdSubst (Assignt (SimpleAssignt (SimpleVar (Name "X"), Some (Word "2")), [])))
+;;
+
+let%test _ =
+  succ_cmd_subst "$(echo hey)" (CmdSubst (Command ([], Word "echo", [ Word "hey" ])))
+;;
+
+let%test _ = fail_cmd_subst "$(echo hey"
+let%test _ = fail_cmd_subst "$X=2)"
+
+(* -------------------- Arithmetic expansion -------------------- *)
+
+let succ_arithm_exp = succ_p pp_word arithm_exp
+let fail_arithm_exp = fail_p pp_word arithm_exp
+
+let%test _ =
+  succ_arithm_exp "$((2 + 2 == 4))" (ArithmExp (Equal (Plus (Num 2, Num 2), Num 4)))
+;;
+
+let%test _ = fail_arithm_exp "$((2 + 2 == 4)"
+let%test _ = fail_arithm_exp "$((2 + 2 == 4"
+let%test _ = fail_arithm_exp "$(2 + 2 == 4))"
+let%test _ = fail_arithm_exp "$2 + 2 == 4))"
+let%test _ = fail_arithm_exp "$(2 + 2 == 4)"

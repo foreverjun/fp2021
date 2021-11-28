@@ -82,7 +82,7 @@ and compound =
   | For of for_loop * redir list
   | If of if_stmt * redir list
   | Case of case_stmt * redir list
-  | ArithmExpr of arithm * redir list
+  | ArithmExpr of arithm * redir list (* (( ... )) *)
   | SimpleCommand of cmd * redir list
 [@@deriving show { with_path = false }]
 
@@ -109,7 +109,6 @@ and case_item =
 [@@deriving show { with_path = false }]
 
 and arithm =
-  (* (( ... )) *)
   | Num of int
   | Var of var
   | Plus of arithm * arithm
