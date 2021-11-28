@@ -1,8 +1,0 @@
-(executable
- (name demoParse)
- (modules demoParse)
- (public_name demoParse)
- (libraries Asm_lib stdio))
-
-(cram
- (deps ./demoNO.exe ./demoAO.exe ./demoParse.exe))
