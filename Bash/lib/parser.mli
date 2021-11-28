@@ -1,1 +1,0 @@
-(** Main entry of parser *)
