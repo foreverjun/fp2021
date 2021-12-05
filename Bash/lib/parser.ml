@@ -126,43 +126,9 @@ let arithm_p =
       chainl1 comp (trim (equal <|> nequal)))
 ;;
 
-(* -------------------- Simple word -------------------- *)
-
-(* Word as string parser *)
-let str_word_p = non_meta >>| fun s -> Word s
-
-(* -------------------- Simple command -------------------- *)
-
-(** Assignment parser *)
-let assignt_p =
-  var_p
-  >>= fun v ->
-  char '='
-  *> (char '(' *> blank *> sep_by blank str_word_p
-     <* blank
-     <* char ')'
-     >>| (fun ws -> CompoundAssignt (v, ws))
-     <|> (option None (str_word_p >>| fun w -> Some w) >>| fun w -> SimpleAssignt (v, w))
-     )
-;;
-
-(** Simple command parser *)
-let cmd_p =
-  blank *> many (assignt_p <* blank)
-  >>= fun assignts ->
-  many (str_word_p <* blank)
-  <* blank
-  >>= fun words ->
-  match assignts, words with
-  | _, hd :: tl -> return (Command (assignts, hd, tl))
-  | hd :: tl, [] -> return (Assignt (hd, tl))
-  | [], [] -> fail "Empty simple command"
-;;
-
 (* -------------------- Expansions -------------------- *)
 
 (* Brace expansion *)
-
 let brace_exp =
   let prefix =
     take_till (function
@@ -257,10 +223,43 @@ let param_exp_p =
          <* char '}'))
 ;;
 
-(* Command substitution *)
-
-let cmd_subst = string "$(" *> cmd_p <* char ')' >>| fun cmd -> CmdSubst cmd
+(* Command substitution -- currently not implemented as it requires mutually recursive parsing *)
+(* let cmd_subst = string "$(" *> cmd_p <* char ')' >>| fun cmd -> CmdSubst cmd *)
 
 (* Arithmetic expansion *)
-
 let arithm_exp = string "$((" *> arithm_p <* string "))" >>| fun a -> ArithmExp a
+
+(* -------------------- Word with expansions -------------------- *)
+
+(** Word parser  *)
+let word_p =
+  let str_word_p = non_meta >>| fun s -> Word s in
+  param_exp_p >>| (fun p -> ParamExp p) <|> arithm_exp <|> str_word_p
+;;
+
+(* -------------------- Simple command -------------------- *)
+
+(** Assignment parser *)
+let assignt_p =
+  var_p
+  >>= fun v ->
+  char '='
+  *> (char '(' *> blank *> sep_by blank word_p
+     <* blank
+     <* char ')'
+     >>| (fun ws -> CompoundAssignt (v, ws))
+     <|> (option None (word_p >>| fun w -> Some w) >>| fun w -> SimpleAssignt (v, w)))
+;;
+
+(** Simple command parser *)
+let cmd_p =
+  blank *> many (assignt_p <* blank)
+  >>= fun assignts ->
+  many (word_p <* blank)
+  <* blank
+  >>= fun words ->
+  match assignts, words with
+  | _, hd :: tl -> return (Command (assignts, hd, tl))
+  | hd :: tl, [] -> return (Assignt (hd, tl))
+  | [], [] -> fail "Empty simple command"
+;;
