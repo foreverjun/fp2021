@@ -90,23 +90,27 @@ let%test _ = fail_arithm_p "2 + 2 == 4))"
 
 (* -------------------- Brace expansion -------------------- *)
 
-let succ_brace_exp = succ_p (Format.pp_print_list Format.pp_print_string) brace_exp
-let fail_brace_exp = fail_p (Format.pp_print_list Format.pp_print_string) brace_exp
+let succ_brace_exp = succ_p pp_word brace_exp
+let fail_brace_exp = fail_p pp_word brace_exp
 
-let%test _ = succ_brace_exp "ab{c,d,e}fd" [ "abcfd"; "abdfd"; "abefd" ]
-let%test _ = succ_brace_exp "ab{c,d,e}" [ "abc"; "abd"; "abe" ]
-let%test _ = succ_brace_exp "{c,d,e}fd" [ "cfd"; "dfd"; "efd" ]
-let%test _ = succ_brace_exp "ab{,,}fd" [ "abfd"; "abfd"; "abfd" ]
+let%test _ = succ_brace_exp "ab{c,d,e}fd" (BraceExp [ "abcfd"; "abdfd"; "abefd" ])
+let%test _ = succ_brace_exp "ab{c,d,e}" (BraceExp [ "abc"; "abd"; "abe" ])
+let%test _ = succ_brace_exp "{c,d,e}fd" (BraceExp [ "cfd"; "dfd"; "efd" ])
+let%test _ = succ_brace_exp "ab{,,}fd" (BraceExp [ "abfd"; "abfd"; "abfd" ])
 let%test _ = fail_brace_exp "ab{}fd"
 let%test _ = fail_brace_exp "ab{c}fd"
-let%test _ = succ_brace_exp "1a{1..3}b5" [ "1a1b5"; "1a2b5"; "1a3b5" ]
-let%test _ = succ_brace_exp "1a{1..1}b5" [ "1a1b5" ]
-let%test _ = succ_brace_exp "1a{1..4..2}b5" [ "1a1b5"; "1a3b5" ]
-let%test _ = succ_brace_exp "1a{1..4..-2}b5" [ "1a1b5"; "1a3b5" ]
-let%test _ = succ_brace_exp "1a{1..4..0}b5" [ "1a1b5"; "1a2b5"; "1a3b5"; "1a4b5" ]
-let%test _ = succ_brace_exp "1a{3..1}b5" [ "1a3b5"; "1a2b5"; "1a1b5" ]
-let%test _ = succ_brace_exp "1a{-5..0..2}b5" [ "1a-5b5"; "1a-3b5"; "1a-1b5" ]
-let%test _ = succ_brace_exp "1a{d..a..2}b5" [ "1adb5"; "1abb5" ]
+let%test _ = succ_brace_exp "1a{1..3}b5" (BraceExp [ "1a1b5"; "1a2b5"; "1a3b5" ])
+let%test _ = succ_brace_exp "1a{1..1}b5" (BraceExp [ "1a1b5" ])
+let%test _ = succ_brace_exp "1a{1..4..2}b5" (BraceExp [ "1a1b5"; "1a3b5" ])
+let%test _ = succ_brace_exp "1a{1..4..-2}b5" (BraceExp [ "1a1b5"; "1a3b5" ])
+
+let%test _ =
+  succ_brace_exp "1a{1..4..0}b5" (BraceExp [ "1a1b5"; "1a2b5"; "1a3b5"; "1a4b5" ])
+;;
+
+let%test _ = succ_brace_exp "1a{3..1}b5" (BraceExp [ "1a3b5"; "1a2b5"; "1a1b5" ])
+let%test _ = succ_brace_exp "1a{-5..0..2}b5" (BraceExp [ "1a-5b5"; "1a-3b5"; "1a-1b5" ])
+let%test _ = succ_brace_exp "1a{d..a..2}b5" (BraceExp [ "1adb5"; "1abb5" ])
 let%test _ = fail_brace_exp "1a{d..a..}b5"
 
 (* -------------------- Parameter expansion -------------------- *)
@@ -134,9 +138,8 @@ let%test _ = succ_param_exp "${ABC/%a/b}" (SubstEnd (SimpleVar (Name "ABC"), "a"
 
 (* -------------------- Command substitution -------------------- *)
 
-(*
-let succ_cmd_subst = succ_p pp_word cmd_subst
-let fail_cmd_subst = fail_p pp_word cmd_subst
+let succ_cmd_subst = succ_p pp_word (inn_cmd_subst ())
+let fail_cmd_subst = fail_p pp_word (inn_cmd_subst ())
 
 let%test _ =
   succ_cmd_subst
@@ -150,7 +153,6 @@ let%test _ =
 
 let%test _ = fail_cmd_subst "$(echo hey"
 let%test _ = fail_cmd_subst "$X=2)"
-*)
 
 (* -------------------- Arithmetic expansion -------------------- *)
 
@@ -173,8 +175,13 @@ let succ_word_p = succ_p pp_word word_p
 let fail_cmd_subst = fail_p pp_word word_p
 
 let%test _ = succ_word_p "something" (Word "something")
+let%test _ = succ_word_p "1{a,b}2" (BraceExp [ "1a2"; "1b2" ])
 let%test _ = succ_word_p "$A" (ParamExp (Param (SimpleVar (Name "A"))))
-(* let%test _ = succ_word_p "$(cmd arg)" (CmdSubst (Command ([], Word "arg", []))) *)
+
+let%test _ =
+  succ_word_p "$(cmd arg)" (CmdSubst (Command ([], Word "cmd", [ Word "arg" ])))
+;;
+
 let%test _ = succ_word_p "$((3 / 1))" (ArithmExp (Div (Num 3, Num 1)))
 
 (* -------------------- Simple command -------------------- *)

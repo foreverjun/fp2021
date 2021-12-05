@@ -21,6 +21,7 @@ type word =
   * means that the expansion may produce more than one word
   *)
   | Word of string (* If none of the expansions below are applicable *)
+  | BraceExp of string list (* Brace expansion *)
   | ParamExp of param_exp (* Parameter expansion *)
   | CmdSubst of cmd (* $(command) *)
   | ArithmExp of arithm (* $((...)) *)

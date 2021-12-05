@@ -126,10 +126,18 @@ let arithm_p =
       chainl1 comp (trim (equal <|> nequal)))
 ;;
 
-(* -------------------- Expansions -------------------- *)
+(* -------------------- Word, expansions and simple command -------------------- *)
+
+(* Inner word parser to use for mutual recursion *)
+let rec inn_word_p () =
+  brace_exp
+  <|> (param_exp_p >>| fun p -> ParamExp p)
+  <|> inn_cmd_subst ()
+  <|> arithm_exp
+  <|> (non_meta >>| fun s -> Word s)
 
 (* Brace expansion *)
-let brace_exp =
+and brace_exp =
   let prefix =
     take_till (function
         | '{' -> true
@@ -175,13 +183,10 @@ let brace_exp =
   char '{' *> (seq <|> strs)
   <* char '}'
   >>= fun body ->
-  option "" postfix >>| fun post -> List.map (fun s -> pre ^ s ^ post) body
-;;
-
-(* Parameter expansion *)
+  option "" postfix >>| fun post -> BraceExp (List.map (fun s -> pre ^ s ^ post) body)
 
 (** Parameter expansion parser *)
-let param_exp_p =
+and param_exp_p =
   let is_end c = is_metachar c || c = '}' in
   let param = var_p >>| fun v -> Param v in
   let length = char '#' *> var_p >>| fun v -> Length v in
@@ -221,41 +226,30 @@ let param_exp_p =
              <|> subst_one
              <|> param)
          <* char '}'))
-;;
 
-(* Command substitution -- currently not implemented as it requires mutually recursive parsing *)
-(* let cmd_subst = string "$(" *> cmd_p <* char ')' >>| fun cmd -> CmdSubst cmd *)
+(* Command substitution *)
+and inn_cmd_subst () = string "$(" *> inn_cmd_p () <* char ')' >>| fun cmd -> CmdSubst cmd
 
 (* Arithmetic expansion *)
-let arithm_exp = string "$((" *> arithm_p <* string "))" >>| fun a -> ArithmExp a
+and arithm_exp = string "$((" *> arithm_p <* string "))" >>| fun a -> ArithmExp a
 
-(* -------------------- Word with expansions -------------------- *)
-
-(** Word parser  *)
-let word_p =
-  let str_word_p = non_meta >>| fun s -> Word s in
-  param_exp_p >>| (fun p -> ParamExp p) <|> arithm_exp <|> str_word_p
-;;
-
-(* -------------------- Simple command -------------------- *)
-
-(** Assignment parser *)
-let assignt_p =
+(* Inner assignment parser to use for mutual recursion *)
+and inn_assignt_p () =
   var_p
   >>= fun v ->
   char '='
-  *> (char '(' *> blank *> sep_by blank word_p
+  *> (char '(' *> blank *> sep_by blank (inn_word_p ())
      <* blank
      <* char ')'
      >>| (fun ws -> CompoundAssignt (v, ws))
-     <|> (option None (word_p >>| fun w -> Some w) >>| fun w -> SimpleAssignt (v, w)))
-;;
+     <|> (option None (inn_word_p () >>| fun w -> Some w)
+         >>| fun w -> SimpleAssignt (v, w)))
 
-(** Simple command parser *)
-let cmd_p =
-  blank *> many (assignt_p <* blank)
+(* Inner simple command parser to use for mutual recursion *)
+and inn_cmd_p () =
+  blank *> many (inn_assignt_p () <* blank)
   >>= fun assignts ->
-  many (word_p <* blank)
+  many (inn_word_p () <* blank)
   <* blank
   >>= fun words ->
   match assignts, words with
@@ -263,3 +257,12 @@ let cmd_p =
   | hd :: tl, [] -> return (Assignt (hd, tl))
   | [], [] -> fail "Empty simple command"
 ;;
+
+(** Word parser *)
+let word_p = inn_word_p ()
+
+(** Assignment parser *)
+let assignt_p = inn_assignt_p ()
+
+(** Simple command parser *)
+let cmd_p = inn_cmd_p ()
