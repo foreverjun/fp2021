@@ -19,7 +19,7 @@ Features in progress (and TODOs):
     - Command lists
     - Compound commands
         - `while`
-        - `for` (two syntactic variants)
+        - `for` (two syntactic variants, without positional parameters)
         - `if`, `case`
         - `((...))`
 - Functions (two syntactic variants; with recursion)

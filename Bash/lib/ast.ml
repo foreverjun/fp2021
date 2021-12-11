@@ -108,7 +108,7 @@ and while_loop =
 [@@deriving show { with_path = false }]
 
 and for_loop =
-  | ListFor of name * word list * pipeline_list (* for name [ [ in [ word ... ] ] ; ] do list ; done *)
+  | ListFor of name * word list * pipeline_list (* for name in [ word ... ]; do list ; done *)
   | ExprFor of arithm * arithm * arithm * pipeline_list (* for (( expr1 ; expr2 ; expr3 )) ; do list ; done *)
 [@@deriving show { with_path = false }]
 
