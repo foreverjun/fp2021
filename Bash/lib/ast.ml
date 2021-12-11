@@ -1,17 +1,49 @@
 (** AST *)
 
-type name =
-  | Name of string (* Names of variables and functions; consist of letters, numbers, underscores, and begin with a letter or underscore *)
-[@@deriving show { with_path = false }]
+(** Name of a variable or a function *)
+type name = Name of string [@@deriving show { with_path = false }]
 
+(** Variable reference *)
 type var =
   | SimpleVar of name (* name *)
   | Subscript of name * string (* name[subscript] *)
 [@@deriving show { with_path = false }]
 
+(** Arithmetical expression *)
+type arithm =
+  | Num of int
+  | Var of var
+  | Plus of arithm * arithm
+  | Minus of arithm * arithm
+  | Mul of arithm * arithm
+  | Div of arithm * arithm
+  | Less of arithm * arithm
+  | Greater of arithm * arithm
+  | LessEq of arithm * arithm
+  | GreaterEq of arithm * arithm
+  | Equal of arithm * arithm
+  | NEqual of arithm * arithm
+[@@deriving show { with_path = false }]
+
+(** Parameter expansion *)
+type param_exp =
+  | Param of var (* $name, ${name} *)
+  | Length of var (* ${#name} *)
+  | Substring of var * int * int (* ${name:offset[:length]} *)
+  | CutMinBeg of var * string (* ${name#pattern} *)
+  | CutMaxBeg of var * string (* ${name##pattern} *)
+  | CutMinEnd of var * string (* ${name%pattern} *)
+  | CutMaxEnd of var * string (* ${name%%pattern} *)
+  | SubstOne of var * string * string (* ${name/pattern[/string]} *)
+  | SubstAll of var * string * string (* ${name//pattern[/string]} *)
+  | SubstBeg of var * string * string (* ${name/#pattern[/string]} *)
+  | SubstEnd of var * string * string (* ${name/%pattern[/string]} *)
+[@@deriving show { with_path = false }]
+
+(** Token which may be subject to expansions *)
 type word =
   (*
-  Tokens which are subject to expansions in the following cases:
+  Cases of expansions:
   Redirection: BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem (error if expands to more than one word)
   For (with list): BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem
   Case: ParameterExp, CommandSubst, ArithmExp, QuoteRem
@@ -27,57 +59,41 @@ type word =
   | ArithmExp of arithm (* $((...)) *)
 [@@deriving show { with_path = false }]
 
-and param_exp =
-  | Param of var (* $name, ${name} *)
-  | Length of var (* ${#name} *)
-  | Substring of var * int * int (* ${name:offset[:length]} *)
-  | CutMinBeg of var * string (* ${name#pattern} *)
-  | CutMaxBeg of var * string (* ${name##pattern} *)
-  | CutMinEnd of var * string (* ${name%pattern} *)
-  | CutMaxEnd of var * string (* ${name%%pattern} *)
-  | SubstOne of var * string * string (* ${name/pattern[/string]} *)
-  | SubstAll of var * string * string (* ${name//pattern[/string]} *)
-  | SubstBeg of var * string * string (* ${name/#pattern[/string]} *)
-  | SubstEnd of var * string * string (* ${name/%pattern[/string]} *)
+(** Simple command *)
+and cmd =
+  | Assignt of assignt * assignt list (* assignment [ other_assignments ] *)
+  | Command of assignt list * word * word list (* [ assignments ] command [ parameters ] *)
 [@@deriving show { with_path = false }]
 
-and redir = Redir of int * redir_op * word (* descriptor + operator + word *)
+(** Assignment *)
+and assignt =
+  | SimpleAssignt of var * word option (* variable=[ value ] *)
+  | CompoundAssignt of var * word list (* variable=(word1 ... wordn), if no words are provided, the array is not set *)
 [@@deriving show { with_path = false }]
 
-and redir_op =
-  | Redir_inp (* [n]<word *)
-  | Redir_otp (* [n]>word *)
-  | Append_otp (* [n]>>word *)
-  | Dupl_inp (* [n]<&word *)
-  | Dupl_otp (* [n]>&word *)
+(** Redirection *)
+type redir =
+  | Redir_inp of int * word (* [n]<word *)
+  | Redir_otp of int * word (* [n]>word *)
+  | Append_otp of int * word (* [n]>>word *)
+  | Dupl_inp of int * word (* [n]<&word *)
+  | Dupl_otp of int * word (* [n]>&word *)
 [@@deriving show { with_path = false }]
 
-and script = Script of script_elem list [@@deriving show { with_path = false }]
-
-and script_elem =
-  | FuncDecl of func
-  | Pipelines of pipeline_list
-[@@deriving show { with_path = false }]
-
-and func =
-  | Func of name * compound * redir list (* [ function ] name () compound-command [redir] *)
-[@@deriving show { with_path = false }]
-
-and pipeline_list =
+(** List of pipelines *)
+type pipeline_list =
   | SinglePipeline of pipeline (* list containing a single pipeline *)
-  | PipelineList of pipeline * pipeline_list_op * pipeline_list (* pipeline1 && pipeline2 or pipeline1 || pipeline2 *)
+  | PipelineAndList of pipeline * pipeline_list (* pipeline && other-pipelines *)
+  | PipelineOrList of pipeline * pipeline_list (* pipeline || other-pipelines *)
 [@@deriving show { with_path = false }]
 
-and pipeline_list_op =
-  | And
-  | Or
-[@@deriving show { with_path = false }]
-
+(** Pipeline *)
 and pipeline =
   | Compound of bool * compound (* [ ! ] command *)
   | Pipeline of bool * compound * pipeline (* [ ! ] command1 | command2 [ | command3 ] *)
 [@@deriving show { with_path = false }]
 
+(** Compound command *)
 and compound =
   | While of while_loop * redir list
   | For of for_loop * redir list
@@ -109,27 +125,15 @@ and case_item =
   | CaseItem of word * word list * pipeline_list (* [(] pattern [ | pattern ] ... ) list ;; *)
 [@@deriving show { with_path = false }]
 
-and arithm =
-  | Num of int
-  | Var of var
-  | Plus of arithm * arithm
-  | Minus of arithm * arithm
-  | Mul of arithm * arithm
-  | Div of arithm * arithm
-  | Less of arithm * arithm
-  | Greater of arithm * arithm
-  | LessEq of arithm * arithm
-  | GreaterEq of arithm * arithm
-  | Equal of arithm * arithm
-  | NEqual of arithm * arithm
+(** Function *)
+type func =
+  | Func of name * compound * redir list (* [ function ] name () compound-command [redir] *)
 [@@deriving show { with_path = false }]
 
-and cmd =
-  | Assignt of assignt * assignt list (* assignment [ other_assignments ] *)
-  | Command of assignt list * word * word list (* [ assignments ] command [ parameters ] *)
-[@@deriving show { with_path = false }]
+(** AST root *)
+type script = Script of script_elem list [@@deriving show { with_path = false }]
 
-and assignt =
-  | SimpleAssignt of var * word option (* variable=[ value ] *)
-  | CompoundAssignt of var * word list (* variable=(word1 ... wordn), if no words are provided, the array is not set *)
+and script_elem =
+  | FuncDecl of func
+  | Pipelines of pipeline_list
 [@@deriving show { with_path = false }]
