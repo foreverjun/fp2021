@@ -89,8 +89,7 @@ type pipeline_list =
 
 (** Pipeline *)
 and pipeline =
-  | Compound of bool * compound (* [ ! ] command *)
-  | Pipeline of bool * compound * pipeline (* [ ! ] command1 | command2 [ | command3 ] *)
+  | Pipeline of bool * compound * compound list (* [ ! ] command1 [ | command2 [ | ... ] ] *)
 [@@deriving show { with_path = false }]
 
 (** Compound command *)
