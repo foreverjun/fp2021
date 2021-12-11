@@ -130,15 +130,13 @@ let arithm_p =
 
 (* -------------------- Word, expansions and simple command -------------------- *)
 
-(*
-Inner word parser to use for mutual recursion
-TODO: pass needed expansions as parameters and parse only the required ones
-*)
-let rec inn_word_p () =
-  brace_exp
-  <|> (param_exp_p >>| fun p -> ParamExp p)
-  <|> inn_cmd_subst ()
-  <|> arithm_exp
+(** Word parser. Parameters determine which expansions may be performed. *)
+let rec word_p ?(brc = true) ?(prm = true) ?(cmd = true) ?(ari = true) () =
+  let skip = fail "This expansion was not requested" in
+  (if brc then brace_exp else skip)
+  <|> (if prm then param_exp_p >>| fun p -> ParamExp p else skip)
+  <|> (if cmd then inn_cmd_subst () else skip)
+  <|> (if ari then arithm_exp else skip)
   <|> (non_meta >>| fun s -> Word s)
 
 (* Brace expansion *)
@@ -240,28 +238,26 @@ and arithm_exp = string "$((" *> arithm_p <* string "))" >>| fun a -> ArithmExp 
 
 (* Inner assignment parser to use for mutual recursion *)
 and inn_assignt_p () =
+  let word = word_p ~brc:false in
   var_p
   >>= fun v ->
   char '='
-  *> (parens (sep_by blank (inn_word_p ()))
+  *> (parens (sep_by blank (word ()))
      >>| (fun ws -> CompoundAssignt (v, ws))
-     <|> (option None (inn_word_p () >>| fun w -> Some w)
-         >>| fun w -> SimpleAssignt (v, w)))
+     <|> (option None (word () >>| fun w -> Some w) >>| fun w -> SimpleAssignt (v, w)))
 
 (* Inner simple command parser to use for mutual recursion *)
 and inn_cmd_p () =
+  let word = word_p in
   sep_by blank (inn_assignt_p ())
   >>= fun assignts ->
-  blank *> sep_by blank (inn_word_p ())
+  blank *> sep_by blank (word ())
   >>= fun words ->
   match assignts, words with
   | _, hd :: tl -> return (Command (assignts, hd, tl))
   | hd :: tl, [] -> return (Assignt (hd, tl))
   | [], [] -> fail "Empty simple command"
 ;;
-
-(** Word parser *)
-let word_p = inn_word_p ()
 
 (** Assignment parser *)
 let assignt_p = inn_assignt_p ()
@@ -273,7 +269,8 @@ let cmd_p = inn_cmd_p ()
 
 (** Redirection parser *)
 let redir_p =
-  let parse_by s d act = option d int_p >>= fun fd -> string s *> word_p >>| act fd in
+  let word = word_p in
+  let parse_by s d act = option d int_p >>= fun fd -> string s *> word () >>| act fd in
   parse_by ">>" 1 (fun fd w -> Append_otp (fd, w))
   <|> parse_by "<&" 0 (fun fd w -> Dupl_inp (fd, w))
   <|> parse_by ">&" 1 (fun fd w -> Dupl_otp (fd, w))
@@ -324,8 +321,9 @@ and inn_while_loop_p () =
 
 (* Inner for loop parser to use for mutual recursion *)
 and inn_for_loop_p () =
+  let word = word_p in
   let list_cnd =
-    name_p >>= fun n -> trim (string "in") *> many word_p >>| fun ws -> n, ws
+    name_p >>= fun n -> trim (string "in") *> many (word ()) >>| fun ws -> n, ws
   in
   let expr_cnd =
     string "((" *> trim arithm_p
@@ -354,14 +352,16 @@ and inn_if_stmt_p () =
 
 (* Inner case statement parser to use for mutual recursion *)
 and inn_case_stmt_p () =
-  string "case" *> trim word_p
+  let word = word_p ~brc:false in
+  string "case" *> trim (word ())
   <* string "in"
   >>= fun w ->
   trim (many (inn_case_item_p ())) <* string "esac" >>| fun cs -> CaseStmt (w, cs)
 
 (* Inner case statement item parser to use for mutual recursion *)
 and inn_case_item_p () =
-  option ' ' (char '(') *> sep_by1 (char '|') (trim word_p)
+  let word = word_p ~brc:false in
+  option ' ' (char '(') *> sep_by1 (char '|') (trim (word ()))
   <* char ')'
   >>= fun ptrns ->
   trim (inn_pipeline_list_p ())

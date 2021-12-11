@@ -171,8 +171,13 @@ let%test _ = fail_arithm_exp "$(2 + 2 == 4)"
 
 (* -------------------- Word with expansions -------------------- *)
 
-let succ_word_p = succ_p pp_word word_p
-let fail_cmd_subst = fail_p pp_word word_p
+let succ_word_p ?(b = true) ?(p = true) ?(c = true) ?(a = true) =
+  succ_p pp_word (word_p ~brc:b ~prm:p ~cmd:c ~ari:a ())
+;;
+
+let fail_word_p ?(b = true) ?(p = true) ?(c = true) ?(a = true) =
+  fail_p pp_word (word_p ~brc:b ~prm:p ~cmd:c ~ari:a ())
+;;
 
 let%test _ = succ_word_p "something" (Word "something")
 let%test _ = succ_word_p "1{a,b}2" (BraceExp [ "1a2"; "1b2" ])

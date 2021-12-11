@@ -42,7 +42,15 @@ type param_exp =
 
 (** Token which may be subject to expansions *)
 type word =
-  (* In contradistinction to Bash, all expansions are performed on every word*)
+  (*
+  Cases of expansions (here * means that the expansion may produce more than one word):
+  Redirection: BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem (error if expands to more than one word)
+  For (with list): BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem
+  Case: ParameterExp, CommandSubst, ArithmExp, QuoteRem
+  Case item: ParameterExp, CommandSubst, ArithmExp
+  Simple command: BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem
+  Assignment: ParameterExp, CommandSubst, ArithmExp, QuoteRem
+  *)
   | BraceExp of string list (* Brace expansion *)
   | ParamExp of param_exp (* Parameter expansion *)
   | CmdSubst of cmd (* $(command) *)
