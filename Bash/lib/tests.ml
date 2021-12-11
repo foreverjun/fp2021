@@ -171,12 +171,12 @@ let%test _ = fail_arithm_exp "$(2 + 2 == 4)"
 
 (* -------------------- Word with expansions -------------------- *)
 
-let succ_word_p ?(b = true) ?(p = true) ?(c = true) ?(a = true) =
-  succ_p pp_word (word_p ~brc:b ~prm:p ~cmd:c ~ari:a ())
+let succ_word_p ?(b = true) ?(p = true) ?(c = true) ?(a = true) ?(f = true) =
+  succ_p pp_word (word_p ~brc:b ~prm:p ~cmd:c ~ari:a ~fln:f ())
 ;;
 
-let fail_word_p ?(b = true) ?(p = true) ?(c = true) ?(a = true) =
-  fail_p pp_word (word_p ~brc:b ~prm:p ~cmd:c ~ari:a ())
+let fail_word_p ?(b = true) ?(p = true) ?(c = true) ?(a = true) ?(f = true) =
+  fail_p pp_word (word_p ~brc:b ~prm:p ~cmd:c ~ari:a ~fln:f ())
 ;;
 
 let%test _ = succ_word_p "something" (Word "something")

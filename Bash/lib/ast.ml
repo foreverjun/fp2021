@@ -55,6 +55,7 @@ type word =
   | ParamExp of param_exp (* Parameter expansion *)
   | CmdSubst of cmd (* $(command) *)
   | ArithmExp of arithm (* $((...)) *)
+  | FilenameExp of string (* a string that includes *, ? or [ *)
   | Word of string (* If none of the expansions above are applicable *)
 [@@deriving show { with_path = false }]
 

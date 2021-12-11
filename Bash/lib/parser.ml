@@ -131,12 +131,13 @@ let arithm_p =
 (* -------------------- Word, expansions and simple command -------------------- *)
 
 (** Word parser. Parameters determine which expansions may be performed. *)
-let rec word_p ?(brc = true) ?(prm = true) ?(cmd = true) ?(ari = true) () =
+let rec word_p ?(brc = true) ?(prm = true) ?(cmd = true) ?(ari = true) ?(fln = true) () =
   let skip = fail "This expansion was not requested" in
   (if brc then brace_exp else skip)
   <|> (if prm then param_exp_p >>| fun p -> ParamExp p else skip)
   <|> (if cmd then inn_cmd_subst () else skip)
   <|> (if ari then arithm_exp else skip)
+  <|> (if fln then filename_exp else skip)
   <|> (non_meta >>| fun s -> Word s)
 
 (* Brace expansion *)
@@ -236,9 +237,19 @@ and inn_cmd_subst () = char '$' *> parens (inn_cmd_p ()) >>| fun cmd -> CmdSubst
 (* Arithmetic expansion *)
 and arithm_exp = string "$((" *> arithm_p <* string "))" >>| fun a -> ArithmExp a
 
+(* Filename expansion *)
+and filename_exp =
+  (* Looking for *, ?, [ in a word *)
+  let regexp = Str.regexp "\\(.\\)*\\(\\*\\|\\?\\|\\[\\)\\(.\\)*" in
+  non_meta
+  >>= fun w ->
+  if Str.string_match regexp w 0
+  then return (FilenameExp w)
+  else fail "Not a filename pattern"
+
 (* Inner assignment parser to use for mutual recursion *)
 and inn_assignt_p () =
-  let word = word_p ~brc:false in
+  let word = word_p ~brc:false ~fln:false in
   var_p
   >>= fun v ->
   char '='
@@ -352,7 +363,7 @@ and inn_if_stmt_p () =
 
 (* Inner case statement parser to use for mutual recursion *)
 and inn_case_stmt_p () =
-  let word = word_p ~brc:false in
+  let word = word_p ~brc:false ~fln:false in
   string "case" *> trim (word ())
   <* string "in"
   >>= fun w ->
@@ -360,7 +371,7 @@ and inn_case_stmt_p () =
 
 (* Inner case statement item parser to use for mutual recursion *)
 and inn_case_item_p () =
-  let word = word_p ~brc:false in
+  let word = word_p ~brc:false ~fln:false in
   option ' ' (char '(') *> sep_by1 (char '|') (trim (word ()))
   <* char ')'
   >>= fun ptrns ->
