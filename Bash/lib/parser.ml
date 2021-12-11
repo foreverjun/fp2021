@@ -266,3 +266,43 @@ let assignt_p = inn_assignt_p ()
 
 (** Simple command parser *)
 let cmd_p = inn_cmd_p ()
+
+(* -------------------- Command list, pipeline and compounds -------------------- *)
+
+(* Inner pipeline list parser to use for mutual recursion *)
+let rec inn_pipeline_list_p () =
+  string "Stub"
+  *> return
+       (SinglePipeline
+          (Compound
+             ( true
+             , SimpleCommand (Assignt (SimpleAssignt (SimpleVar (Name ""), None), []), [])
+             )))
+
+(* Inner pipeline parser to use for mutual recursion *)
+and inn_pipeline_p () =
+  string "Stub"
+  *> return
+       (Compound
+          ( true
+          , SimpleCommand (Assignt (SimpleAssignt (SimpleVar (Name ""), None), []), []) ))
+
+(* Inner compound command parser to use for mutual recursion *)
+and inn_compound_p () =
+  string "Stub"
+  *> return (SimpleCommand (Assignt (SimpleAssignt (SimpleVar (Name ""), None), []), []))
+
+(* Inner while loop parser to use for mutual recursion *)
+and inn_while_loop_p () = None
+
+(* Inner for loop parser to use for mutual recursion *)
+and inn_for_loop_p () = None
+
+(* Inner if statement parser to use for mutual recursion *)
+and inn_if_stmt_p () = None
+
+(* Inner case statement parser to use for mutual recursion *)
+and inn_case_stmt_p () = None
+
+(* Inner case statement item parser to use for mutual recursion *)
+and inn_case_item_p () = None
