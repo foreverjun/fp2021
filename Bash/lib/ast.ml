@@ -113,8 +113,7 @@ and for_loop =
 [@@deriving show { with_path = false }]
 
 and if_stmt =
-  | SimpleIf of pipeline_list * pipeline_list (* if list; then list; fi *)
-  | IfElse of pipeline_list * pipeline_list * pipeline_list (* if list; then list; else list; fi *)
+  | IfStmt of pipeline_list * pipeline_list * pipeline_list option (* if list; then list; [ else list; ] fi *)
 [@@deriving show { with_path = false }]
 
 and case_stmt =
