@@ -64,6 +64,7 @@ let blank = take_while is_blank
 let delim = take_while is_cmd_delim
 let meta = take_while is_metachar
 let non_meta = take_while1 (fun c -> not (is_metachar c))
+let trim p = blank *> p <* blank
 
 (* -------------------- Variables -------------------- *)
 
@@ -117,7 +118,6 @@ let num = int_p >>| fun n -> Num n
 (** Arithmetic parser *)
 let arithm_p =
   let var = var_p >>| fun v -> Var v in
-  let trim p = blank *> p <* blank in
   fix (fun arithm_p ->
       let factor = trim (parens arithm_p <|> num <|> var) in
       let term = chainl1 factor (trim (mul <|> div)) in
@@ -269,40 +269,127 @@ let cmd_p = inn_cmd_p ()
 
 (* -------------------- Command list, pipeline and compounds -------------------- *)
 
+(** Redirection parser *)
+let redir_p =
+  let parse_by s d act = option d int_p >>= fun fd -> string s *> word_p >>| act fd in
+  parse_by ">>" 1 (fun fd w -> Append_otp (fd, w))
+  <|> parse_by "<&" 0 (fun fd w -> Dupl_inp (fd, w))
+  <|> parse_by ">&" 1 (fun fd w -> Dupl_otp (fd, w))
+  <|> parse_by "<" 0 (fun fd w -> Redir_inp (fd, w))
+  <|> parse_by ">" 1 (fun fd w -> Redir_otp (fd, w))
+;;
+
+let ctrl s = list [ delim; blank; string s ]
+
 (* Inner pipeline list parser to use for mutual recursion *)
 let rec inn_pipeline_list_p () =
-  string "Stub"
-  *> return
-       (SinglePipeline
-          (Compound
-             ( true
-             , SimpleCommand (Assignt (SimpleAssignt (SimpleVar (Name ""), None), []), [])
-             )))
+  let parse_tail sep = blank *> string sep *> trim (inn_pipeline_list_p ()) in
+  inn_pipeline_p ()
+  >>= fun hd ->
+  parse_tail "&&"
+  >>| (fun tl -> PipelineAndList (hd, tl))
+  <|> (parse_tail "||" >>| fun tl -> PipelineOrList (hd, tl))
+  <|> return (SinglePipeline hd)
 
 (* Inner pipeline parser to use for mutual recursion *)
 and inn_pipeline_p () =
-  string "Stub"
-  *> return
-       (Compound
-          ( true
-          , SimpleCommand (Assignt (SimpleAssignt (SimpleVar (Name ""), None), []), []) ))
+  option false (char '!' >>| fun _ -> true)
+  >>= fun neg ->
+  sep_by1 (char '|') (trim (inn_compound_p ()))
+  >>| function
+  | hd :: tl -> Pipeline (neg, hd, tl)
+  | _ -> failwith "sep_by1 cannot return an empty list"
 
 (* Inner compound command parser to use for mutual recursion *)
 and inn_compound_p () =
-  string "Stub"
-  *> return (SimpleCommand (Assignt (SimpleAssignt (SimpleVar (Name ""), None), []), []))
+  let parse_by p act = p >>= fun c -> blank *> sep_by blank redir_p >>| act c in
+  parse_by (inn_while_loop_p ()) (fun c rs -> While (c, rs))
+  <|> parse_by (inn_for_loop_p ()) (fun c rs -> For (c, rs))
+  <|> parse_by (inn_if_stmt_p ()) (fun c rs -> If (c, rs))
+  <|> parse_by (inn_case_stmt_p ()) (fun c rs -> Case (c, rs))
+  <|> parse_by
+        (string "((" *> trim arithm_p <* string "))")
+        (fun c rs -> ArithmExpr (c, rs))
+  <|> parse_by cmd_p (fun c rs -> SimpleCommand (c, rs))
 
 (* Inner while loop parser to use for mutual recursion *)
-and inn_while_loop_p () = None
+and inn_while_loop_p () =
+  string "while" *> trim (inn_pipeline_list_p ())
+  >>= fun cnd ->
+  ctrl "do" *> trim (inn_pipeline_list_p ())
+  <* ctrl "done"
+  >>| fun act -> WhileLoop (cnd, act)
 
 (* Inner for loop parser to use for mutual recursion *)
-and inn_for_loop_p () = None
+and inn_for_loop_p () =
+  let list_cnd =
+    name_p >>= fun n -> trim (string "in") *> many word_p >>| fun ws -> n, ws
+  in
+  let expr_cnd =
+    string "((" *> trim arithm_p
+    >>= fun e1 ->
+    char ';' *> trim arithm_p
+    >>= fun e2 -> char ';' *> trim arithm_p <* string "))" >>| fun e3 -> e1, e2, e3
+  in
+  let parse_with p =
+    string "for" *> trim p
+    >>= fun cnd ->
+    ctrl "do" *> trim (inn_pipeline_list_p ()) <* ctrl "done" >>| fun act -> cnd, act
+  in
+  parse_with list_cnd
+  >>| (fun ((n, ws), act) -> ListFor (n, ws, act))
+  <|> (parse_with expr_cnd >>| fun ((e1, e2, e3), act) -> ExprFor (e1, e2, e3, act))
 
 (* Inner if statement parser to use for mutual recursion *)
-and inn_if_stmt_p () = None
+and inn_if_stmt_p () =
+  string "if" *> trim (inn_pipeline_list_p ())
+  >>= fun cnd ->
+  ctrl "then" *> trim (inn_pipeline_list_p ())
+  >>= fun thn ->
+  option None (ctrl "else" *> trim (inn_pipeline_list_p ()) >>| fun els -> Some els)
+  <* ctrl "fi"
+  >>| fun els -> IfStmt (cnd, thn, els)
 
 (* Inner case statement parser to use for mutual recursion *)
-and inn_case_stmt_p () = None
+and inn_case_stmt_p () =
+  string "case" *> trim word_p
+  <* string "in"
+  >>= fun w ->
+  trim (many (inn_case_item_p ())) <* string "esac" >>| fun cs -> CaseStmt (w, cs)
 
 (* Inner case statement item parser to use for mutual recursion *)
-and inn_case_item_p () = None
+and inn_case_item_p () =
+  option ' ' (char '(') *> sep_by1 (char '|') (trim word_p)
+  <* char ')'
+  >>= fun ptrns ->
+  trim (inn_pipeline_list_p ())
+  <* string ";;"
+  >>| fun act ->
+  match ptrns with
+  | hd :: tl -> CaseItem (hd, tl, act)
+  | _ -> failwith "sep_by1 cannot return an empty list"
+;;
+
+(** Pipeline list parser *)
+let pipeline_list_p = inn_pipeline_list_p ()
+
+(** Pipeline parser *)
+let pipeline_p = inn_pipeline_p ()
+
+(** Compound parser *)
+let compound_p = inn_compound_p ()
+
+(** While loop parser *)
+let while_loop_p = inn_while_loop_p ()
+
+(** For loop parser *)
+let for_loop_p = inn_for_loop_p ()
+
+(** If statement parser *)
+let if_stmt_p = inn_if_stmt_p ()
+
+(** Case statement parser *)
+let case_stmt_p = inn_case_stmt_p ()
+
+(** Case item parser *)
+let case_item_p = inn_case_item_p ()
