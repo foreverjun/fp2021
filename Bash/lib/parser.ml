@@ -49,22 +49,25 @@ let is_blank = function
   | _ -> false
 ;;
 
-let is_cmd_delim = function
+let blank = take_while is_blank
+let trim p = blank *> p <* blank
+let parens p = char '(' *> trim p <* char ')'
+
+let is_delim = function
   | '\n' | '\r' | ';' -> true
   | _ -> false
 ;;
 
-let is_metachar = function
+let delim = take_while is_delim
+
+let is_meta = function
   | '|' | '&' | '(' | ')' | '<' | '>' -> true
-  | c when is_blank c || is_cmd_delim c -> true
+  | c when is_blank c || is_delim c -> true
   | _ -> false
 ;;
 
-let blank = take_while is_blank
-let delim = take_while is_cmd_delim
-let meta = take_while is_metachar
-let non_meta = take_while1 (fun c -> not (is_metachar c))
-let trim p = blank *> p <* blank
+let meta = take_while is_meta
+let non_meta = take_while1 (fun c -> not (is_meta c))
 
 (* -------------------- Variables -------------------- *)
 
@@ -112,7 +115,6 @@ let equal = string "==" *> return (fun x y -> Equal (x, y))
 let nequal = string "!=" *> return (fun x y -> NEqual (x, y))
 
 (* Operands *)
-let parens p = char '(' *> blank *> p <* blank <* char ')'
 let num = int_p >>| fun n -> Num n
 
 (** Arithmetic parser *)
@@ -128,7 +130,10 @@ let arithm_p =
 
 (* -------------------- Word, expansions and simple command -------------------- *)
 
-(* Inner word parser to use for mutual recursion *)
+(*
+Inner word parser to use for mutual recursion
+TODO: pass needed expansions as parameters and parse only the required ones
+*)
 let rec inn_word_p () =
   brace_exp
   <|> (param_exp_p >>| fun p -> ParamExp p)
@@ -141,7 +146,7 @@ and brace_exp =
   let prefix =
     take_till (function
         | '{' -> true
-        | c when is_metachar c -> true
+        | c when is_meta c -> true
         | _ -> false)
   in
   let seq =
@@ -165,7 +170,7 @@ and brace_exp =
     let str =
       take_while (function
           | ',' | '}' -> false
-          | c when is_metachar c -> false
+          | c when is_meta c -> false
           | _ -> true)
     in
     sep_by1 (char ',') str
@@ -175,7 +180,7 @@ and brace_exp =
   in
   let postfix =
     take_till (function
-        | c when is_metachar c -> true
+        | c when is_meta c -> true
         | _ -> false)
   in
   option "" prefix
@@ -187,7 +192,7 @@ and brace_exp =
 
 (** Parameter expansion parser *)
 and param_exp_p =
-  let is_end c = is_metachar c || c = '}' in
+  let is_end c = is_meta c || c = '}' in
   let param = var_p >>| fun v -> Param v in
   let length = char '#' *> var_p >>| fun v -> Length v in
   let substring =
@@ -228,7 +233,7 @@ and param_exp_p =
          <* char '}'))
 
 (* Command substitution *)
-and inn_cmd_subst () = string "$(" *> inn_cmd_p () <* char ')' >>| fun cmd -> CmdSubst cmd
+and inn_cmd_subst () = char '$' *> parens (inn_cmd_p ()) >>| fun cmd -> CmdSubst cmd
 
 (* Arithmetic expansion *)
 and arithm_exp = string "$((" *> arithm_p <* string "))" >>| fun a -> ArithmExp a
@@ -238,19 +243,16 @@ and inn_assignt_p () =
   var_p
   >>= fun v ->
   char '='
-  *> (char '(' *> blank *> sep_by blank (inn_word_p ())
-     <* blank
-     <* char ')'
+  *> (parens (sep_by blank (inn_word_p ()))
      >>| (fun ws -> CompoundAssignt (v, ws))
      <|> (option None (inn_word_p () >>| fun w -> Some w)
          >>| fun w -> SimpleAssignt (v, w)))
 
 (* Inner simple command parser to use for mutual recursion *)
 and inn_cmd_p () =
-  blank *> many (inn_assignt_p () <* blank)
+  sep_by blank (inn_assignt_p ())
   >>= fun assignts ->
-  many (inn_word_p () <* blank)
-  <* blank
+  blank *> sep_by blank (inn_word_p ())
   >>= fun words ->
   match assignts, words with
   | _, hd :: tl -> return (Command (assignts, hd, tl))

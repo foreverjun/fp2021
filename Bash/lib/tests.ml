@@ -199,7 +199,7 @@ let%test _ = succ_cmd_p "A=" (Assignt (SimpleAssignt (SimpleVar (Name "A"), None
 
 let%test _ =
   succ_cmd_p
-    "    A=123      B=567      _ckd24=df!5[]%$~7        "
+    "A=123      B=567      _ckd24=df!5[]%$~7"
     (Assignt
        ( SimpleAssignt (SimpleVar (Name "A"), Some (Word "123"))
        , [ SimpleAssignt (SimpleVar (Name "B"), Some (Word "567"))
@@ -240,7 +240,7 @@ let%test _ =
 
 let%test _ =
   succ_cmd_p
-    "    VAR1=123    VAR2=    cmd     arg1     arg2    "
+    "VAR1=123    VAR2=    cmd     arg1     arg2"
     (Command
        ( [ SimpleAssignt (SimpleVar (Name "VAR1"), Some (Word "123"))
          ; SimpleAssignt (SimpleVar (Name "VAR2"), None)
