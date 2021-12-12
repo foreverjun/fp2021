@@ -11,6 +11,7 @@ let chainl1 e op =
   e >>= fun init -> go init
 ;;
 
+(** Integer parser *)
 let int_p =
   option "" (string "+" <|> string "-")
   >>= fun sign ->
@@ -77,10 +78,10 @@ let name_p =
     | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' -> true
     | _ -> false
   in
-  peek_char
+  take_while1 is_namechar
   >>= function
-  | Some c when is_name_beg c -> take_while is_namechar >>| fun s -> Name s
-  | _ -> fail "Name should begin with a letter or underscore"
+  | s when (not (is_name_beg s.[0])) || List.mem s reserved -> fail "Incorrect name"
+  | s -> return (Name s)
 ;;
 
 (** Variable parser *)
@@ -128,13 +129,16 @@ let arithm_p =
 
 (** Word parser. Parameters determine which expansions may be performed. *)
 let rec word_p ?(brc = true) ?(prm = true) ?(cmd = true) ?(ari = true) ?(fln = true) () =
-  let skip = fail "This expansion was not requested" in
+  let skip = fail "Expansion not requested" in
   (if brc then brace_exp else skip)
   <|> (if prm then param_exp_p >>| fun p -> ParamExp p else skip)
   <|> (if cmd then inn_cmd_subst () else skip)
   <|> (if ari then arithm_exp else skip)
   <|> (if fln then filename_exp else skip)
-  <|> (non_meta >>| fun s -> Word s)
+  <|> (non_meta
+      >>= function
+      | s when List.mem s reserved -> fail "Reserved string"
+      | s -> return (Word s))
 
 (* Brace expansion *)
 and brace_exp =
@@ -235,13 +239,14 @@ and arithm_exp = string "$((" *> arithm_p <* string "))" >>| fun a -> ArithmExp 
 
 (* Filename expansion *)
 and filename_exp =
-  (* Looking for *, ?, [ in a word *)
-  let regexp = Str.regexp "\\(.\\)*\\(\\*\\|\\?\\|\\[\\)\\(.\\)*" in
+  let fn_char = function
+    | '*' | '?' | '[' -> true
+    | _ -> false
+  in
   non_meta
-  >>= fun w ->
-  if Str.string_match regexp w 0
-  then return (FilenameExp w)
-  else fail "Not a filename pattern"
+  >>= function
+  | w when String.exists fn_char w -> return (FilenameExp w)
+  | _ -> fail "Not a filename pattern"
 
 (* Inner assignment parser to use for mutual recursion *)
 and inn_assignt_p () =

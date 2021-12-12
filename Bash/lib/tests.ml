@@ -5,9 +5,12 @@ open Parser
 
 (* -------------------- Helper functions -------------------- *)
 
+(** Parse string s with parser p *)
+let test_parse p s = Angstrom.parse_string ~consume:All p s
+
 (** Check if parser p returns result res on string s *)
 let succ_p pp p s exp =
-  match parse p s with
+  match test_parse p s with
   | Error e ->
     print_string ("Error: " ^ e ^ "\n");
     false
@@ -27,7 +30,7 @@ let succ_p pp p s exp =
 
 (** Check if parser p fails on string s *)
 let fail_p pp p s =
-  match parse p s with
+  match test_parse p s with
   | Error _ -> true
   | Ok res ->
     let open Format in
