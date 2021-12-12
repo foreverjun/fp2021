@@ -40,7 +40,7 @@ type param_exp =
   | SubstEnd of var * string * string (* ${name/%pattern[/string]} *)
 [@@deriving show { with_path = false }]
 
-(** Token which may be subject to expansions *)
+(** Token that may be subject to expansions *)
 type word =
   (*
   Cases of expansions (here * means that the expansion may produce more than one word):
@@ -102,23 +102,28 @@ and compound =
   | SimpleCommand of cmd * redir list
 [@@deriving show { with_path = false }]
 
+(** While loop *)
 and while_loop =
   | WhileLoop of pipeline_list * pipeline_list (* while list; do list; done *)
 [@@deriving show { with_path = false }]
 
+(** For loop in two forms *)
 and for_loop =
   | ListFor of name * word list * pipeline_list (* for name in [ word ... ]; do list ; done *)
   | ExprFor of arithm * arithm * arithm * pipeline_list (* for (( expr1 ; expr2 ; expr3 )) ; do list ; done *)
 [@@deriving show { with_path = false }]
 
+(** If statement *)
 and if_stmt =
   | IfStmt of pipeline_list * pipeline_list * pipeline_list option (* if list; then list; [ else list; ] fi *)
 [@@deriving show { with_path = false }]
 
+(** Case statement *)
 and case_stmt =
   | CaseStmt of word * case_item list (* case word in [ case_item ] ... esac *)
 [@@deriving show { with_path = false }]
 
+(** An element of a case statement *)
 and case_item =
   | CaseItem of word * word list * pipeline_list (* [(] pattern [ | pattern ] ... ) list ;; *)
 [@@deriving show { with_path = false }]
@@ -131,6 +136,7 @@ type func =
 (** AST root *)
 type script = Script of script_elem list [@@deriving show { with_path = false }]
 
+(** A function declaration or a pipeline list *)
 and script_elem =
   | FuncDecl of func
   | Pipelines of pipeline_list
