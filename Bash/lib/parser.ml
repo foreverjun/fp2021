@@ -1,10 +1,6 @@
 open Angstrom
 open Ast
 
-(* -------------------- Interface -------------------- *)
-
-let parse p s = parse_string ~consume:All p s
-
 (* -------------------- Common helper functions -------------------- *)
 
 (** [chainl1 e op] parses one or more occurrences of [e], separated by [op].
@@ -416,3 +412,21 @@ let func_p =
   >>= fun n ->
   trim compound_p >>= fun body -> sep_by blank redir_p >>| fun rs -> Func (n, body, rs)
 ;;
+
+(* -------------------- Script -------------------- *)
+
+(** Script element parser *)
+let script_elem_p =
+  func_p >>| (fun f -> FuncDecl f) <|> (pipeline_list_p >>| fun p -> Pipelines p)
+;;
+
+(** Bash script parser *)
+let script_p =
+  let gap = many (blank <|> delim) in
+  gap *> sep_by gap script_elem_p <* gap >>| fun es -> Script es
+;;
+
+(* -------------------- Main parser funstion-------------------- *)
+
+(** Parses the given string as a Bash script *)
+let parse = parse_string ~consume:All script_p
