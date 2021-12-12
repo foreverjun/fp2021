@@ -24,7 +24,7 @@ let succ_p pp p s exp =
     pp fmt exp;
     pp_print_string fmt "\n-------------------- Actual --------------------\n";
     pp fmt res;
-    pp_print_string fmt "\n-------------------- End --------------------\n";
+    pp_print_string fmt "\n----------------------------------------\n";
     false
 ;;
 
@@ -39,7 +39,7 @@ let fail_p pp p s =
     pp_print_string fmt (s ^ "\n");
     pp_print_string fmt "\n-------------------- Actual --------------------\n";
     pp fmt res;
-    pp_print_string fmt "\n-------------------- End --------------------\n";
+    pp_print_string fmt "\n----------------------------------------\n";
     false
 ;;
 
@@ -272,3 +272,301 @@ let%test _ =
        , Word "cmd"
        , [ Word "arg1"; Word "arg2" ] ))
 ;;
+
+(* -------------------- Redirection -------------------- *)
+
+let succ_redir_p = succ_p pp_redir redir_p
+let fail_redir_p = fail_p pp_redir redir_p
+
+let%test _ = succ_redir_p "< abc" (Redir_inp (0, Word "abc"))
+let%test _ = succ_redir_p "> abc" (Redir_otp (1, Word "abc"))
+let%test _ = succ_redir_p ">> abc" (Append_otp (1, Word "abc"))
+let%test _ = succ_redir_p "<& abc" (Dupl_inp (0, Word "abc"))
+let%test _ = succ_redir_p ">& abc" (Dupl_otp (1, Word "abc"))
+let%test _ = succ_redir_p "12<abc" (Redir_inp (12, Word "abc"))
+let%test _ = succ_redir_p "12< abc" (Redir_inp (12, Word "abc"))
+let%test _ = fail_redir_p "12 < abc"
+let%test _ = succ_redir_p "< $a" (Redir_inp (0, ParamExp (Param (SimpleVar (Name "a")))))
+
+(* -------------------- Pipeline list -------------------- *)
+
+let succ_pipeline_list_p = succ_p pp_pipeline_list pipeline_list_p
+let fail_pipeline_list_p = fail_p pp_pipeline_list pipeline_list_p
+
+(* -------------------- Pipeline -------------------- *)
+
+let succ_pipeline_p = succ_p pp_pipeline pipeline_p
+let fail_pipeline_p = fail_p pp_pipeline pipeline_p
+
+(* -------------------- Compound -------------------- *)
+
+let succ_compound_p = succ_p pp_compound compound_p
+let fail_compound_p = fail_p pp_compound compound_p
+
+(* -------------------- While -------------------- *)
+
+let succ_while_loop_p = succ_p pp_while_loop while_loop_p
+let fail_while_loop_p = fail_p pp_while_loop while_loop_p
+
+let%test _ =
+  succ_while_loop_p
+    "while a; do echo a; done"
+    (WhileLoop
+       ( SinglePipeline
+           (Pipeline (false, SimpleCommand (Command ([], Word "a", []), []), []))
+       , SinglePipeline
+           (Pipeline
+              (false, SimpleCommand (Command ([], Word "echo", [ Word "a" ]), []), [])) ))
+;;
+
+let%test _ =
+  succ_while_loop_p
+    "while a \n do echo a \n done"
+    (WhileLoop
+       ( SinglePipeline
+           (Pipeline (false, SimpleCommand (Command ([], Word "a", []), []), []))
+       , SinglePipeline
+           (Pipeline
+              (false, SimpleCommand (Command ([], Word "echo", [ Word "a" ]), []), [])) ))
+;;
+
+let%test _ =
+  succ_while_loop_p
+    "while a ;\n\n do echo a; done"
+    (WhileLoop
+       ( SinglePipeline
+           (Pipeline (false, SimpleCommand (Command ([], Word "a", []), []), []))
+       , SinglePipeline
+           (Pipeline
+              (false, SimpleCommand (Command ([], Word "echo", [ Word "a" ]), []), [])) ))
+;;
+
+let%test _ = fail_while_loop_p "while a\n; do echo a; done"
+let%test _ = fail_while_loop_p "while a; do echo a\n; done"
+let%test _ = fail_while_loop_p "while a do echo a done"
+let%test _ = fail_while_loop_p "while a; do echo a;"
+let%test _ = fail_while_loop_p "while a; do echo a"
+let%test _ = fail_while_loop_p "while a; do echo a done"
+let%test _ = fail_while_loop_p "while a do echo a; done"
+let%test _ = fail_while_loop_p "while a; echo a; done"
+
+(* -------------------- For -------------------- *)
+
+let succ_for_loop_p = succ_p pp_for_loop for_loop_p
+let fail_for_loop_p = fail_p pp_for_loop for_loop_p
+
+let%test _ =
+  succ_for_loop_p
+    "for i in 1 2 34; do meow; done"
+    (ListFor
+       ( Name "i"
+       , [ Word "1"; Word "2"; Word "34" ]
+       , SinglePipeline
+           (Pipeline (false, SimpleCommand (Command ([], Word "meow", []), []), [])) ))
+;;
+
+let%test _ =
+  succ_for_loop_p
+    "for i in 1 2 34;\n\n do meow;\n done"
+    (ListFor
+       ( Name "i"
+       , [ Word "1"; Word "2"; Word "34" ]
+       , SinglePipeline
+           (Pipeline (false, SimpleCommand (Command ([], Word "meow", []), []), [])) ))
+;;
+
+let%test _ =
+  succ_for_loop_p
+    "for i in; do meow; done"
+    (ListFor
+       ( Name "i"
+       , []
+       , SinglePipeline
+           (Pipeline (false, SimpleCommand (Command ([], Word "meow", []), []), [])) ))
+;;
+
+let%test _ = fail_for_loop_p "for  in 1 2 3; do meow; done"
+let%test _ = fail_for_loop_p "for i in 1 2 3\n; do meow\n; done"
+let%test _ = fail_for_loop_p "for i in 1 2 3; do meow done"
+let%test _ = fail_for_loop_p "for i in 1 2 3; do meow;"
+let%test _ = fail_for_loop_p "for i in 1 2 3 do meow; done"
+let%test _ = fail_for_loop_p "for i in 1 2 3; meow; done"
+
+let%test _ =
+  succ_for_loop_p
+    "for ((0; 0; 1 + 1)); do meow; done"
+    (ExprFor
+       ( Num 0
+       , Num 0
+       , Plus (Num 1, Num 1)
+       , SinglePipeline
+           (Pipeline (false, SimpleCommand (Command ([], Word "meow", []), []), [])) ))
+;;
+
+let%test _ =
+  succ_for_loop_p
+    "for (( 0; 0; 1 + 1 )) ; do meow; done"
+    (ExprFor
+       ( Num 0
+       , Num 0
+       , Plus (Num 1, Num 1)
+       , SinglePipeline
+           (Pipeline (false, SimpleCommand (Command ([], Word "meow", []), []), [])) ))
+;;
+
+let%test _ =
+  succ_for_loop_p
+    "for ((;;)) ; do meow; done"
+    (ExprFor
+       ( Num 1
+       , Num 1
+       , Num 1
+       , SinglePipeline
+           (Pipeline (false, SimpleCommand (Command ([], Word "meow", []), []), [])) ))
+;;
+
+let%test _ = fail_for_loop_p "for (0; 0; 1 + 1)); do meow; done"
+let%test _ = fail_for_loop_p "for ((0; 0; 1 + 1); do meow; done"
+let%test _ = fail_for_loop_p "for ((0; 0; 1 + 1)) do meow; done"
+let%test _ = fail_for_loop_p "for ((0; 1 + 1)); do meow; done"
+let%test _ = fail_for_loop_p "for ((;;0; 1 + 1)); do meow; done"
+
+(* -------------------- If -------------------- *)
+
+let succ_if_stmt_p = succ_p pp_if_stmt if_stmt_p
+let fail_if_stmt_p = fail_p pp_if_stmt if_stmt_p
+
+let%test _ =
+  succ_if_stmt_p
+    "if ((1)); then echo 1; else echo 0; fi"
+    (IfStmt
+       ( SinglePipeline (Pipeline (false, ArithmExpr (Num 1, []), []))
+       , SinglePipeline
+           (Pipeline
+              (false, SimpleCommand (Command ([], Word "echo", [ Word "1" ]), []), []))
+       , Some
+           (SinglePipeline
+              (Pipeline
+                 (false, SimpleCommand (Command ([], Word "echo", [ Word "0" ]), []), [])))
+       ))
+;;
+
+let%test _ =
+  succ_if_stmt_p
+    "if ((1)); then echo 1; fi"
+    (IfStmt
+       ( SinglePipeline (Pipeline (false, ArithmExpr (Num 1, []), []))
+       , SinglePipeline
+           (Pipeline
+              (false, SimpleCommand (Command ([], Word "echo", [ Word "1" ]), []), []))
+       , None ))
+;;
+
+let%test _ =
+  succ_if_stmt_p
+    "if ((1)) ;\n\n then echo 1;\n fi"
+    (IfStmt
+       ( SinglePipeline (Pipeline (false, ArithmExpr (Num 1, []), []))
+       , SinglePipeline
+           (Pipeline
+              (false, SimpleCommand (Command ([], Word "echo", [ Word "1" ]), []), []))
+       , None ))
+;;
+
+let%test _ = fail_if_stmt_p "if ; then echo 1; else echo 0; fi"
+let%test _ = fail_if_stmt_p "if ((1)); then ; else echo 0; fi"
+let%test _ = fail_if_stmt_p "if ((1)); then echo 1; else ; fi"
+let%test _ = fail_if_stmt_p "if ((1)); echo 1; else echo 0; fi"
+let%test _ = fail_if_stmt_p "if ((1)); then echo 1; echo 0; fi"
+let%test _ = fail_if_stmt_p "if ((1)); then echo 1; else echo 0"
+
+(* -------------------- Case -------------------- *)
+
+let succ_case_stmt_p = succ_p pp_case_stmt case_stmt_p
+let fail_case_stmt_p = fail_p pp_case_stmt case_stmt_p
+
+let%test _ =
+  succ_case_stmt_p
+    "case abc in ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac"
+    (CaseStmt
+       ( Word "abc"
+       , [ CaseItem
+             ( Word "*.txt"
+             , [ Word "abc" ]
+             , SinglePipeline
+                 (Pipeline (false, SimpleCommand (Command ([], Word "meow", []), []), []))
+             )
+         ; CaseItem
+             ( Word "*.ml"
+             , []
+             , SinglePipeline
+                 (Pipeline (false, SimpleCommand (Command ([], Word "woof", []), []), []))
+             )
+         ] ))
+;;
+
+let%test _ =
+  succ_case_stmt_p
+    "case abc in\n\n( *.txt | abc ) meow ;;\n( *.ml ) woof ;;\nesac"
+    (CaseStmt
+       ( Word "abc"
+       , [ CaseItem
+             ( Word "*.txt"
+             , [ Word "abc" ]
+             , SinglePipeline
+                 (Pipeline (false, SimpleCommand (Command ([], Word "meow", []), []), []))
+             )
+         ; CaseItem
+             ( Word "*.ml"
+             , []
+             , SinglePipeline
+                 (Pipeline (false, SimpleCommand (Command ([], Word "woof", []), []), []))
+             )
+         ] ))
+;;
+
+let%test _ = succ_case_stmt_p "case abc in esac" (CaseStmt (Word "abc", []))
+let%test _ = fail_case_stmt_p "case in ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac"
+let%test _ = fail_case_stmt_p "case abc ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac"
+let%test _ = fail_case_stmt_p "case abc in ( *.txt | abc ) meow ;; ( *.ml ) woof ;;"
+
+(* -------------------- Case item-------------------- *)
+
+let succ_case_item_p = succ_p pp_case_item case_item_p
+let fail_case_item_p = fail_p pp_case_item case_item_p
+
+let%test _ =
+  succ_case_item_p
+    "( *.txt | abc ) meow ;;"
+    (CaseItem
+       ( Word "*.txt"
+       , [ Word "abc" ]
+       , SinglePipeline
+           (Pipeline (false, SimpleCommand (Command ([], Word "meow", []), []), [])) ))
+;;
+
+let%test _ =
+  succ_case_item_p
+    "*.txt|abc)meow;;"
+    (CaseItem
+       ( Word "*.txt"
+       , [ Word "abc" ]
+       , SinglePipeline
+           (Pipeline (false, SimpleCommand (Command ([], Word "meow", []), []), [])) ))
+;;
+
+let%test _ =
+  succ_case_item_p
+    "*.txt)echo 1;;"
+    (CaseItem
+       ( Word "*.txt"
+       , []
+       , SinglePipeline
+           (Pipeline
+              (false, SimpleCommand (Command ([], Word "echo", [ Word "1" ]), []), [])) ))
+;;
+
+let%test _ = fail_case_item_p "( *.txt | abc meow ;;"
+let%test _ = fail_case_item_p ") meow ;;"
+let%test _ = fail_case_item_p "( *.txt | abc ) meow ;"
+let%test _ = fail_case_item_p "( *.txt | abc ) ;;"

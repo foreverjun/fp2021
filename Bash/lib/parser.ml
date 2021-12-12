@@ -51,14 +51,14 @@ let trim p = blank *> p <* blank
 let parens p = char '(' *> trim p <* char ')'
 
 let is_delim = function
-  | '\n' | '\r' | ';' -> true
+  | '\n' | '\r' -> true
   | _ -> false
 ;;
 
-let delim = take_while is_delim
+let delim1 = take_while1 is_delim
 
 let is_meta = function
-  | '|' | '&' | '(' | ')' | '<' | '>' -> true
+  | '|' | '&' | ';' | '(' | ')' | '<' | '>' -> true
   | c when is_blank c || is_delim c -> true
   | _ -> false
 ;;
@@ -282,7 +282,9 @@ let cmd_p = inn_cmd_p ()
 (** Redirection parser *)
 let redir_p =
   let word = word_p in
-  let parse_by s d act = option d int_p >>= fun fd -> string s *> word () >>| act fd in
+  let parse_by s d act =
+    option d int_p >>= fun fd -> string s *> blank *> word () >>| act fd
+  in
   parse_by ">>" 1 (fun fd w -> Append_otp (fd, w))
   <|> parse_by "<&" 0 (fun fd w -> Dupl_inp (fd, w))
   <|> parse_by ">&" 1 (fun fd w -> Dupl_otp (fd, w))
@@ -290,7 +292,9 @@ let redir_p =
   <|> parse_by ">" 1 (fun fd w -> Redir_otp (fd, w))
 ;;
 
-let ctrl s = list [ delim; blank; string s ]
+let ctrl s =
+  (string ";" <|> delim1) *> skip_while (fun c -> is_delim c || is_blank c) *> string s
+;;
 
 (* Inner pipeline list parser to use for mutual recursion *)
 let rec inn_pipeline_list_p () =
@@ -335,13 +339,14 @@ and inn_while_loop_p () =
 and inn_for_loop_p () =
   let word = word_p in
   let list_cnd =
-    name_p >>= fun n -> trim (string "in") *> many (word ()) >>| fun ws -> n, ws
+    name_p >>= fun n -> trim (string "in") *> sep_by blank (word ()) >>| fun ws -> n, ws
   in
   let expr_cnd =
-    string "((" *> trim arithm_p
+    let expr = trim (option (Num 1) arithm_p) in
+    string "((" *> expr
     >>= fun e1 ->
-    char ';' *> trim arithm_p
-    >>= fun e2 -> char ';' *> trim arithm_p <* string "))" >>| fun e3 -> e1, e2, e3
+    char ';' *> expr
+    >>= fun e2 -> char ';' *> expr <* string "))" >>| fun e3 -> e1, e2, e3
   in
   let parse_with p =
     string "for" *> trim p
@@ -365,10 +370,14 @@ and inn_if_stmt_p () =
 (* Inner case statement parser to use for mutual recursion *)
 and inn_case_stmt_p () =
   let word = word_p ~brc:false ~fln:false in
-  string "case" *> trim (word ())
+  let trimd p = trim (many delim1 *> p <* many delim1) in
+  string "case" *> trimd (word ())
   <* string "in"
   >>= fun w ->
-  trim (many (inn_case_item_p ())) <* string "esac" >>| fun cs -> CaseStmt (w, cs)
+  many1 (trimd (inn_case_item_p ()))
+  <|> trimd (return [])
+  <* string "esac"
+  >>| fun cs -> CaseStmt (w, cs)
 
 (* Inner case statement item parser to use for mutual recursion *)
 and inn_case_item_p () =
@@ -427,11 +436,12 @@ let script_elem_p =
 
 (** Bash script parser *)
 let script_p =
-  let gap = many (blank <|> delim) in
-  gap *> sep_by gap script_elem_p <* gap >>| fun es -> Script es
+  let gap = many (blank <|> delim1) in
+  let gap1 = blank *> delim1 *> gap in
+  gap *> sep_by gap1 script_elem_p <* gap >>| fun es -> Script es
 ;;
 
-(* -------------------- Main parser funstion-------------------- *)
+(* -------------------- Main parser funstion -------------------- *)
 
 (** Parses the given string as a Bash script *)
 let parse = parse_string ~consume:All script_p
