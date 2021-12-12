@@ -172,6 +172,18 @@ let%test _ = fail_arithm_exp "$(2 + 2 == 4))"
 let%test _ = fail_arithm_exp "$2 + 2 == 4))"
 let%test _ = fail_arithm_exp "$(2 + 2 == 4)"
 
+(* -------------------- Filename expansion -------------------- *)
+
+let succ_filename_exp = succ_p pp_word filename_exp
+let fail_filename_exp = fail_p pp_word filename_exp
+
+let%test _ = succ_filename_exp "?.ml" (FilenameExp "?.ml")
+let%test _ = succ_filename_exp "*.txt" (FilenameExp "*.txt")
+let%test _ = succ_filename_exp "[" (FilenameExp "[")
+let%test _ = succ_filename_exp "[?*" (FilenameExp "[?*")
+let%test _ = fail_filename_exp "]"
+let%test _ = fail_filename_exp "abc.ml"
+
 (* -------------------- Word with expansions -------------------- *)
 
 let succ_word_p ?(b = true) ?(p = true) ?(c = true) ?(a = true) ?(f = true) =
@@ -191,6 +203,10 @@ let%test _ =
 ;;
 
 let%test _ = succ_word_p "$((3 / 1))" (ArithmExp (Div (Num 3, Num 1)))
+let%test _ = succ_word_p "?.a" (FilenameExp "?.a")
+let%test _ = fail_word_p "if"
+let%test _ = succ_word_p ~b:false "1{a,b}2" (Word "1{a,b}2")
+let%test _ = succ_word_p ~f:false "?.a" (Word "?.a")
 
 (* -------------------- Simple command -------------------- *)
 
