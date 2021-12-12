@@ -406,3 +406,13 @@ let case_stmt_p = inn_case_stmt_p ()
 
 (** Case item parser *)
 let case_item_p = inn_case_item_p ()
+
+(* -------------------- Function -------------------- *)
+
+(** Function parser *)
+let func_p =
+  option "" (string "function") *> trim name_p
+  <* string "()"
+  >>= fun n ->
+  trim compound_p >>= fun body -> sep_by blank redir_p >>| fun rs -> Func (n, body, rs)
+;;
