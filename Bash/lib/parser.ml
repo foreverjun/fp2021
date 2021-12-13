@@ -420,10 +420,10 @@ let case_item_p = inn_case_item_p ()
 
 (** Function parser *)
 let func_p =
-  option "" (string "function") *> trim name_p
-  <* string "()"
-  >>= fun n ->
-  trim compound_p >>= fun body -> sep_by blank redir_p >>| fun rs -> Func (n, body, rs)
+  string "function" *> trim name_p
+  <* option "" (string "()")
+  <|> (trim name_p <* string "()")
+  >>= fun n -> trim compound_p >>| fun body -> Func (n, body)
 ;;
 
 (* -------------------- Script -------------------- *)

@@ -130,7 +130,7 @@ and case_item =
 
 (** Function *)
 type func =
-  | Func of name * compound * redir list (* [ function ] name () compound-command [redir] *)
+  | Func of name * compound (* function name [()] compound or name () compound *)
 [@@deriving show { with_path = false }]
 
 (** AST root *)

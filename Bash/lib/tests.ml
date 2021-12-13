@@ -723,7 +723,7 @@ let%test _ = fail_case_stmt_p "case in ( *.txt | abc ) meow ;; ( *.ml ) woof ;; 
 let%test _ = fail_case_stmt_p "case abc ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac"
 let%test _ = fail_case_stmt_p "case abc in ( *.txt | abc ) meow ;; ( *.ml ) woof ;;"
 
-(* -------------------- Case item-------------------- *)
+(* -------------------- Case item -------------------- *)
 
 let succ_case_item_p = succ_p pp_case_item case_item_p
 let fail_case_item_p = fail_p pp_case_item case_item_p
@@ -763,3 +763,38 @@ let%test _ = fail_case_item_p "( *.txt | abc meow ;;"
 let%test _ = fail_case_item_p ") meow ;;"
 let%test _ = fail_case_item_p "( *.txt | abc ) meow ;"
 let%test _ = fail_case_item_p "( *.txt | abc ) ;;"
+
+(* -------------------- Function -------------------- *)
+
+let succ_func_p = succ_p pp_func func_p
+let fail_func_p = fail_p pp_func func_p
+
+let%test _ =
+  succ_func_p
+    "function meow_f () meow"
+    (Func (Name "meow_f", SimpleCommand (Command ([], Word "meow", []), [])))
+;;
+
+let%test _ =
+  succ_func_p
+    "function meow_f meow"
+    (Func (Name "meow_f", SimpleCommand (Command ([], Word "meow", []), [])))
+;;
+
+let%test _ =
+  succ_func_p
+    "meow_f() meow"
+    (Func (Name "meow_f", SimpleCommand (Command ([], Word "meow", []), [])))
+;;
+
+let%test _ =
+  succ_func_p
+    "meow_f() meow >> a.txt"
+    (Func
+       ( Name "meow_f"
+       , SimpleCommand (Command ([], Word "meow", []), [ AppendOtp (1, Word "a.txt") ]) ))
+;;
+
+let%test _ = fail_func_p "meow_f meow"
+let%test _ = fail_func_p "function () meow"
+let%test _ = fail_func_p "function() meow"

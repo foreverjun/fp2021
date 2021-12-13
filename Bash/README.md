@@ -22,7 +22,8 @@ Features in progress (and TODOs):
         - `for` (two syntactic variants, without positional parameters)
         - `if`, `case`
         - `((...))`
-- Functions (two syntactic variants; with recursion)
+- Functions (with recursion)
+    - Because of `{ ... }` not being supported, function body may contain a simple command
 - Variables and parameters (without positional and special parameters)
 - Expansions
     - Brace expansion
