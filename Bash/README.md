@@ -8,7 +8,8 @@ Author: Timofey Pushkin, pushkin.td@gmail.com
 
 Features done (append only):
 
-- None
+- AST
+- Parser (without quoting)
 
 Features in progress (and TODOs):
 
