@@ -798,3 +798,74 @@ let%test _ =
 let%test _ = fail_func_p "meow_f meow"
 let%test _ = fail_func_p "function () meow"
 let%test _ = fail_func_p "function() meow"
+
+(* -------------------- Script element -------------------- *)
+
+let succ_script_elem_p = succ_p pp_script_elem script_elem_p
+let fail_script_elem_p = fail_p pp_script_elem script_elem_p
+
+let%test _ =
+  succ_script_elem_p
+    "echo 1"
+    (Pipelines
+       (SinglePipeline
+          (Pipeline
+             (false, SimpleCommand (Command ([], Word "echo", [ Word "1" ]), []), []))))
+;;
+
+let%test _ =
+  succ_script_elem_p
+    "meow_f() meow"
+    (FuncDecl (Func (Name "meow_f", SimpleCommand (Command ([], Word "meow", []), []))))
+;;
+
+(* -------------------- Script -------------------- *)
+
+let succ_script_p = succ_p pp_script script_p
+let fail_script_p = fail_p pp_script script_p
+
+let%test _ =
+  succ_script_p
+    "echo 1"
+    (Script
+       [ Pipelines
+           (SinglePipeline
+              (Pipeline
+                 (false, SimpleCommand (Command ([], Word "echo", [ Word "1" ]), []), [])))
+       ])
+;;
+
+let%test _ =
+  succ_script_p
+    "meow_f() meow"
+    (Script
+       [ FuncDecl
+           (Func (Name "meow_f", SimpleCommand (Command ([], Word "meow", []), [])))
+       ])
+;;
+
+let%test _ =
+  succ_script_p
+    "meow_f() meow\necho 1"
+    (Script
+       [ FuncDecl
+           (Func (Name "meow_f", SimpleCommand (Command ([], Word "meow", []), [])))
+       ; Pipelines
+           (SinglePipeline
+              (Pipeline
+                 (false, SimpleCommand (Command ([], Word "echo", [ Word "1" ]), []), [])))
+       ])
+;;
+
+let%test _ =
+  succ_script_p
+    "    \n  \n\n\n meow_f() meow\n  \n  \n\n\n echo 1\n\n\n\n \n \n"
+    (Script
+       [ FuncDecl
+           (Func (Name "meow_f", SimpleCommand (Command ([], Word "meow", []), [])))
+       ; Pipelines
+           (SinglePipeline
+              (Pipeline
+                 (false, SimpleCommand (Command ([], Word "echo", [ Word "1" ]), []), [])))
+       ])
+;;
