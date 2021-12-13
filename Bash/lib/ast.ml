@@ -73,11 +73,11 @@ and assignt =
 
 (** Redirection *)
 type redir =
-  | Redir_inp of int * word (* [n]<word *)
-  | Redir_otp of int * word (* [n]>word *)
-  | Append_otp of int * word (* [n]>>word *)
-  | Dupl_inp of int * word (* [n]<&word *)
-  | Dupl_otp of int * word (* [n]>&word *)
+  | RedirInp of int * word (* [n]<word *)
+  | RedirOtp of int * word (* [n]>word *)
+  | AppendOtp of int * word (* [n]>>word *)
+  | DuplInp of int * word (* [n]<&word *)
+  | DuplOtp of int * word (* [n]>&word *)
 [@@deriving show { with_path = false }]
 
 (** List of pipelines *)

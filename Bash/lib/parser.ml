@@ -47,6 +47,7 @@ let is_blank = function
 ;;
 
 let blank = take_while is_blank
+let blank1 = take_while1 is_blank
 let trim p = blank *> p <* blank
 let parens p = char '(' *> trim p <* char ')'
 
@@ -285,16 +286,14 @@ let redir_p =
   let parse_by s d act =
     option d int_p >>= fun fd -> string s *> blank *> word () >>| act fd
   in
-  parse_by ">>" 1 (fun fd w -> Append_otp (fd, w))
-  <|> parse_by "<&" 0 (fun fd w -> Dupl_inp (fd, w))
-  <|> parse_by ">&" 1 (fun fd w -> Dupl_otp (fd, w))
-  <|> parse_by "<" 0 (fun fd w -> Redir_inp (fd, w))
-  <|> parse_by ">" 1 (fun fd w -> Redir_otp (fd, w))
+  parse_by ">>" 1 (fun fd w -> AppendOtp (fd, w))
+  <|> parse_by "<&" 0 (fun fd w -> DuplInp (fd, w))
+  <|> parse_by ">&" 1 (fun fd w -> DuplOtp (fd, w))
+  <|> parse_by "<" 0 (fun fd w -> RedirInp (fd, w))
+  <|> parse_by ">" 1 (fun fd w -> RedirOtp (fd, w))
 ;;
 
-let ctrl s =
-  (string ";" <|> delim1) *> skip_while (fun c -> is_delim c || is_blank c) *> string s
-;;
+let ctrl s = (string ";" <|> delim1) *> many (delim1 <|> blank1) *> string s
 
 (* Inner pipeline list parser to use for mutual recursion *)
 let rec inn_pipeline_list_p () =
@@ -308,7 +307,7 @@ let rec inn_pipeline_list_p () =
 
 (* Inner pipeline parser to use for mutual recursion *)
 and inn_pipeline_p () =
-  option false (char '!' >>| fun _ -> true)
+  option false (char '!' <* blank1 >>| fun _ -> true)
   >>= fun neg ->
   sep_by1 (char '|') (trim (inn_compound_p ()))
   >>| function
@@ -436,7 +435,7 @@ let script_elem_p =
 
 (** Bash script parser *)
 let script_p =
-  let gap = many (blank <|> delim1) in
+  let gap = many (blank1 <|> delim1) in
   let gap1 = blank *> delim1 *> gap in
   gap *> sep_by gap1 script_elem_p <* gap >>| fun es -> Script es
 ;;
