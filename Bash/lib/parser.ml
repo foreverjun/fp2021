@@ -112,14 +112,12 @@ let greatereq = string ">=" *> return (fun x y -> GreaterEq (x, y))
 let equal = string "==" *> return (fun x y -> Equal (x, y))
 let nequal = string "!=" *> return (fun x y -> NEqual (x, y))
 
-(* Operands *)
-let num = int_p >>| fun n -> Num n
-
 (** Arithmetic parser *)
 let arithm_p =
+  let num = int_p >>| fun n -> Num n in
   let var = var_p >>| fun v -> Var v in
   fix (fun arithm_p ->
-      let factor = trim (parens arithm_p <|> num <|> var) in
+      let factor = parens arithm_p <|> num <|> var in
       let term = chainl1 factor (trim (mul <|> div)) in
       let expr = chainl1 term (trim (plus <|> minus)) in
       let comp = chainl1 expr (trim (lesseq <|> greatereq <|> less <|> greater)) in
@@ -236,7 +234,7 @@ and param_exp_p =
 and inn_cmd_subst () = char '$' *> parens (inn_cmd_p ()) >>| fun cmd -> CmdSubst cmd
 
 (* Arithmetic expansion *)
-and arithm_exp = string "$((" *> arithm_p <* string "))" >>| fun a -> ArithmExp a
+and arithm_exp = string "$((" *> trim arithm_p <* string "))" >>| fun a -> ArithmExp a
 
 (* Filename expansion *)
 and filename_exp =
@@ -262,9 +260,13 @@ and inn_assignt_p () =
 (* Inner simple command parser to use for mutual recursion *)
 and inn_cmd_p () =
   let word = word_p in
+  let blank_if_ne = function
+    | _ :: _ -> blank
+    | [] -> peek_string 0
+  in
   sep_by blank (inn_assignt_p ())
   >>= fun assignts ->
-  blank *> sep_by blank (word ())
+  option [] (blank_if_ne assignts *> sep_by1 blank (word ()))
   >>= fun words ->
   match assignts, words with
   | _, hd :: tl -> return (Command (assignts, hd, tl))
@@ -309,14 +311,16 @@ let rec inn_pipeline_list_p () =
 and inn_pipeline_p () =
   option false (char '!' <* blank1 >>| fun _ -> true)
   >>= fun neg ->
-  sep_by1 (char '|') (trim (inn_compound_p ()))
-  >>| function
-  | hd :: tl -> Pipeline (neg, hd, tl)
-  | _ -> failwith "sep_by1 cannot return an empty list"
+  inn_compound_p ()
+  >>= fun hd ->
+  option [] (blank *> char '|' *> sep_by1 (char '|') (trim (inn_compound_p ())))
+  >>| fun tl -> Pipeline (neg, hd, tl)
 
 (* Inner compound command parser to use for mutual recursion *)
 and inn_compound_p () =
-  let parse_by p act = p >>= fun c -> blank *> sep_by blank redir_p >>| act c in
+  let parse_by p act =
+    p >>= fun c -> option [] (blank *> sep_by1 blank redir_p) >>| act c
+  in
   parse_by (inn_while_loop_p ()) (fun c rs -> While (c, rs))
   <|> parse_by (inn_for_loop_p ()) (fun c rs -> For (c, rs))
   <|> parse_by (inn_if_stmt_p ()) (fun c rs -> If (c, rs))
@@ -421,9 +425,9 @@ let case_item_p = inn_case_item_p ()
 (** Function parser *)
 let func_p =
   string "function" *> trim name_p
-  <* option "" (string "()")
-  <|> (trim name_p <* string "()")
-  >>= fun n -> trim compound_p >>| fun body -> Func (n, body)
+  <* option "" (string "()" <* blank)
+  <|> (name_p <* trim (string "()"))
+  >>= fun n -> compound_p >>| fun body -> Func (n, body)
 ;;
 
 (* -------------------- Script -------------------- *)

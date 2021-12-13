@@ -20,11 +20,11 @@ let succ_p pp p s exp =
     let fmt = std_formatter in
     pp_print_string fmt "\n-------------------- Input --------------------\n";
     pp_print_string fmt s;
-    pp_print_string fmt "\n-------------------- Expected --------------------\n";
+    pp_print_string fmt "\n------------------- Expected ------------------\n";
     pp fmt exp;
-    pp_print_string fmt "\n-------------------- Actual --------------------\n";
+    pp_print_string fmt "\n-------------------- Actual -------------------\n";
     pp fmt res;
-    pp_print_string fmt "\n----------------------------------------\n";
+    pp_print_string fmt "\n-----------------------------------------------\n";
     false
 ;;
 
@@ -37,9 +37,9 @@ let fail_p pp p s =
     let fmt = std_formatter in
     pp_print_string fmt "\n-------------------- Input --------------------\n";
     pp_print_string fmt (s ^ "\n");
-    pp_print_string fmt "\n-------------------- Actual --------------------\n";
+    pp_print_string fmt "\n-------------------- Actual -------------------\n";
     pp fmt res;
-    pp_print_string fmt "\n----------------------------------------\n";
+    pp_print_string fmt "\n-----------------------------------------------\n";
     false
 ;;
 
@@ -52,6 +52,9 @@ let%test _ = succ_var_p "VAR" (SimpleVar (Name "VAR"))
 let%test _ = succ_var_p "_var" (SimpleVar (Name "_var"))
 let%test _ = succ_var_p "ARR[hi there]" (Subscript (Name "ARR", "hi there"))
 let%test _ = succ_var_p "ARR[ ]" (Subscript (Name "ARR", " "))
+let%test _ = fail_var_p " VAR"
+let%test _ = fail_var_p "VAR "
+let%test _ = fail_var_p " VAR "
 let%test _ = fail_var_p "321VAR"
 let%test _ = fail_var_p "ARR[]"
 
@@ -61,7 +64,7 @@ let succ_arithm_p = succ_p pp_arithm arithm_p
 let fail_arithm_p = fail_p pp_arithm arithm_p
 
 let%test _ = succ_arithm_p "100" (Num 100)
-let%test _ = succ_arithm_p "   1 +     2" (Plus (Num 1, Num 2))
+let%test _ = succ_arithm_p "1 +     2" (Plus (Num 1, Num 2))
 let%test _ = succ_arithm_p "2 * 3 + 4" (Plus (Mul (Num 2, Num 3), Num 4))
 let%test _ = succ_arithm_p "(( (5)) )" (Num 5)
 
@@ -85,6 +88,9 @@ let%test _ =
     (Plus (Plus (Var (SimpleVar (Name "x")), Var (SimpleVar (Name "y"))), Num 1))
 ;;
 
+let%test _ = fail_arithm_p " 100"
+let%test _ = fail_arithm_p "100 "
+let%test _ = fail_arithm_p " 100 "
 let%test _ = fail_arithm_p "5 5"
 let%test _ = fail_arithm_p "(()"
 let%test _ = fail_arithm_p "+ -"
@@ -114,6 +120,9 @@ let%test _ =
 let%test _ = succ_brace_exp "1a{3..1}b5" (BraceExp [ "1a3b5"; "1a2b5"; "1a1b5" ])
 let%test _ = succ_brace_exp "1a{-5..0..2}b5" (BraceExp [ "1a-5b5"; "1a-3b5"; "1a-1b5" ])
 let%test _ = succ_brace_exp "1a{d..a..2}b5" (BraceExp [ "1adb5"; "1abb5" ])
+let%test _ = fail_brace_exp " ab{c,d,e}fd"
+let%test _ = fail_brace_exp "ab{c,d,e}fd "
+let%test _ = fail_brace_exp " ab{c,d,e}fd "
 let%test _ = fail_brace_exp "1a{d..a..}b5"
 
 (* -------------------- Parameter expansion -------------------- *)
@@ -138,6 +147,9 @@ let%test _ = succ_param_exp "${ABC/#a}" (SubstBeg (SimpleVar (Name "ABC"), "a", 
 let%test _ = succ_param_exp "${ABC/#a/b}" (SubstBeg (SimpleVar (Name "ABC"), "a", "b"))
 let%test _ = succ_param_exp "${ABC/%a}" (SubstEnd (SimpleVar (Name "ABC"), "a", ""))
 let%test _ = succ_param_exp "${ABC/%a/b}" (SubstEnd (SimpleVar (Name "ABC"), "a", "b"))
+let%test _ = fail_param_exp " $ABC"
+let%test _ = fail_param_exp "$ABC "
+let%test _ = fail_param_exp " $ABC "
 
 (* -------------------- Command substitution -------------------- *)
 
@@ -154,6 +166,9 @@ let%test _ =
   succ_cmd_subst "$(echo hey)" (CmdSubst (Command ([], Word "echo", [ Word "hey" ])))
 ;;
 
+let%test _ = fail_cmd_subst " $(X=2)"
+let%test _ = fail_cmd_subst "$(X=2) "
+let%test _ = fail_cmd_subst " $(X=2) "
 let%test _ = fail_cmd_subst "$(echo hey"
 let%test _ = fail_cmd_subst "$X=2)"
 
@@ -166,6 +181,13 @@ let%test _ =
   succ_arithm_exp "$((2 + 2 == 4))" (ArithmExp (Equal (Plus (Num 2, Num 2), Num 4)))
 ;;
 
+let%test _ =
+  succ_arithm_exp "$(( 2 + 2 == 4  ))" (ArithmExp (Equal (Plus (Num 2, Num 2), Num 4)))
+;;
+
+let%test _ = fail_arithm_exp " $((2 + 2 == 4))"
+let%test _ = fail_arithm_exp "$((2 + 2 == 4)) "
+let%test _ = fail_arithm_exp " $((2 + 2 == 4)) "
 let%test _ = fail_arithm_exp "$((2 + 2 == 4)"
 let%test _ = fail_arithm_exp "$((2 + 2 == 4"
 let%test _ = fail_arithm_exp "$(2 + 2 == 4))"
@@ -181,6 +203,9 @@ let%test _ = succ_filename_exp "?.ml" (FilenameExp "?.ml")
 let%test _ = succ_filename_exp "*.txt" (FilenameExp "*.txt")
 let%test _ = succ_filename_exp "[" (FilenameExp "[")
 let%test _ = succ_filename_exp "[?*" (FilenameExp "[?*")
+let%test _ = fail_filename_exp " ?.ml"
+let%test _ = fail_filename_exp "?.ml "
+let%test _ = fail_filename_exp " ?.ml "
 let%test _ = fail_filename_exp "]"
 let%test _ = fail_filename_exp "abc.ml"
 
@@ -204,6 +229,9 @@ let%test _ =
 
 let%test _ = succ_word_p "$((3 / 1))" (ArithmExp (Div (Num 3, Num 1)))
 let%test _ = succ_word_p "?.a" (FilenameExp "?.a")
+let%test _ = fail_word_p " something"
+let%test _ = fail_word_p "something "
+let%test _ = fail_word_p " something "
 let%test _ = fail_word_p "if"
 let%test _ = succ_word_p ~b:false "1{a,b}2" (Word "1{a,b}2")
 let%test _ = succ_word_p ~f:false "?.a" (Word "?.a")
@@ -273,6 +301,13 @@ let%test _ =
        , [ Word "arg1"; Word "arg2" ] ))
 ;;
 
+let%test _ = fail_cmd_p " A=123"
+let%test _ = fail_cmd_p "A=123 "
+let%test _ = fail_cmd_p " A=123 "
+let%test _ = fail_cmd_p " echo 1"
+let%test _ = fail_cmd_p "echo 1 "
+let%test _ = fail_cmd_p " echo 1 "
+
 (* -------------------- Redirection -------------------- *)
 
 let succ_redir_p = succ_p pp_redir redir_p
@@ -285,6 +320,9 @@ let%test _ = succ_redir_p "<& abc" (DuplInp (0, Word "abc"))
 let%test _ = succ_redir_p ">& abc" (DuplOtp (1, Word "abc"))
 let%test _ = succ_redir_p "12<abc" (RedirInp (12, Word "abc"))
 let%test _ = succ_redir_p "12< abc" (RedirInp (12, Word "abc"))
+let%test _ = fail_redir_p " < abc"
+let%test _ = fail_redir_p "< abc "
+let%test _ = fail_redir_p " < abc "
 let%test _ = fail_redir_p "12 < abc"
 let%test _ = succ_redir_p "< $a" (RedirInp (0, ParamExp (Param (SimpleVar (Name "a")))))
 
@@ -358,6 +396,10 @@ let%test _ =
            ) ))
 ;;
 
+let%test _ = fail_pipeline_list_p " echo 1"
+let%test _ = fail_pipeline_list_p "echo 1 "
+let%test _ = fail_pipeline_list_p " echo 1 "
+
 (* -------------------- Pipeline -------------------- *)
 
 let succ_pipeline_p = succ_p pp_pipeline pipeline_p
@@ -407,6 +449,10 @@ let%test _ =
              (Command ([], Word "grep", [ Word "1" ]), [ AppendOtp (1, Word "a.txt") ])
          ] ))
 ;;
+
+let%test _ = fail_pipeline_p " echo 1"
+let%test _ = fail_pipeline_p "echo 1 "
+let%test _ = fail_pipeline_p " echo 1 "
 
 (* -------------------- Compound -------------------- *)
 
@@ -496,6 +542,13 @@ let%test _ =
     (Case (CaseStmt (Word "abc", []), [ AppendOtp (1, Word "a.txt") ]))
 ;;
 
+let%test _ = fail_compound_p " while a; do meow; done"
+let%test _ = fail_compound_p "while a; do meow; done "
+let%test _ = fail_compound_p " while a; do meow; done "
+let%test _ = fail_compound_p " case abc in esac >> a.txt"
+let%test _ = fail_compound_p "case abc in esac >> a.txt "
+let%test _ = fail_compound_p " case abc in esac >> a.txt "
+
 (* -------------------- While -------------------- *)
 
 let succ_while_loop_p = succ_p pp_while_loop while_loop_p
@@ -534,6 +587,9 @@ let%test _ =
               (false, SimpleCommand (Command ([], Word "echo", [ Word "a" ]), []), [])) ))
 ;;
 
+let%test _ = fail_while_loop_p " while a; do echo a; done"
+let%test _ = fail_while_loop_p "while a; do echo a; done "
+let%test _ = fail_while_loop_p " while a; do echo a; done "
 let%test _ = fail_while_loop_p "while a\n; do echo a; done"
 let%test _ = fail_while_loop_p "while a; do echo a\n; done"
 let%test _ = fail_while_loop_p "while a do echo a done"
@@ -578,6 +634,9 @@ let%test _ =
            (Pipeline (false, SimpleCommand (Command ([], Word "meow", []), []), [])) ))
 ;;
 
+let%test _ = fail_for_loop_p " for i in 1 2 34; do meow; done"
+let%test _ = fail_for_loop_p "for i in 1 2 34; do meow; done "
+let%test _ = fail_for_loop_p " for i in 1 2 34; do meow; done "
 let%test _ = fail_for_loop_p "for  in 1 2 3; do meow; done"
 let%test _ = fail_for_loop_p "for i in 1 2 3\n; do meow\n; done"
 let%test _ = fail_for_loop_p "for i in 1 2 3; do meow done"
@@ -618,6 +677,9 @@ let%test _ =
            (Pipeline (false, SimpleCommand (Command ([], Word "meow", []), []), [])) ))
 ;;
 
+let%test _ = fail_for_loop_p " for ((0; 0; 1 + 1)); do meow; done"
+let%test _ = fail_for_loop_p "for ((0; 0; 1 + 1)); do meow; done "
+let%test _ = fail_for_loop_p " for ((0; 0; 1 + 1)); do meow; done "
 let%test _ = fail_for_loop_p "for (0; 0; 1 + 1)); do meow; done"
 let%test _ = fail_for_loop_p "for ((0; 0; 1 + 1); do meow; done"
 let%test _ = fail_for_loop_p "for ((0; 0; 1 + 1)) do meow; done"
@@ -666,6 +728,9 @@ let%test _ =
        , None ))
 ;;
 
+let%test _ = fail_if_stmt_p " if ((1)); then echo 1; else echo 0; fi"
+let%test _ = fail_if_stmt_p "if ((1)); then echo 1; else echo 0; fi "
+let%test _ = fail_if_stmt_p " if ((1)); then echo 1; else echo 0; fi "
 let%test _ = fail_if_stmt_p "if ; then echo 1; else echo 0; fi"
 let%test _ = fail_if_stmt_p "if ((1)); then ; else echo 0; fi"
 let%test _ = fail_if_stmt_p "if ((1)); then echo 1; else ; fi"
@@ -719,6 +784,13 @@ let%test _ =
 ;;
 
 let%test _ = succ_case_stmt_p "case abc in esac" (CaseStmt (Word "abc", []))
+let%test _ = fail_case_stmt_p " case abc in ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac"
+let%test _ = fail_case_stmt_p "case abc in ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac "
+
+let%test _ =
+  fail_case_stmt_p " case abc in ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac "
+;;
+
 let%test _ = fail_case_stmt_p "case in ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac"
 let%test _ = fail_case_stmt_p "case abc ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac"
 let%test _ = fail_case_stmt_p "case abc in ( *.txt | abc ) meow ;; ( *.ml ) woof ;;"
@@ -759,6 +831,9 @@ let%test _ =
               (false, SimpleCommand (Command ([], Word "echo", [ Word "1" ]), []), [])) ))
 ;;
 
+let%test _ = fail_case_item_p " ( *.txt | abc ) meow ;;"
+let%test _ = fail_case_item_p "( *.txt | abc ) meow ;; "
+let%test _ = fail_case_item_p " ( *.txt | abc ) meow ;; "
 let%test _ = fail_case_item_p "( *.txt | abc meow ;;"
 let%test _ = fail_case_item_p ") meow ;;"
 let%test _ = fail_case_item_p "( *.txt | abc ) meow ;"
@@ -795,6 +870,12 @@ let%test _ =
        , SimpleCommand (Command ([], Word "meow", []), [ AppendOtp (1, Word "a.txt") ]) ))
 ;;
 
+let%test _ = fail_func_p " function meow_f () meow"
+let%test _ = fail_func_p "function meow_f () meow "
+let%test _ = fail_func_p " function meow_f () meow "
+let%test _ = fail_func_p " meow_f () meow"
+let%test _ = fail_func_p "meow_f () meow "
+let%test _ = fail_func_p " meow_f () meow "
 let%test _ = fail_func_p "meow_f meow"
 let%test _ = fail_func_p "function () meow"
 let%test _ = fail_func_p "function() meow"
@@ -818,6 +899,13 @@ let%test _ =
     "meow_f() meow"
     (FuncDecl (Func (Name "meow_f", SimpleCommand (Command ([], Word "meow", []), []))))
 ;;
+
+let%test _ = fail_script_elem_p " echo 1"
+let%test _ = fail_script_elem_p "echo 1 "
+let%test _ = fail_script_elem_p " echo 1 "
+let%test _ = fail_script_elem_p " meow_f() meow"
+let%test _ = fail_script_elem_p "meow_f() meow "
+let%test _ = fail_script_elem_p " meow_f() meow "
 
 (* -------------------- Script -------------------- *)
 
