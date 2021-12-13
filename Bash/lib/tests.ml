@@ -626,6 +626,16 @@ let%test _ =
 
 let%test _ =
   succ_for_loop_p
+    "for i in 1 2 34\ndo\nmeow\ndone"
+    (ListFor
+       ( Name "i"
+       , [ Word "1"; Word "2"; Word "34" ]
+       , SinglePipeline
+           (Pipeline (false, SimpleCommand (Command ([], Word "meow", []), []), [])) ))
+;;
+
+let%test _ =
+  succ_for_loop_p
     "for i in; do meow; done"
     (ListFor
        ( Name "i"
@@ -694,6 +704,21 @@ let fail_if_stmt_p = fail_p pp_if_stmt if_stmt_p
 let%test _ =
   succ_if_stmt_p
     "if ((1)); then echo 1; else echo 0; fi"
+    (IfStmt
+       ( SinglePipeline (Pipeline (false, ArithmExpr (Num 1, []), []))
+       , SinglePipeline
+           (Pipeline
+              (false, SimpleCommand (Command ([], Word "echo", [ Word "1" ]), []), []))
+       , Some
+           (SinglePipeline
+              (Pipeline
+                 (false, SimpleCommand (Command ([], Word "echo", [ Word "0" ]), []), [])))
+       ))
+;;
+
+let%test _ =
+  succ_if_stmt_p
+    "if ((1))\nthen echo 1\nelse echo 0\nfi"
     (IfStmt
        ( SinglePipeline (Pipeline (false, ArithmExpr (Num 1, []), []))
        , SinglePipeline
@@ -865,6 +890,22 @@ let%test _ =
 let%test _ =
   succ_func_p
     "meow_f() meow >> a.txt"
+    (Func
+       ( Name "meow_f"
+       , SimpleCommand (Command ([], Word "meow", []), [ AppendOtp (1, Word "a.txt") ]) ))
+;;
+
+let%test _ =
+  succ_func_p
+    "meow_f()\nmeow >> a.txt"
+    (Func
+       ( Name "meow_f"
+       , SimpleCommand (Command ([], Word "meow", []), [ AppendOtp (1, Word "a.txt") ]) ))
+;;
+
+let%test _ =
+  succ_func_p
+    "meow_f()\n   meow >> a.txt"
     (Func
        ( Name "meow_f"
        , SimpleCommand (Command ([], Word "meow", []), [ AppendOtp (1, Word "a.txt") ]) ))

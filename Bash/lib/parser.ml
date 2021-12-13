@@ -295,7 +295,12 @@ let redir_p =
   <|> parse_by ">" 1 (fun fd w -> RedirOtp (fd, w))
 ;;
 
-let ctrl s = (string ";" <|> delim1) *> many (delim1 <|> blank1) *> string s
+(* Helper functions to parse reserved words in compounds *)
+let ctrl_m s =
+  (string ";" <|> delim1) *> many (delim1 <|> blank1) *> string s <* many delim1
+;;
+
+let ctrl_e s = (string ";" <|> delim1) *> many (delim1 <|> blank1) *> string s
 
 (* Inner pipeline list parser to use for mutual recursion *)
 let rec inn_pipeline_list_p () =
@@ -334,8 +339,8 @@ and inn_compound_p () =
 and inn_while_loop_p () =
   string "while" *> trim (inn_pipeline_list_p ())
   >>= fun cnd ->
-  ctrl "do" *> trim (inn_pipeline_list_p ())
-  <* ctrl "done"
+  ctrl_m "do" *> trim (inn_pipeline_list_p ())
+  <* ctrl_e "done"
   >>| fun act -> WhileLoop (cnd, act)
 
 (* Inner for loop parser to use for mutual recursion *)
@@ -354,7 +359,7 @@ and inn_for_loop_p () =
   let parse_with p =
     string "for" *> trim p
     >>= fun cnd ->
-    ctrl "do" *> trim (inn_pipeline_list_p ()) <* ctrl "done" >>| fun act -> cnd, act
+    ctrl_m "do" *> trim (inn_pipeline_list_p ()) <* ctrl_e "done" >>| fun act -> cnd, act
   in
   parse_with list_cnd
   >>| (fun ((n, ws), act) -> ListFor (n, ws, act))
@@ -364,10 +369,10 @@ and inn_for_loop_p () =
 and inn_if_stmt_p () =
   string "if" *> trim (inn_pipeline_list_p ())
   >>= fun cnd ->
-  ctrl "then" *> trim (inn_pipeline_list_p ())
+  ctrl_m "then" *> trim (inn_pipeline_list_p ())
   >>= fun thn ->
-  option None (ctrl "else" *> trim (inn_pipeline_list_p ()) >>| fun els -> Some els)
-  <* ctrl "fi"
+  option None (ctrl_m "else" *> trim (inn_pipeline_list_p ()) >>| fun els -> Some els)
+  <* ctrl_e "fi"
   >>| fun els -> IfStmt (cnd, thn, els)
 
 (* Inner case statement parser to use for mutual recursion *)
@@ -427,7 +432,8 @@ let func_p =
   string "function" *> trim name_p
   <* option "" (string "()" <* blank)
   <|> (name_p <* trim (string "()"))
-  >>= fun n -> compound_p >>| fun body -> Func (n, body)
+  <* many delim1
+  >>= fun n -> blank *> compound_p >>| fun body -> Func (n, body)
 ;;
 
 (* -------------------- Script -------------------- *)
