@@ -25,7 +25,6 @@
   angstrom
   (ppx_inline_test :with-test)
   ppx_expect
-  ppx_show
+  ppx_deriving.show
   (odoc :with-doc)
-  (ocamlformat :build)
-  base))
+  (ocamlformat :build)))
