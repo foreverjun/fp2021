@@ -12,7 +12,7 @@ let test_parse p s = Angstrom.parse_string ~consume:All p s
 let succ_p pp p s exp =
   match test_parse p s with
   | Error e ->
-    print_string ("Error: " ^ e ^ "\n");
+    print_string (String.concat "" [ "Error: "; e; "\n" ]);
     false
   | Ok res when exp = res -> true
   | Ok res ->

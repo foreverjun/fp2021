@@ -14,7 +14,7 @@ let chainl1 e op =
 (** Check if string s contains a char that satisfies predicate p *)
 let str_exists p s =
   let n = String.length s in
-  let rec helper i = if i = n then false else if p s.[i] then true else helper (i + 1) in
+  let rec helper i = i < n && (p s.[i] || helper (i + 1)) in
   helper 0
 ;;
 
@@ -193,7 +193,8 @@ and brace_exp =
   char '{' *> (seq <|> strs)
   <* char '}'
   >>= fun body ->
-  option "" postfix >>| fun post -> BraceExp (List.map (fun s -> pre ^ s ^ post) body)
+  option "" postfix
+  >>| fun post -> BraceExp (List.map (fun s -> String.concat "" [ pre; s; post ]) body)
 
 (** Parameter expansion parser *)
 and param_exp_p =
@@ -402,10 +403,10 @@ and inn_case_item_p () =
   >>= fun ptrns ->
   trim (inn_pipeline_list_p ())
   <* string ";;"
-  >>| fun act ->
+  >>= fun act ->
   match ptrns with
-  | hd :: tl -> CaseItem (hd, tl, act)
-  | _ -> failwith "sep_by1 cannot return an empty list"
+  | hd :: tl -> return (CaseItem (hd, tl, act))
+  | _ -> fail "sep_by1 cannot return an empty list"
 ;;
 
 (** Pipeline list parser *)
