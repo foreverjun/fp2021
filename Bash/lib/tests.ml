@@ -12,19 +12,18 @@ let test_parse p s = Angstrom.parse_string ~consume:All p s
 let succ_p pp p s exp =
   match test_parse p s with
   | Error e ->
-    print_string (String.concat "" [ "Error: "; e; "\n" ]);
+    Printf.printf "Error: %s\n" e;
     false
   | Ok res when exp = res -> true
   | Ok res ->
     let open Format in
-    let fmt = std_formatter in
-    pp_print_string fmt "\n-------------------- Input --------------------\n";
-    pp_print_string fmt s;
-    pp_print_string fmt "\n------------------- Expected ------------------\n";
-    pp fmt exp;
-    pp_print_string fmt "\n-------------------- Actual -------------------\n";
-    pp fmt res;
-    pp_print_string fmt "\n-----------------------------------------------\n";
+    print_string "\n-------------------- Input --------------------\n";
+    print_string s;
+    print_string "\n------------------- Expected ------------------\n";
+    pp std_formatter exp;
+    print_string "\n-------------------- Actual -------------------\n";
+    pp std_formatter res;
+    print_string "\n-----------------------------------------------\n";
     false
 ;;
 
@@ -34,12 +33,11 @@ let fail_p pp p s =
   | Error _ -> true
   | Ok res ->
     let open Format in
-    let fmt = std_formatter in
-    pp_print_string fmt "\n-------------------- Input --------------------\n";
-    pp_print_string fmt (s ^ "\n");
-    pp_print_string fmt "\n-------------------- Actual -------------------\n";
-    pp fmt res;
-    pp_print_string fmt "\n-----------------------------------------------\n";
+    print_string "\n-------------------- Input --------------------\n";
+    print_string s;
+    print_string "\n-------------------- Actual -------------------\n";
+    pp std_formatter res;
+    print_string "\n-----------------------------------------------\n";
     false
 ;;
 
