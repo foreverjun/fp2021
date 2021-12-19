@@ -139,7 +139,7 @@ let rec word_p ?(brc = true) ?(prm = true) ?(cmd = true) ?(ari = true) ?(fln = t
       | s when List.mem s reserved -> fail "Reserved string"
       | s -> return (Word s))
 
-(* Brace expansion *)
+(** Brace expansion *)
 and brace_exp =
   let prefix =
     take_till (function
@@ -231,13 +231,13 @@ and param_exp_p =
              <|> param)
          <* char '}'))
 
-(* Command substitution *)
+(** Command substitution *)
 and inn_cmd_subst () = char '$' *> parens (inn_cmd_p ()) >>| fun cmd -> CmdSubst cmd
 
-(* Arithmetic expansion *)
+(** Arithmetic expansion *)
 and arithm_exp = string "$((" *> trim arithm_p <* string "))" >>| fun a -> ArithmExp a
 
-(* Filename expansion *)
+(** Filename expansion *)
 and filename_exp =
   let fn_char = function
     | '*' | '?' | '[' -> true
@@ -248,7 +248,7 @@ and filename_exp =
   | w when Base.String.exists ~f:fn_char w -> return (FilenameExp w)
   | _ -> fail "Not a filename pattern"
 
-(* Inner assignment parser to use for mutual recursion *)
+(** Inner assignment parser to use for mutual recursion *)
 and inn_assignt_p () =
   let word = word_p ~brc:false ~fln:false in
   var_p
@@ -258,7 +258,7 @@ and inn_assignt_p () =
      >>| (fun ws -> CompoundAssignt (v, ws))
      <|> (option None (word () >>| fun w -> Some w) >>| fun w -> SimpleAssignt (v, w)))
 
-(* Inner simple command parser to use for mutual recursion *)
+(** Inner simple command parser to use for mutual recursion *)
 and inn_cmd_p () =
   let word = word_p in
   let blank_if_ne = function
@@ -296,14 +296,14 @@ let redir_p =
   <|> parse_by ">" 1 (fun fd w -> RedirOtp (fd, w))
 ;;
 
-(* Helper functions to parse reserved words in compounds *)
+(** Helper functions to parse reserved words in compounds *)
 let ctrl_m s =
   (string ";" <|> delim1) *> many (delim1 <|> blank1) *> string s <* many delim1
 ;;
 
 let ctrl_e s = (string ";" <|> delim1) *> many (delim1 <|> blank1) *> string s
 
-(* Inner pipeline list parser to use for mutual recursion *)
+(** Inner pipeline list parser to use for mutual recursion *)
 let rec inn_pipeline_list_p () =
   let parse_tail sep = blank *> string sep *> trim (inn_pipeline_list_p ()) in
   inn_pipeline_p ()
@@ -313,7 +313,7 @@ let rec inn_pipeline_list_p () =
   <|> (parse_tail "||" >>| fun tl -> PipelineOrList (hd, tl))
   <|> return (SinglePipeline hd)
 
-(* Inner pipeline parser to use for mutual recursion *)
+(** Inner pipeline parser to use for mutual recursion *)
 and inn_pipeline_p () =
   option false (char '!' <* blank1 >>| fun _ -> true)
   >>= fun neg ->
@@ -322,7 +322,7 @@ and inn_pipeline_p () =
   option [] (blank *> char '|' *> sep_by1 (char '|') (trim (inn_compound_p ())))
   >>| fun tl -> Pipeline (neg, hd, tl)
 
-(* Inner compound command parser to use for mutual recursion *)
+(** Inner compound command parser to use for mutual recursion *)
 and inn_compound_p () =
   let parse_by p act =
     p >>= fun c -> option [] (blank *> sep_by1 blank redir_p) >>| act c
@@ -336,7 +336,7 @@ and inn_compound_p () =
         (fun c rs -> ArithmExpr (c, rs))
   <|> parse_by cmd_p (fun c rs -> SimpleCommand (c, rs))
 
-(* Inner while loop parser to use for mutual recursion *)
+(** Inner while loop parser to use for mutual recursion *)
 and inn_while_loop_p () =
   string "while" *> trim (inn_pipeline_list_p ())
   >>= fun cnd ->
@@ -344,7 +344,7 @@ and inn_while_loop_p () =
   <* ctrl_e "done"
   >>| fun act -> WhileLoop (cnd, act)
 
-(* Inner for loop parser to use for mutual recursion *)
+(** Inner for loop parser to use for mutual recursion *)
 and inn_for_loop_p () =
   let word = word_p in
   let list_cnd =
@@ -366,7 +366,7 @@ and inn_for_loop_p () =
   >>| (fun ((n, ws), act) -> ListFor (n, ws, act))
   <|> (parse_with expr_cnd >>| fun ((e1, e2, e3), act) -> ExprFor (e1, e2, e3, act))
 
-(* Inner if statement parser to use for mutual recursion *)
+(** Inner if statement parser to use for mutual recursion *)
 and inn_if_stmt_p () =
   string "if" *> trim (inn_pipeline_list_p ())
   >>= fun cnd ->
@@ -376,7 +376,7 @@ and inn_if_stmt_p () =
   <* ctrl_e "fi"
   >>| fun els -> IfStmt (cnd, thn, els)
 
-(* Inner case statement parser to use for mutual recursion *)
+(** Inner case statement parser to use for mutual recursion *)
 and inn_case_stmt_p () =
   let word = word_p ~brc:false ~fln:false in
   let trimd p = trim (many delim1 *> p <* many delim1) in
@@ -388,7 +388,7 @@ and inn_case_stmt_p () =
   <* string "esac"
   >>| fun cs -> CaseStmt (w, cs)
 
-(* Inner case statement item parser to use for mutual recursion *)
+(** Inner case statement item parser to use for mutual recursion *)
 and inn_case_item_p () =
   let word = word_p ~brc:false ~fln:false in
   option ' ' (char '(') *> sep_by1 (char '|') (trim (word ()))
