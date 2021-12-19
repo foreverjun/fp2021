@@ -11,13 +11,6 @@ let chainl1 e op =
   e >>= fun init -> go init
 ;;
 
-(** Check if string s contains a char that satisfies predicate p *)
-let str_exists p s =
-  let n = String.length s in
-  let rec helper i = i < n && (p s.[i] || helper (i + 1)) in
-  helper 0
-;;
-
 (** Integer parser *)
 let int_p =
   option "" (string "+" <|> string "-")
@@ -252,7 +245,7 @@ and filename_exp =
   in
   non_meta
   >>= function
-  | w when str_exists fn_char w -> return (FilenameExp w)
+  | w when Base.String.exists ~f:fn_char w -> return (FilenameExp w)
   | _ -> fail "Not a filename pattern"
 
 (* Inner assignment parser to use for mutual recursion *)
