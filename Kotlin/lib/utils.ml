@@ -3,6 +3,8 @@ open Ast
 
 type error =
   | EmptyProgram
+  | DereferenceError
+  | FunctionReturnTypeMismatch of string * typename * value
   | UnknownVariable of string
   | UnknownFunction of string
   | Redeclaration of string

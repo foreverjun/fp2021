@@ -13,7 +13,6 @@ let reserved_keywords =
   ; "null"
   ; "return"
   ; "super"
-  ; "this"
   ; "val"
   ; "var"
   ; "while"
@@ -54,19 +53,112 @@ let parse_identifier =
   | x -> return x
 ;;
 
-let parse_typename =
-  parse_identifier
-  >>= function
-  | "Int" -> return Int
-  | "String" -> return String
-  | "Boolean" -> return Boolean
-  | str_typename ->
-    return (ClassIdentifier str_typename)
-    >>= fun parsed_typename ->
-    exactly '?' >> return (Nullable parsed_typename) <|> return parsed_typename
+let rec parse_typename input =
+  (parens (sep_by parse_typename (token ","))
+  >>= (fun arg_typenames ->
+        token "->"
+        >> parse_typename
+        >>= fun fun_typename -> return (FunctionType (arg_typenames, fun_typename)))
+  <|> (parse_identifier
+      >>= function
+      | "Dynamic" -> return Dynamic
+      | "Int" -> return Int
+      | "String" -> return String
+      | "Boolean" -> return Boolean
+      | str_typename ->
+        return (ClassIdentifier str_typename)
+        >>= fun parsed_typename ->
+        exactly '?' >> return (Nullable parsed_typename) <|> return parsed_typename))
+    input
 ;;
 
-module Expression = struct
+module rec Expression : sig
+  val var_identifier : char Opal.input -> (Ast.expression * char Opal.input) option
+  val int_value : char Opal.input -> (Ast.value * char Opal.input) option
+  val string_value : char Opal.input -> (Ast.value * char Opal.input) option
+  val boolean_value : char Opal.input -> (Ast.value * char Opal.input) option
+  val null_value : char Opal.input -> (Ast.value * char Opal.input) option
+  val parsed_value : char Opal.input -> (Ast.expression * char Opal.input) option
+
+  val add_op
+    :  char Opal.input
+    -> ((Ast.expression -> Ast.expression -> Ast.expression) * char Opal.input) option
+
+  val sub_op
+    :  char Opal.input
+    -> ((Ast.expression -> Ast.expression -> Ast.expression) * char Opal.input) option
+
+  val mul_op
+    :  char Opal.input
+    -> ((Ast.expression -> Ast.expression -> Ast.expression) * char Opal.input) option
+
+  val div_op
+    :  char Opal.input
+    -> ((Ast.expression -> Ast.expression -> Ast.expression) * char Opal.input) option
+
+  val mod_op
+    :  char Opal.input
+    -> ((Ast.expression -> Ast.expression -> Ast.expression) * char Opal.input) option
+
+  val and_op
+    :  char Opal.input
+    -> ((Ast.expression -> Ast.expression -> Ast.expression) * char Opal.input) option
+
+  val or_op
+    :  char Opal.input
+    -> ((Ast.expression -> Ast.expression -> Ast.expression) * char Opal.input) option
+
+  val equal_op
+    :  char Opal.input
+    -> ((Ast.expression -> Ast.expression -> Ast.expression) * char Opal.input) option
+
+  val not_equal_op
+    :  char Opal.input
+    -> ((Ast.expression -> Ast.expression -> Ast.expression) * char Opal.input) option
+
+  val less_op
+    :  char Opal.input
+    -> ((Ast.expression -> Ast.expression -> Ast.expression) * char Opal.input) option
+
+  val great_op
+    :  char Opal.input
+    -> ((Ast.expression -> Ast.expression -> Ast.expression) * char Opal.input) option
+
+  val less_or_equal_op
+    :  char Opal.input
+    -> ((Ast.expression -> Ast.expression -> Ast.expression) * char Opal.input) option
+
+  val great_or_equal_op
+    :  char Opal.input
+    -> ((Ast.expression -> Ast.expression -> Ast.expression) * char Opal.input) option
+
+  val dereference_op
+    :  char Opal.input
+    -> ((Ast.expression -> Ast.expression -> Ast.expression) * char Opal.input) option
+
+  val expression : char Opal.input -> (Ast.expression * char Opal.input) option
+  val compare_expression : char Opal.input -> (Ast.expression * char Opal.input) option
+  val or_expression : char Opal.input -> (Ast.expression * char Opal.input) option
+  val and_expression : char Opal.input -> (Ast.expression * char Opal.input) option
+  val add_expression : char Opal.input -> (Ast.expression * char Opal.input) option
+  val mul_expression : char Opal.input -> (Ast.expression * char Opal.input) option
+
+  val highest_prior_expression
+    :  char Opal.input
+    -> (Ast.expression * char Opal.input) option
+
+  val not_expression : char Opal.input -> (Ast.expression * char Opal.input) option
+
+  val function_call_expression
+    :  char Opal.input
+    -> (Ast.expression * char Opal.input) option
+
+  val dereference_expression
+    :  char Opal.input
+    -> (Ast.expression * char Opal.input) option
+
+  val unar_expression : char Opal.input -> (Ast.expression * char Opal.input) option
+end = struct
   open Ast
 
   let var_identifier =
@@ -142,7 +234,13 @@ module Expression = struct
     (chainl1 (unar_expression <|> highest_prior_expression) mul_op) input
 
   and highest_prior_expression input =
-    (parens expression <|> parsed_value <|> dereference_expression <|> var_identifier)
+    (choice
+       [ parens expression
+       ; anonymous_function_expression
+       ; parsed_value
+       ; dereference_expression
+       ; var_identifier
+       ])
       input
 
   and not_expression input =
@@ -159,9 +257,40 @@ module Expression = struct
     (chainr1 (function_call_expression <|> var_identifier) dereference_op) input
 
   and unar_expression input = (choice [ not_expression; function_call_expression ]) input
+
+  and anonymous_function_expression input =
+    (Statement.anonymous_function_statement
+    >>= fun stat -> return (AnonymousFunctionDeclaration stat))
+      input
+  ;;
 end
 
-module Statement = struct
+and Statement : sig
+  val expression_statement : char Opal.input -> (Ast.statement * char Opal.input) option
+  val statement : char Opal.input -> (Ast.statement * char Opal.input) option
+  val block_statement : char Opal.input -> (Ast.statement * char Opal.input) option
+
+  val class_declaration_statement
+    :  char Opal.input
+    -> (Ast.statement * char Opal.input) option
+
+  val var_declaration_statement
+    :  char Opal.input
+    -> (Ast.statement * char Opal.input) option
+
+  val fun_declaration_statement
+    :  char Opal.input
+    -> (Ast.statement * char Opal.input) option
+
+  val assign_statement : char Opal.input -> (Ast.statement * char Opal.input) option
+  val if_statement : char Opal.input -> (Ast.statement * char Opal.input) option
+  val while_statement : char Opal.input -> (Ast.statement * char Opal.input) option
+  val return_statement : char Opal.input -> (Ast.statement * char Opal.input) option
+
+  val anonymous_function_statement
+    :  char Opal.input
+    -> (Ast.statement * char Opal.input) option
+end = struct
   open Expression
   open Ast
 
@@ -171,6 +300,7 @@ module Statement = struct
   and statement input =
     (choice
        [ block_statement
+       ; anonymous_function_statement
        ; fun_declaration_statement
        ; class_declaration_statement
        ; var_declaration_statement
@@ -300,5 +430,24 @@ module Statement = struct
 
   and return_statement input =
     (token "return" >> expression >>= fun expr -> return (Return expr)) input
+
+  and anonymous_function_statement input =
+    (braces
+       (option
+          []
+          (sep_by
+             (parse_identifier
+             >>= fun var_identifier ->
+             token ":"
+             >> parse_typename
+             >>= fun var_typename -> return (var_identifier, var_typename))
+             (token ","))
+       >>= fun args ->
+       (if List.length args > 0 then token "->" else token "")
+       >> sep_by statement (skip_many (exactly ' ') >> newline)
+       >>= fun statements -> return (args, statements))
+    >>= fun (args, statements) ->
+    return (AnonymousFunctionDeclarationStatement (args, Block statements)))
+      input
   ;;
 end

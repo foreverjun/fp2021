@@ -17,6 +17,8 @@ and typename =
   | String
   | Boolean
   | ClassIdentifier of string
+  | FunctionType of typename list * typename
+  | Dynamic (* данный тип по большей части кастыль, так как не удалось сделать алгоритм выведения типа для анонимной функции *)
   | Nullable of typename
 
 (* Значения, которые могут принимать переменные *)
@@ -80,10 +82,10 @@ and expression =
   | Less of expression * expression
   | Const of value
   | VarIdentifier of string
+  | AnonymousFunctionDeclaration of statement
   | FunctionCall of string * expression list
   | Dereference of expression * expression
 (* expression.expression where expression = FunctionCall | VarIdentifier *)
-[@@deriving show]
 
 and statement =
   | Return of expression
@@ -99,4 +101,5 @@ and statement =
   | ClassDeclaration of
       modifier list * string * (string * typename) list * expression option * statement (* modifiers string(string * typename list): expression option statement*)
   | Block of statement list
+  | AnonymousFunctionDeclarationStatement of (string * typename) list * statement
 [@@deriving show]
