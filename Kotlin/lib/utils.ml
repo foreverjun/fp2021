@@ -4,6 +4,7 @@ open Ast
 type error =
   | EmptyProgram
   | UnknownVariable of string
+  | UnknownFunction of string
   | Redeclaration of string
   | VariableTypeMismatch of string
   | VariableValueTypeMismatch of string * typename * value
@@ -12,6 +13,12 @@ type error =
   | FunctionBodyExpected
   | FunctionArgumentsCountMismatch
   | ExpectedBooleanValue
+  | ClassBodyExpected
+  | ClassSuperConstructorNotValid
+  | ExpectedVarIdentifer
+  | ExprectedObjectToDereference
+  | PrivateAccessError of string * string
+  | UnknownField of string * string (* первый элемент в паре - имя класса, второй - имя поля *)
 (* Кидаем если пользователь хотел переменную, а по такому имени в окружении записана функция *)
 [@@deriving show]
 

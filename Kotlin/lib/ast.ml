@@ -5,7 +5,6 @@ type modifier =
   | Public
   | Open
   | Override
-[@@deriving show]
 
 (* Обязательный модификатор в котлин, который применяется только к полям*)
 and variable_modifier =
@@ -13,33 +12,59 @@ and variable_modifier =
   | Var
 
 (* Базовые типы *)
-type typename =
+and typename =
   | Int
   | String
   | Boolean
-  | Class of string
+  | ClassIdentifier of string
   | Nullable of typename
-[@@deriving show]
 
 (* Значения, которые могут принимать переменные *)
-type value =
+and value =
   | IntValue of int
   | StringValue of string
   | BooleanValue of bool
   | AnonymousFunction of function_t
+  | Object of object_t
   | NullValue
   | Unitialized
+
+and record_content =
+  | Variable of variable_t
+  | Function of function_t
+  | Class of class_t
+
+and record_t =
+  { name : string
+  ; modifiers : modifier list
+  ; clojure : record_t list ref
+  ; content : record_content
+  }
 
 (* Переменная представляется как пара из имени переменной и значения *)
 and variable_t =
   { var_typename : typename
-  ; value : value
+  ; mutable_status : bool
+  ; value : value ref
   }
 
 and function_t =
   { fun_typename : typename
   ; arguments : (string * typename) list
   ; statement : statement
+  }
+
+and object_t =
+  { super : object_t option
+  ; obj_class : class_t
+  ; fields : record_t list
+  ; methods : record_t list
+  }
+
+and class_t =
+  { constructor_args : (string * typename) list
+  ; super_call : expression option
+  ; statements : statement list
   }
 
 and expression =
@@ -55,27 +80,23 @@ and expression =
   | Less of expression * expression
   | Const of value
   | VarIdentifier of string
-  | ClassCreation of string * string list * expression list (* string<string list>(expression list) *)
-  | MethodCall of string * string * expression list (* string.string(expression list) *)
   | FunctionCall of string * expression list
-(* string(expression list) *)
+  | Dereference of expression * expression
+(* expression.expression where expression = FunctionCall | VarIdentifier *)
+[@@deriving show]
 
 and statement =
   | Return of expression
   | Expression of expression
-  | Assign of string * expression (* string = expression *)
+  | Assign of expression * expression (* string = expression *)
   | If of expression * statement * statement option (* if(expression) statement else statement *)
   | While of expression * statement (* while(expression) statement *)
   | VarDeclaration of
       modifier list * variable_modifier * string * typename * expression option (* modifiers variable_modifier string: typename = expression *)
   | FunDeclaration of
       modifier list * string * (string * typename) list * typename * statement (* modifiers fun string((string * typename) list): typename statement *)
+  (* пофиксить проблему с тем, что тип функции может быть пустым *)
   | ClassDeclaration of
-      modifier list
-      * string
-      * string list
-      * (modifier list option * variable_modifier option * string * typename * expression)
-        list
-      * statement (* modifiers string<string list>((modifier list option * variable_modifier option * string * typename * expression) list) statement*)
+      modifier list * string * (string * typename) list * expression option * statement (* modifiers string(string * typename list): expression option statement*)
   | Block of statement list
 [@@deriving show]

@@ -61,7 +61,7 @@ let parse_typename =
   | "String" -> return String
   | "Boolean" -> return Boolean
   | str_typename ->
-    return (Class str_typename)
+    return (ClassIdentifier str_typename)
     >>= fun parsed_typename ->
     exactly '?' >> return (Nullable parsed_typename) <|> return parsed_typename
 ;;
@@ -116,6 +116,7 @@ module Expression = struct
   let great_op = token ">" >> return (fun x y -> Less (y, x))
   let less_or_equal_op = token "<=" >> return (fun x y -> Or (Equal (x, y), Less (x, y)))
   let great_or_equal_op = token ">=" >> return (fun x y -> Or (Equal (x, y), Less (y, x)))
+  let dereference_op = exactly '.' >> return (fun x y -> Dereference (x, y))
 
   (* expression parser *)
   let rec expression input = compare_expression input
@@ -141,20 +142,23 @@ module Expression = struct
     (chainl1 (unar_expression <|> highest_prior_expression) mul_op) input
 
   and highest_prior_expression input =
-    (parens expression <|> parsed_value <|> var_identifier) input
+    (parens expression <|> parsed_value <|> dereference_expression <|> var_identifier)
+      input
 
-  and unar_expression input =
-    let parse_not_op =
-      token "!" >> lexeme highest_prior_expression >>= fun x -> return (Not x)
-    in
-    let parse_function_call =
-      parse_identifier
-      >>= fun identifier ->
-      parens (sep_by expression (token ","))
-      >>= fun args -> return (FunctionCall (identifier, args))
-    in
-    (choice [ parse_not_op; parse_function_call ]) input
-  ;;
+  and not_expression input =
+    (token "!" >> lexeme highest_prior_expression >>= fun x -> return (Not x)) input
+
+  and function_call_expression input =
+    (parse_identifier
+    >>= fun identifier ->
+    parens (sep_by expression (token ","))
+    >>= fun args -> return (FunctionCall (identifier, args)))
+      input
+
+  and dereference_expression input =
+    (chainr1 (function_call_expression <|> var_identifier) dereference_op) input
+
+  and unar_expression input = (choice [ not_expression; function_call_expression ]) input
 end
 
 module Statement = struct
@@ -167,8 +171,9 @@ module Statement = struct
   and statement input =
     (choice
        [ block_statement
-       ; var_declaration_statement
        ; fun_declaration_statement
+       ; class_declaration_statement
+       ; var_declaration_statement
        ; while_statement
        ; if_statement
        ; assign_statement
@@ -178,8 +183,39 @@ module Statement = struct
       input
 
   and block_statement input =
-    (braces (sep_by statement (skip_many (exactly ' ') >> newline))
+    (skip_many (exactly ' ')
+    >> braces (sep_by statement (skip_many (exactly ' ') >> newline))
     >>= fun expressions -> return (Block expressions))
+      input
+
+  and class_declaration_statement input =
+    (modifiers
+    >>= fun modifier_list ->
+    token "class"
+    >> parse_identifier
+    >>= fun identifier ->
+    parens
+      (sep_by
+         (parse_identifier
+         >>= fun var_identifier ->
+         token ":"
+         >> parse_typename
+         >>= fun var_typename -> return (var_identifier, var_typename))
+         (token ","))
+    >>= fun constructor_args ->
+    option
+      None
+      (token ":" >> function_call_expression >>= fun fun_call -> return (Some fun_call))
+    >>= fun super_class_constructor ->
+    block_statement
+    >>= fun class_statement ->
+    return
+      (ClassDeclaration
+         ( modifier_list
+         , identifier
+         , constructor_args
+         , super_class_constructor
+         , class_statement )))
       input
 
   and var_declaration_statement input =
@@ -232,11 +268,12 @@ module Statement = struct
       input
 
   and assign_statement input =
-    (parse_identifier
-    >>= fun var_identifier ->
+    (expression
+    >>= fun identifier_expression ->
     token "="
     >> expression
-    >>= fun assign_expression -> return (Assign (var_identifier, assign_expression)))
+    >>= fun assign_expression ->
+    return (Assign (identifier_expression, assign_expression)))
       input
 
   and if_statement input =
