@@ -129,7 +129,9 @@ let succ_param_exp = succ_p pp_param_exp param_exp_p
 let fail_param_exp = fail_p pp_param_exp param_exp_p
 
 let%test _ = succ_param_exp "$ABC" (Param (SimpleVar (Name "ABC")))
+let%test _ = succ_param_exp "$1" (PosParam 1)
 let%test _ = succ_param_exp "${ABC}" (Param (SimpleVar (Name "ABC")))
+let%test _ = succ_param_exp "${1}" (PosParam 1)
 let%test _ = succ_param_exp "${#ABC}" (Length (SimpleVar (Name "ABC")))
 let%test _ = succ_param_exp "${ABC:-20}" (Substring (SimpleVar (Name "ABC"), -20, 0))
 let%test _ = succ_param_exp "${ABC:5:5}" (Substring (SimpleVar (Name "ABC"), 5, 5))
@@ -145,6 +147,7 @@ let%test _ = succ_param_exp "${ABC/#a}" (SubstBeg (SimpleVar (Name "ABC"), "a", 
 let%test _ = succ_param_exp "${ABC/#a/b}" (SubstBeg (SimpleVar (Name "ABC"), "a", "b"))
 let%test _ = succ_param_exp "${ABC/%a}" (SubstEnd (SimpleVar (Name "ABC"), "a", ""))
 let%test _ = succ_param_exp "${ABC/%a/b}" (SubstEnd (SimpleVar (Name "ABC"), "a", "b"))
+let%test _ = fail_param_exp "$-1"
 let%test _ = fail_param_exp " $ABC"
 let%test _ = fail_param_exp "$ABC "
 let%test _ = fail_param_exp " $ABC "

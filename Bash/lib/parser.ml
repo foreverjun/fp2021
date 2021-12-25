@@ -193,6 +193,11 @@ and brace_exp =
 and param_exp_p =
   let is_end c = is_meta c || c = '}' in
   let param = var_p >>| fun v -> Param v in
+  let pos_param =
+    int_p
+    >>= fun x ->
+    if x >= 0 then return (PosParam x) else fail "Illegal positional parameter"
+  in
   let length = char '#' *> var_p >>| fun v -> Length v in
   let substring =
     var_p
@@ -217,8 +222,10 @@ and param_exp_p =
   let subst_end = subst "/%" (fun (v, p, s) -> SubstEnd (v, p, s)) in
   char '$'
   *> (param
+     <|> pos_param
      <|> (char '{'
-          *> (length
+          *> (pos_param
+             <|> length
              <|> substring
              <|> cut_max_beg
              <|> cut_min_beg
