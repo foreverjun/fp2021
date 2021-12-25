@@ -1,6 +1,6 @@
 ### An implementation of Bash mini-language
 
-This is a homework for functional programming course.
+This is a homework for a functional programming course.
 
 License: LGPL
 
@@ -9,11 +9,10 @@ Author: Timofey Pushkin, pushkin.td@gmail.com
 Features done (append only):
 
 - AST
-- Parser (without quoting)
+- Parser
 
 Features in progress (and TODOs):
 
-- Quotes (`'`, `"` and escape character `\ `)
 - Commands
     - Simple commands
     - Pipelines
@@ -25,14 +24,14 @@ Features in progress (and TODOs):
         - `((...))`
 - Functions (with recursion)
     - Because of `{ ... }` not being supported, function body may contain a simple command
-- Variables and parameters (without positional and special parameters)
-- Expansions
+- Variables and parameters (out of positional and special parameters only numerical positional parameters are supported)
+- Expansions (expansions are not allowed to be nested)
     - Brace expansion
     - Shell Parameter Expansion
-    - Command Substitution (with backtick version)
-    - Word Splitting (only on <space>, <tab>, <newline>)
+    - Command Substitution (`$(...)` form) only
+    - Word Splitting (partial, on <space>, <tab>, <newline> only)
+    - Arithmetical expansion (with variables)
     - Filename Expansion
-    - Quote Removal
 - Pattern Matching
-- Redirections (`<`, `>`, `>>`, `<&`, `>&`, no custom descriptors)
-- Arrays (indexed and associative as `name=(key1 value1 key2 value2 … )`)
+- Redirections (`<`, `>`, `>>`, `<&`, `>&`, no descriptors from variables)
+- Arrays (indexed and associative in `name=(key1 value1 key2 value2 … )` form)
