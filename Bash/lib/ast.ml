@@ -141,7 +141,10 @@ type func =
 [@@deriving show { with_path = false }]
 
 (** AST root *)
-type script = Script of script_elem list [@@deriving show { with_path = false }]
+type script =
+  | Empty
+  | Script of script_elem * script
+[@@deriving show { with_path = false }]
 
 (** A function declaration or a pipeline list *)
 and script_elem =

@@ -455,7 +455,12 @@ let script_elem_p =
 let script_p =
   let gap = many (blank1 <|> delim1) in
   let gap1 = blank *> delim1 *> gap in
-  gap *> sep_by gap1 script_elem_p <* gap >>| fun es -> Script es
+  let rec helper g =
+    option
+      Empty
+      (g *> script_elem_p >>= fun hd -> helper gap1 >>| fun tl -> Script (hd, tl))
+  in
+  gap *> helper (return []) <* gap
 ;;
 
 (* -------------------- Main parser function -------------------- *)
@@ -470,7 +475,7 @@ let parse = parse_string ~consume:All script_p
 (* -------------------- Helper functions -------------------- *)
 
 (** Parse string s with parser p *)
-let test_parse p s = Angstrom.parse_string ~consume:All p s
+let test_parse p = parse_string ~consume:All p
 
 (** Check if parser p returns result res on string s *)
 let succ_p pp p s exp =
@@ -1422,44 +1427,49 @@ let%test _ =
   succ_script_p
     "echo 1"
     (Script
-       [ Pipelines
+       ( Pipelines
            (SinglePipeline
               (Pipeline
                  (false, SimpleCommand (Command ([], Word "echo", [ Word "1" ]), []), [])))
-       ])
+       , Empty ))
 ;;
 
 let%test _ =
   succ_script_p
     "meow_f() meow"
     (Script
-       [ FuncDecl
-           (Func (Name "meow_f", SimpleCommand (Command ([], Word "meow", []), [])))
-       ])
+       ( FuncDecl (Func (Name "meow_f", SimpleCommand (Command ([], Word "meow", []), [])))
+       , Empty ))
 ;;
 
 let%test _ =
   succ_script_p
     "meow_f() meow\necho 1"
     (Script
-       [ FuncDecl
-           (Func (Name "meow_f", SimpleCommand (Command ([], Word "meow", []), [])))
-       ; Pipelines
-           (SinglePipeline
-              (Pipeline
-                 (false, SimpleCommand (Command ([], Word "echo", [ Word "1" ]), []), [])))
-       ])
+       ( FuncDecl (Func (Name "meow_f", SimpleCommand (Command ([], Word "meow", []), [])))
+       , Script
+           ( Pipelines
+               (SinglePipeline
+                  (Pipeline
+                     ( false
+                     , SimpleCommand (Command ([], Word "echo", [ Word "1" ]), [])
+                     , [] )))
+           , Empty ) ))
 ;;
 
 let%test _ =
   succ_script_p
     "    \n  \n\n\n meow_f() meow\n  \n  \n\n\n echo 1\n\n\n\n \n \n"
     (Script
-       [ FuncDecl
-           (Func (Name "meow_f", SimpleCommand (Command ([], Word "meow", []), [])))
-       ; Pipelines
-           (SinglePipeline
-              (Pipeline
-                 (false, SimpleCommand (Command ([], Word "echo", [ Word "1" ]), []), [])))
-       ])
+       ( FuncDecl (Func (Name "meow_f", SimpleCommand (Command ([], Word "meow", []), [])))
+       , Script
+           ( Pipelines
+               (SinglePipeline
+                  (Pipeline
+                     ( false
+                     , SimpleCommand (Command ([], Word "echo", [ Word "1" ]), [])
+                     , [] )))
+           , Empty ) ))
 ;;
+
+let%test _ = succ_script_p "         \n\n \n" Empty
