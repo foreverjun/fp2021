@@ -30,7 +30,7 @@ let reserved_keywords =
 let parens parser = between (token "(") (token ")") parser
 let braces parser = between (token "{") (token "}") parser
 
-let modifiers =
+let parse_modifiers =
   many
     (choice
        [ token "public" >> return Public
@@ -41,12 +41,12 @@ let modifiers =
        ])
 ;;
 
-let variable_type_modifier =
+let parse_variable_type_modifier =
   lexeme (choice [ token "val" >> return Val; token "var" >> return Var ])
 ;;
 
 let parse_identifier =
-  lexeme (letter <~> many alpha_num)
+  lexeme (letter <|> exactly '_' <~> many (alpha_num <|> exactly '_'))
   => implode
   >>= function
   | x when List.mem x reserved_keywords -> mzero
@@ -60,25 +60,24 @@ let rec parse_typename input =
         >> parse_typename
         >>= fun fun_typename -> return (FunctionType (arg_typenames, fun_typename)))
   <|> (parse_identifier
-      >>= function
-      | "Dynamic" -> return Dynamic
+      >>= fun identifier ->
+      (match identifier with
       | "Int" -> return Int
       | "String" -> return String
       | "Boolean" -> return Boolean
-      | str_typename ->
-        return (ClassIdentifier str_typename)
-        >>= fun parsed_typename ->
-        exactly '?' >> return (Nullable parsed_typename) <|> return parsed_typename))
+      | str_typename -> return (ClassIdentifier str_typename))
+      >>= fun parsed_typename ->
+      exactly '?' >> return (Nullable parsed_typename) <|> return parsed_typename))
     input
 ;;
 
 module rec Expression : sig
-  val var_identifier : char Opal.input -> (Ast.expression * char Opal.input) option
-  val int_value : char Opal.input -> (Ast.value * char Opal.input) option
-  val string_value : char Opal.input -> (Ast.value * char Opal.input) option
-  val boolean_value : char Opal.input -> (Ast.value * char Opal.input) option
-  val null_value : char Opal.input -> (Ast.value * char Opal.input) option
-  val parsed_value : char Opal.input -> (Ast.expression * char Opal.input) option
+  val parse_var_identifier : char Opal.input -> (Ast.expression * char Opal.input) option
+  val parse_int_value : char Opal.input -> (Ast.value * char Opal.input) option
+  val parse_string_value : char Opal.input -> (Ast.value * char Opal.input) option
+  val parse_boolean_value : char Opal.input -> (Ast.value * char Opal.input) option
+  val parse_null_value : char Opal.input -> (Ast.value * char Opal.input) option
+  val parse_const_value : char Opal.input -> (Ast.expression * char Opal.input) option
 
   val add_op
     :  char Opal.input
@@ -161,7 +160,7 @@ module rec Expression : sig
 end = struct
   open Ast
 
-  let var_identifier =
+  let parse_var_identifier =
     parse_identifier
     >>= (function
           | x when List.mem x reserved_keywords -> mzero
@@ -169,28 +168,37 @@ end = struct
     >>= fun x -> return (VarIdentifier x)
   ;;
 
-  let int_value = many1 digit => implode % int_of_string >>= fun x -> return (IntValue x)
+  let parse_int_value =
+    option '+' (exactly '-')
+    <~> many1 digit
+    => implode % int_of_string
+    >>= fun x -> return (IntValue x)
+  ;;
 
-  let string_value =
-    between (exactly '"') (exactly '"') (many any)
+  let parse_string_value =
+    skip_many space
+    >> between
+         (exactly '"')
+         (exactly '"')
+         (many (satisfy (fun x -> not (Char.equal '"' x))))
     => implode
     >>= fun x -> return (StringValue x)
   ;;
 
-  let boolean_value =
+  let parse_boolean_value =
     token "true"
     <|> token "false"
     >>= fun x -> return (if x == "true" then BooleanValue true else BooleanValue false)
   ;;
 
-  let null_value = token "null" >> return NullValue
+  let parse_null_value = token "null" >> return NullValue
 
-  let parsed_value =
+  let parse_const_value =
     spaces
-    >> int_value
-    <|> boolean_value
-    <|> string_value
-    <|> null_value
+    >> parse_int_value
+    <|> parse_boolean_value
+    <|> parse_string_value
+    <|> parse_null_value
     => fun x -> Const x
   ;;
 
@@ -208,38 +216,43 @@ end = struct
   let great_op = token ">" >> return (fun x y -> Less (y, x))
   let less_or_equal_op = token "<=" >> return (fun x y -> Or (Equal (x, y), Less (x, y)))
   let great_or_equal_op = token ">=" >> return (fun x y -> Or (Equal (x, y), Less (y, x)))
-  let dereference_op = exactly '.' >> return (fun x y -> Dereference (x, y))
+  let dereference_op = token "." >> return (fun x y -> Dereference (x, y))
+  let elvis_dereference_op = token "?." >> return (fun x y -> ElvisDereference (x, y))
 
   (* expression parser *)
-  let rec expression input = compare_expression input
+  let rec expression input = or_expression input
 
   and compare_expression input =
     (chainl1
-       or_expression
+       add_expression
        (choice
           [ equal_op
           ; not_equal_op
-          ; less_op
-          ; great_op
           ; less_or_equal_op
           ; great_or_equal_op
+          ; less_op
+          ; great_op
           ]))
       input
 
   and or_expression input = (chainl1 and_expression or_op) input
-  and and_expression input = (chainl1 add_expression and_op) input
+  and and_expression input = (chainl1 compare_expression and_op) input
   and add_expression input = (chainl1 mul_expression (choice [ add_op; sub_op ])) input
 
   and mul_expression input =
-    (chainl1 (unar_expression <|> highest_prior_expression) mul_op) input
+    (chainl1
+       (unar_expression <|> highest_prior_expression)
+       (choice [ mul_op; div_op; mod_op ]))
+      input
 
   and highest_prior_expression input =
     (choice
        [ parens expression
        ; anonymous_function_expression
-       ; parsed_value
+       ; parse_const_value
        ; dereference_expression
-       ; var_identifier
+       ; function_call_expression
+       ; parse_var_identifier
        ])
       input
 
@@ -250,11 +263,17 @@ end = struct
     (parse_identifier
     >>= fun identifier ->
     parens (sep_by expression (token ","))
-    >>= fun args -> return (FunctionCall (identifier, args)))
+    >>= fun args ->
+    if String.equal identifier "println"
+    then if List.length args = 1 then return (Println (List.hd args)) else mzero
+    else return (FunctionCall (identifier, args)))
       input
 
   and dereference_expression input =
-    (chainr1 (function_call_expression <|> var_identifier) dereference_op) input
+    (chainr1
+       (function_call_expression <|> parse_var_identifier)
+       (elvis_dereference_op <|> dereference_op))
+      input
 
   and unar_expression input = (choice [ not_expression; function_call_expression ]) input
 
@@ -268,6 +287,11 @@ end
 and Statement : sig
   val expression_statement : char Opal.input -> (Ast.statement * char Opal.input) option
   val statement : char Opal.input -> (Ast.statement * char Opal.input) option
+
+  val initialize_block_statement
+    :  char Opal.input
+    -> (Ast.statement * char Opal.input) option
+
   val block_statement : char Opal.input -> (Ast.statement * char Opal.input) option
 
   val class_declaration_statement
@@ -312,6 +336,12 @@ end = struct
        ])
       input
 
+  and initialize_block_statement input =
+    (skip_many (exactly ' ')
+    >> sep_by statement (skip_many (exactly ' ') >> newline)
+    >>= fun expressions -> return (InitializeBlock expressions))
+      input
+
   and block_statement input =
     (skip_many (exactly ' ')
     >> braces (sep_by statement (skip_many (exactly ' ') >> newline))
@@ -319,7 +349,7 @@ end = struct
       input
 
   and class_declaration_statement input =
-    (modifiers
+    (parse_modifiers
     >>= fun modifier_list ->
     token "class"
     >> parse_identifier
@@ -327,10 +357,10 @@ end = struct
     parens
       (sep_by
          (parse_identifier
-         >>= fun var_identifier ->
+         >>= fun parse_var_identifier ->
          token ":"
          >> parse_typename
-         >>= fun var_typename -> return (var_identifier, var_typename))
+         >>= fun var_typename -> return (parse_var_identifier, var_typename))
          (token ","))
     >>= fun constructor_args ->
     option
@@ -349,9 +379,9 @@ end = struct
       input
 
   and var_declaration_statement input =
-    (modifiers
+    (parse_modifiers
     >>= fun modifier_list ->
-    variable_type_modifier
+    parse_variable_type_modifier
     >>= fun type_modifier ->
     parse_identifier
     >>= fun identifier ->
@@ -373,7 +403,7 @@ end = struct
       input
 
   and fun_declaration_statement input =
-    (modifiers
+    (parse_modifiers
     >>= fun modifier_list ->
     token "fun"
     >> parse_identifier
@@ -381,10 +411,10 @@ end = struct
     parens
       (sep_by
          (parse_identifier
-         >>= fun var_identifier ->
+         >>= fun parse_var_identifier ->
          token ":"
          >> parse_typename
-         >>= fun var_typename -> return (var_identifier, var_typename))
+         >>= fun var_typename -> return (parse_var_identifier, var_typename))
          (token ","))
     >>= fun args ->
     token ":"
@@ -411,11 +441,13 @@ end = struct
     >> parens expression
     >>= fun if_expresssion ->
     block_statement
+    <|> expression_statement
     >>= fun if_statement ->
     option
       (If (if_expresssion, if_statement, None))
       (token "else"
       >> block_statement
+      <|> expression_statement
       >>= fun else_statement ->
       return (If (if_expresssion, if_statement, Some else_statement))))
       input
@@ -425,6 +457,7 @@ end = struct
     >> parens expression
     >>= fun while_expression ->
     block_statement
+    <|> expression_statement
     >>= fun while_statement -> return (While (while_expression, while_statement)))
       input
 
@@ -437,10 +470,10 @@ end = struct
           []
           (sep_by
              (parse_identifier
-             >>= fun var_identifier ->
+             >>= fun parse_var_identifier ->
              token ":"
              >> parse_typename
-             >>= fun var_typename -> return (var_identifier, var_typename))
+             >>= fun var_typename -> return (parse_var_identifier, var_typename))
              (token ","))
        >>= fun args ->
        (if List.length args > 0 then token "->" else token "")
