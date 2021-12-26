@@ -39,7 +39,7 @@ and record_content =
 and record_t =
   { name : string
   ; modifiers : modifier list
-  ; clojure : record_t list ref
+  ; clojure : (record_t list ref[@opaque])
   ; content : record_content
   }
 
@@ -57,7 +57,8 @@ and function_t =
   }
 
 and object_t =
-  { super : object_t option
+  { classname : string
+  ; super : object_t option
   ; obj_class : class_t
   ; fields : record_t list
   ; methods : record_t list
@@ -84,7 +85,9 @@ and expression =
   | VarIdentifier of string
   | AnonymousFunctionDeclaration of statement
   | FunctionCall of string * expression list
+  | Println of expression (* println(expression) *)
   | Dereference of expression * expression
+  | ElvisDereference of expression * expression
 (* expression.expression where expression = FunctionCall | VarIdentifier *)
 
 and statement =
@@ -99,7 +102,8 @@ and statement =
       modifier list * string * (string * typename) list * typename * statement (* modifiers fun string((string * typename) list): typename statement *)
   (* пофиксить проблему с тем, что тип функции может быть пустым *)
   | ClassDeclaration of
-      modifier list * string * (string * typename) list * expression option * statement (* modifiers string(string * typename list): expression option statement*)
+      modifier list * string * (string * typename) list * expression option * statement (* modifiers class string(string * typename list): expression option statement*)
   | Block of statement list
+  | InitializeBlock of statement list
   | AnonymousFunctionDeclarationStatement of (string * typename) list * statement
-[@@deriving show]
+[@@deriving show { with_path = false }]
