@@ -28,20 +28,22 @@ module Eval (M : MONAD_FAIL) = struct
 
   (* -------------------- Environment -------------------- *)
 
+  module Map = Map.Make (String)
+
   (** Container for values of variables *)
   type var_t =
     | Val of string (** Simple variable *)
     | IndArray of string list (** Indexed array *)
-    | AssocArray of (string, string) Hashtbl.t (** Associative array *)
+    | AssocArray of string Map.t (** Associative array *)
 
   (** Container for functions (takes arguments and produces contents of stdout, stderr, and return code) *)
   type fun_t = string list -> string * string * int
 
   (** Environment containing variables available in the current scope *)
-  type variables = (string, var_t) Hashtbl.t
+  type variables = var_t Map.t
 
   (** Environment containing functions defined in the current scope *)
-  type functions = (string, fun_t) Hashtbl.t
+  type functions = fun_t Map.t
 
   (** Complete environment *)
   type environment =
@@ -57,7 +59,7 @@ module Eval (M : MONAD_FAIL) = struct
   let rec find_var (name : string) : environments -> var_t option = function
     | [] -> None
     | env :: tl ->
-      (match Hashtbl.find_opt env.vars name with
+      (match Map.find_opt name env.vars with
       | Some v -> Some v
       | None -> find_var name tl)
   ;;
@@ -66,7 +68,7 @@ module Eval (M : MONAD_FAIL) = struct
   let rec find_fun (name : string) : environments -> fun_t option = function
     | [] -> None (* TODO: search for a script file *)
     | env :: tl ->
-      (match Hashtbl.find_opt env.funs name with
+      (match Map.find_opt name env.funs with
       | Some f -> Some f
       | None -> find_fun name tl)
   ;;
@@ -80,8 +82,8 @@ module Eval (M : MONAD_FAIL) = struct
       | None -> ""
       | Some v -> v
     in
-    let htbl_find t i =
-      match Hashtbl.find_opt t i with
+    let map_find t i =
+      match Map.find_opt i t with
       | None -> ""
       | Some v -> v
     in
@@ -91,7 +93,7 @@ module Eval (M : MONAD_FAIL) = struct
       | None -> return ""
       | Some (Val v) -> return v
       | Some (IndArray vs) -> return (list_find vs 0)
-      | Some (AssocArray vs) -> return (htbl_find vs "0"))
+      | Some (AssocArray vs) -> return (map_find vs "0"))
     | Subscript (Name name, index) ->
       (match find_var name envs with
       | None -> return ""
@@ -104,7 +106,7 @@ module Eval (M : MONAD_FAIL) = struct
         (match int_of_string_opt index with
         | None -> return (list_find vs 0)
         | Some i -> return (list_find vs i))
-      | Some (AssocArray vs) -> return (htbl_find vs index))
+      | Some (AssocArray vs) -> return (map_find vs index))
   ;;
 
   (** Evaluate arithmetic *)
@@ -144,7 +146,7 @@ end
 let interpret script =
   let open Eval (Result) in
   match ev_script script with
-  | _ -> failwith "Not implemented"
+  | _ -> "Not implemented"
 ;;
 
 (* ----------------------------------------------- *)
