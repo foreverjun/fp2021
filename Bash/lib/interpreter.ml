@@ -23,27 +23,27 @@ module Result : MONAD_FAIL with type 'a t = ('a, string) result = struct
   let fail = Result.error
 end
 
+module SMap = Map.Make (String)
+
 module Eval (M : MONAD_FAIL) = struct
   open M
 
   (* -------------------- Environment -------------------- *)
 
-  module Map = Map.Make (String)
-
   (** Container for values of variables *)
   type var_t =
     | Val of string (** Simple variable *)
     | IndArray of string list (** Indexed array *)
-    | AssocArray of string Map.t (** Associative array *)
+    | AssocArray of string SMap.t (** Associative array *)
 
   (** Container for functions (takes arguments and produces contents of stdout, stderr, and return code) *)
   type fun_t = string list -> string * string * int
 
   (** Environment containing variables available in the current scope *)
-  type variables = var_t Map.t
+  type variables = var_t SMap.t
 
   (** Environment containing functions defined in the current scope *)
-  type functions = fun_t Map.t
+  type functions = fun_t SMap.t
 
   (** Complete environment *)
   type environment =
@@ -59,7 +59,7 @@ module Eval (M : MONAD_FAIL) = struct
   let rec find_var (name : string) : environments -> var_t option = function
     | [] -> None
     | env :: tl ->
-      (match Map.find_opt name env.vars with
+      (match SMap.find_opt name env.vars with
       | Some v -> Some v
       | None -> find_var name tl)
   ;;
@@ -68,7 +68,7 @@ module Eval (M : MONAD_FAIL) = struct
   let rec find_fun (name : string) : environments -> fun_t option = function
     | [] -> None (* TODO: search for a script file *)
     | env :: tl ->
-      (match Map.find_opt name env.funs with
+      (match SMap.find_opt name env.funs with
       | Some f -> Some f
       | None -> find_fun name tl)
   ;;
@@ -83,7 +83,7 @@ module Eval (M : MONAD_FAIL) = struct
       | Some v -> v
     in
     let map_find t i =
-      match Map.find_opt i t with
+      match SMap.find_opt i t with
       | None -> ""
       | Some v -> v
     in
@@ -166,11 +166,13 @@ let succ_ev ?(envs = []) pp fmt ev ast exp =
   | Ok res ->
     print_string "\n-------------------- Input --------------------\n";
     pp Format.std_formatter ast;
+    Format.pp_print_flush Format.std_formatter ();
     print_string "\n------------------- Expected ------------------\n";
     print_string (fmt exp);
     print_string "\n-------------------- Actual -------------------\n";
     print_string (fmt res);
     print_string "\n-----------------------------------------------\n";
+    flush stdout;
     false
 ;;
 
@@ -195,6 +197,112 @@ let fail_ev ?(envs = []) pp fmt ev ast exp =
     print_string "\n-----------------------------------------------\n";
     flush stdout;
     false
+;;
+
+(* -------------------- Variable -------------------- *)
+
+let succ_ev_var ?(envs = []) = succ_ev ~envs pp_var Fun.id ev_var
+let fail_ev_var ?(envs = []) = fail_ev ~envs pp_var Fun.id ev_var
+
+let%test _ = succ_ev_var (SimpleVar (Name "ABC")) ""
+let%test _ = succ_ev_var (Subscript (Name "ABC", "0")) ""
+
+let%test _ =
+  succ_ev_var
+    ~envs:[ { vars = SMap.singleton "ABC" (Val "2"); funs = SMap.empty; retcode = 0 } ]
+    (SimpleVar (Name "ABC"))
+    "2"
+;;
+
+let%test _ =
+  succ_ev_var
+    ~envs:
+      [ { vars = SMap.singleton "ABC" (IndArray [ "a"; "b"; "c" ])
+        ; funs = SMap.empty
+        ; retcode = 0
+        }
+      ]
+    (SimpleVar (Name "ABC"))
+    "a"
+;;
+
+let%test _ =
+  succ_ev_var
+    ~envs:
+      [ { vars = SMap.singleton "ABC" (IndArray [ "a"; "b"; "c" ])
+        ; funs = SMap.empty
+        ; retcode = 0
+        }
+      ]
+    (Subscript (Name "ABC", "1"))
+    "b"
+;;
+
+let%test _ =
+  succ_ev_var
+    ~envs:
+      [ { vars = SMap.singleton "ABC" (IndArray [ "a"; "b"; "c" ])
+        ; funs = SMap.empty
+        ; retcode = 0
+        }
+      ]
+    (Subscript (Name "ABC", "3"))
+    ""
+;;
+
+let%test _ =
+  succ_ev_var
+    ~envs:
+      [ { vars =
+            SMap.singleton
+              "ABC"
+              (AssocArray (SMap.of_seq (List.to_seq [ "a", "a1"; "b", "b1"; "0", "01" ])))
+        ; funs = SMap.empty
+        ; retcode = 0
+        }
+      ]
+    (SimpleVar (Name "ABC"))
+    "01"
+;;
+
+let%test _ =
+  succ_ev_var
+    ~envs:
+      [ { vars =
+            SMap.singleton
+              "ABC"
+              (AssocArray (SMap.of_seq (List.to_seq [ "a", "a1"; "b", "b1"; "0", "01" ])))
+        ; funs = SMap.empty
+        ; retcode = 0
+        }
+      ]
+    (Subscript (Name "ABC", "b"))
+    "b1"
+;;
+
+let%test _ =
+  succ_ev_var
+    ~envs:
+      [ { vars =
+            SMap.singleton
+              "ABC"
+              (AssocArray (SMap.of_seq (List.to_seq [ "a", "a1"; "b", "b1"; "0", "01" ])))
+        ; funs = SMap.empty
+        ; retcode = 0
+        }
+      ]
+    (Subscript (Name "ABC", "!"))
+    ""
+;;
+
+let%test _ =
+  succ_ev_var
+    ~envs:
+      [ { vars = SMap.singleton "ABC" (Val "1"); funs = SMap.empty; retcode = 0 }
+      ; { vars = SMap.singleton "ABC" (Val "2"); funs = SMap.empty; retcode = 0 }
+      ]
+    (SimpleVar (Name "ABC"))
+    "1"
 ;;
 
 (* -------------------- Arithmetic -------------------- *)
