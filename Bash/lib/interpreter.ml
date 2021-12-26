@@ -1,5 +1,7 @@
 open Ast
 
+(* -------------------- Helper module types and modules -------------------- *)
+
 module type MONAD = sig
   type 'a t
 
@@ -14,6 +16,7 @@ module type MONAD_FAIL = sig
   val fail : string -> 'a t
 end
 
+(** Result as a monad with a fail function *)
 module Result : MONAD_FAIL with type 'a t = ('a, string) result = struct
   type 'a t = ('a, string) result
 
@@ -23,8 +26,20 @@ module Result : MONAD_FAIL with type 'a t = ('a, string) result = struct
   let fail = Result.error
 end
 
-module SMap = Map.Make (String)
+(** Map with string keys and pretty-printing for deriving *)
+module SMap = struct
+  include Map.Make (String)
 
+  let pp pp_v ppf m =
+    Format.fprintf ppf "@[[@[";
+    iter (fun k v -> Format.fprintf ppf "@[\"%s\": %a@],@\n" k pp_v v) m;
+    Format.fprintf ppf "@]]@]"
+  ;;
+end
+
+(* -------------------- Interpreter -------------------- *)
+
+(** Main interpreter module *)
 module Eval (M : MONAD_FAIL) = struct
   open M
 
@@ -35,15 +50,17 @@ module Eval (M : MONAD_FAIL) = struct
     | Val of string (** Simple variable *)
     | IndArray of string list (** Indexed array *)
     | AssocArray of string SMap.t (** Associative array *)
+  [@@deriving show { with_path = false }]
 
   (** Container for functions (takes arguments and produces contents of stdout, stderr, and return code) *)
   type fun_t = string list -> string * string * int
+  [@@deriving show { with_path = false }]
 
   (** Environment containing variables available in the current scope *)
-  type variables = var_t SMap.t
+  type variables = var_t SMap.t [@@deriving show { with_path = false }]
 
   (** Environment containing functions defined in the current scope *)
-  type functions = fun_t SMap.t
+  type functions = fun_t SMap.t [@@deriving show { with_path = false }]
 
   (** Complete environment *)
   type environment =
@@ -51,9 +68,10 @@ module Eval (M : MONAD_FAIL) = struct
     ; funs : functions
     ; retcode : int
     }
+  [@@deriving show { with_path = false }]
 
   (** All available environments with the first element as the innermost scope *)
-  type environments = environment list
+  type environments = environment list [@@deriving show { with_path = false }]
 
   (** Searches for a variable with the given name in the provided environments *)
   let rec find_var (name : string) : environments -> var_t option = function
@@ -167,6 +185,9 @@ let succ_ev ?(envs = []) pp fmt ev ast exp =
     print_string "\n-------------------- Input --------------------\n";
     pp Format.std_formatter ast;
     Format.pp_print_flush Format.std_formatter ();
+    print_string "\n----------------- Environments --------------------\n";
+    pp_environments Format.std_formatter envs;
+    Format.pp_print_flush Format.std_formatter ();
     print_string "\n------------------- Expected ------------------\n";
     print_string (fmt exp);
     print_string "\n-------------------- Actual -------------------\n";
@@ -183,6 +204,9 @@ let fail_ev ?(envs = []) pp fmt ev ast exp =
     print_string "\n-------------------- Input --------------------\n";
     pp Format.std_formatter ast;
     Format.pp_print_flush Format.std_formatter ();
+    print_string "\n----------------- Environments --------------------\n";
+    pp_environments Format.std_formatter envs;
+    Format.pp_print_flush Format.std_formatter ();
     print_string "\n--------------- Unexpected error ------------------\n";
     print_string e;
     print_string "\n-----------------------------------------------\n";
@@ -191,6 +215,9 @@ let fail_ev ?(envs = []) pp fmt ev ast exp =
   | Ok res ->
     print_string "\n-------------------- Input --------------------\n";
     pp Format.std_formatter ast;
+    Format.pp_print_flush Format.std_formatter ();
+    print_string "\n----------------- Environments --------------------\n";
+    pp_environments Format.std_formatter envs;
     Format.pp_print_flush Format.std_formatter ();
     print_string "\n-------------------- Actual -------------------\n";
     print_string (fmt res);
