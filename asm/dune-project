@@ -18,7 +18,7 @@
  (name asm) ; FIXME and regenerate .opam file using 'dune build @install'
  (synopsis "An interpreter for asm")
  (description
-  "Real assembler interpreter. With support for some SIMD operations, such as vector and matrix multiplication")
+  "Mini assembler interpreter. With support for some SIMD operations, such as vector and matrix multiplication")
  (version 0.1)
  (depends
   dune

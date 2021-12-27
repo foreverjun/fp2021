@@ -1,7 +1,7 @@
 (library
- (name Asm_lib)
+ (name asm_lib)
  (public_name asm.Lib)
- (modules Ast Parser Tests) ; TODO сюда писать все файлы из lib
+ (modules Ast Parser) ; TODO сюда писать все файлы из lib
  (libraries base angstrom)
  (preprocess
   (pps ppx_expect ppx_deriving.show))

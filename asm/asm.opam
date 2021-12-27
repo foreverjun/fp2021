@@ -3,7 +3,7 @@ opam-version: "2.0"
 version: "0.1"
 synopsis: "An interpreter for asm"
 description:
-  "Real assembler interpreter. With support for some SIMD operations, such as vector and matrix multiplication"
+  "Mini assembler interpreter. With support for some SIMD operations, such as vector and matrix multiplication"
 maintainer: ["https://github.com/shlegelal"]
 authors: ["Alina Shlegel"]
 license: "LGPL-3.0-only"

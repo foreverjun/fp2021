@@ -35,16 +35,16 @@ opam init
 
 тут предложат сделать файл конфиг для окружения, я сделала (иначе придется постоянно писать `eval $(opam env)`)
 
-- Установка [__OCaml__](https://ocaml.org/docs/install.html) (4.13.1) from [__releases__](https://ocaml.org/releases/)
+- Установка [__OCaml__](https://ocaml.org/docs/install.html) (4.12.1) from [__releases__](https://ocaml.org/releases/)
 
 ```shell 
-opam switch create 4.13.1+flambda --package=ocaml-variants.4.13.1+options,ocaml-option-flambda
+opam switch create 4.12.1+flambda --package=ocaml-variants.4.12.1+options,ocaml-option-flambda
 ```
 
 - Переключение switch и удаление дефолтного (или других)
 
 ```shell 
-opam switch 4.13.1+flambda
+opam switch 4.12.1+flambda
 opam switch remove default
 ```
 

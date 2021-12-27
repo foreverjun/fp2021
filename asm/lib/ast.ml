@@ -1,49 +1,46 @@
-(** The main type for asm AST *)
+(** Mini Assembler AST. *)
 
-type directive_list = DirectiveDist of directive list
+(** The main type for assembler AST. *)
+type directive = Directive of sec_dir list
+[@@deriving show {with_path= false}]
 
-and directive = Directive of simple_seg_dir * in_seg_dir list option
+(** [sec_dir] splits [directive] into sections, which begin with the keyword [SECTION] and the section type [.CODE], [.TEXT], [.DATA] or [.CONST]. *)
+and sec_dir = Section of string * in_sec_dir list
+[@@deriving show {with_path= false}]
 
-and general_dir =
+(** [in_sec_dir] separates out the special assembler section elements: [EQU] and [EQUAL]. *)
+and in_sec_dir =
+  | InDir of id option * in_segment_dir
   | EquDir of id * expr
   | EqualDir of id * expr
+[@@deriving show {with_path= false}]
 
-and in_seg_dir = id option * in_segment_dir
-
+(** [in_segment_dir] divides the section into data and code segments. *)
 and in_segment_dir =
-  | Instruction of instruction
-  | DataDir of data_dir
-  | GeneralDir of general_dir
+  | Instruction of mnemonic * expr list
+  | DataDecl of string * init_value list
+[@@deriving show {with_path= false}]
 
-and instruction = mnemonic * expr list option
+(** [init_value] contains the initial value of the expression or string.*)
+and init_value = Expr of expr | Str of string | Dup of expr * string
+[@@deriving show {with_path= false}]
 
-and data_dir = data_decl * init_value list
-
-and init_value =
-  | Expr of expr
-  | Str of string
-  | Dup of init_value list
-
+(** [expr] contains the expression structure. *)
 and expr =
   | Add of expr * expr
   | Sub of expr * expr
   | Mul of expr * expr
-  | Dev of expr * expr
+  | Div of expr * expr
   | Mod of expr * expr
   | Shl of expr * expr
   | Shr of expr * expr
   | Reg of string
   | Label of string
   | Const of int
-[@@deriving show { with_path = false }]
+[@@deriving show {with_path= false}]
 
-and simple_seg_dir = SimpleSegDit
-(* .CODE | .TEXT | .DATA  | .CONST *)
+(** [mnemonic] contains the name of the commands. *)
+and mnemonic = Mnemonic of string [@@deriving show {with_path= false}]
 
-and data_decl = DataDecl
-(* DB | DW | DD | DF | DQ | DT *)
-
-and mnemonic = Mnemonic of string
-(* commands *)
-
-and id = Id of string
+(** [id] contains an assembler label. *)
+and id = Id of string [@@deriving show {with_path= false}]
