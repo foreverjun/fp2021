@@ -2,22 +2,15 @@ open Ast
 
 (* -------------------- Helper module types and modules -------------------- *)
 
-module type MONAD = sig
-  type 'a t
+module type MonadFail = sig
+  include Base.Monad.Infix
 
   val return : 'a -> 'a t
-  val ( >>= ) : 'a t -> ('a -> 'b t) -> 'b t
-  val ( >>| ) : 'a t -> ('a -> 'b) -> 'b t
-end
-
-module type MONAD_FAIL = sig
-  include MONAD
-
   val fail : string -> 'a t
 end
 
 (** Result as a monad with a fail function *)
-module Result : MONAD_FAIL with type 'a t = ('a, string) result = struct
+module Result : MonadFail with type 'a t = ('a, string) result = struct
   type 'a t = ('a, string) result
 
   let return = Result.ok
@@ -40,7 +33,7 @@ end
 (* -------------------- Interpreter -------------------- *)
 
 (** Main interpreter module *)
-module Eval (M : MONAD_FAIL) = struct
+module Eval (M : MonadFail) = struct
   open M
 
   (* -------------------- Environment -------------------- *)
