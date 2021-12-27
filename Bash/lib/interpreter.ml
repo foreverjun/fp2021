@@ -106,13 +106,13 @@ module Eval (M : MONAD_FAIL) = struct
       | Some v -> v
     in
     function
-    | SimpleVar (Name name) ->
+    | SimpleVar name ->
       (match find_var name envs with
       | None -> return ""
       | Some (Val v) -> return v
       | Some (IndArray vs) -> return (list_find vs 0)
       | Some (AssocArray vs) -> return (map_find vs "0"))
-    | Subscript (Name name, index) ->
+    | Subscript (name, index) ->
       (match find_var name envs with
       | None -> return ""
       | Some (Val v) ->
@@ -231,13 +231,13 @@ let fail_ev ?(envs = []) pp fmt ev ast exp =
 let succ_ev_var ?(envs = []) = succ_ev ~envs pp_var Fun.id ev_var
 let fail_ev_var ?(envs = []) = fail_ev ~envs pp_var Fun.id ev_var
 
-let%test _ = succ_ev_var (SimpleVar (Name "ABC")) ""
-let%test _ = succ_ev_var (Subscript (Name "ABC", "0")) ""
+let%test _ = succ_ev_var (SimpleVar "ABC") ""
+let%test _ = succ_ev_var (Subscript ("ABC", "0")) ""
 
 let%test _ =
   succ_ev_var
     ~envs:[ { vars = SMap.singleton "ABC" (Val "2"); funs = SMap.empty; retcode = 0 } ]
-    (SimpleVar (Name "ABC"))
+    (SimpleVar "ABC")
     "2"
 ;;
 
@@ -249,7 +249,7 @@ let%test _ =
         ; retcode = 0
         }
       ]
-    (SimpleVar (Name "ABC"))
+    (SimpleVar "ABC")
     "a"
 ;;
 
@@ -261,7 +261,7 @@ let%test _ =
         ; retcode = 0
         }
       ]
-    (Subscript (Name "ABC", "1"))
+    (Subscript ("ABC", "1"))
     "b"
 ;;
 
@@ -273,7 +273,7 @@ let%test _ =
         ; retcode = 0
         }
       ]
-    (Subscript (Name "ABC", "3"))
+    (Subscript ("ABC", "3"))
     ""
 ;;
 
@@ -288,7 +288,7 @@ let%test _ =
         ; retcode = 0
         }
       ]
-    (SimpleVar (Name "ABC"))
+    (SimpleVar "ABC")
     "01"
 ;;
 
@@ -303,7 +303,7 @@ let%test _ =
         ; retcode = 0
         }
       ]
-    (Subscript (Name "ABC", "b"))
+    (Subscript ("ABC", "b"))
     "b1"
 ;;
 
@@ -318,7 +318,7 @@ let%test _ =
         ; retcode = 0
         }
       ]
-    (Subscript (Name "ABC", "!"))
+    (Subscript ("ABC", "!"))
     ""
 ;;
 
@@ -328,7 +328,7 @@ let%test _ =
       [ { vars = SMap.singleton "ABC" (Val "1"); funs = SMap.empty; retcode = 0 }
       ; { vars = SMap.singleton "ABC" (Val "2"); funs = SMap.empty; retcode = 0 }
       ]
-    (SimpleVar (Name "ABC"))
+    (SimpleVar "ABC")
     "1"
 ;;
 

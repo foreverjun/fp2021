@@ -1,7 +1,7 @@
 (** AST *)
 
 (** Name of a variable or a function *)
-type name = Name of string [@@deriving show { with_path = false }]
+type name = string [@@deriving show { with_path = false }]
 
 (** Variable reference *)
 type var =
@@ -85,60 +85,48 @@ type redir =
 
 (** List of pipelines *)
 type pipeline_list =
-  | SinglePipeline of pipeline (** list containing a single pipeline *)
+  | Pipeline of pipeline (** list containing a single pipeline *)
   | PipelineAndList of pipeline * pipeline_list (** pipeline && other-pipelines *)
   | PipelineOrList of pipeline * pipeline_list (** pipeline || other-pipelines *)
 [@@deriving show { with_path = false }]
 
-(** Pipeline *)
-and pipeline =
-  | Pipeline of bool * compound * compound list
-      (** \[ ! \] command1 \[ | command2 \[ | ... \] \] *)
-[@@deriving show { with_path = false }]
+(** Pipeline in the form of \[ ! \] command1 \[ | command2 \[ | ... \] \] *)
+and pipeline = bool * compound * compound list [@@deriving show { with_path = false }]
 
 (** Compound command *)
 and compound =
   | While of while_loop * redir list
-  | For of for_loop * redir list
+  | ForList of for_list_loop * redir list
+  | ForExpr of for_expr_loop * redir list
   | If of if_stmt * redir list
   | Case of case_stmt * redir list
   | ArithmExpr of arithm * redir list (** (( ... )) *)
   | SimpleCommand of cmd * redir list
 [@@deriving show { with_path = false }]
 
-(** While loop *)
-and while_loop =
-  | WhileLoop of pipeline_list * pipeline_list (** while list; do list; done *)
+(** While loop in the form of while list; do list; done *)
+and while_loop = pipeline_list * pipeline_list [@@deriving show { with_path = false }]
+
+(** For loop in the form of or name in \[ word ... \]; do list ; done *)
+and for_list_loop = name * word list * pipeline_list
 [@@deriving show { with_path = false }]
 
-(** For loop in two forms *)
-and for_loop =
-  | ListFor of name * word list * pipeline_list
-      (** for name in \[ word ... \]; do list ; done *)
-  | ExprFor of arithm * arithm * arithm * pipeline_list
-      (** for (( expr1 ; expr2 ; expr3 )) ; do list ; done *)
+(** For loop in the form of for (( expr1 ; expr2 ; expr3 )) ; do list ; done *)
+and for_expr_loop = arithm * arithm * arithm * pipeline_list
 [@@deriving show { with_path = false }]
 
-(** If statement *)
-and if_stmt =
-  | IfStmt of pipeline_list * pipeline_list * pipeline_list option
-      (** if list; then list; \[ else list; \] fi *)
+(** If statement in the form of if list; then list; \[ else list; \] fi *)
+and if_stmt = pipeline_list * pipeline_list * pipeline_list option
 [@@deriving show { with_path = false }]
 
-(** Case statement *)
-and case_stmt =
-  | CaseStmt of word * case_item list (** case word in \[ case_item \] ... esac *)
-[@@deriving show { with_path = false }]
+(** Case statement in the form case word in \[ case_item \] ... esac *)
+and case_stmt = word * case_item list [@@deriving show { with_path = false }]
 
-(** An element of a case statement *)
-and case_item =
-  | CaseItem of word * word list * pipeline_list (* \[(\] pattern \[ | pattern \] ... ) list ;; *)
-[@@deriving show { with_path = false }]
+(** An element of a case statement in the form \[(\] pattern \[ | pattern \] ... ) list ;; *)
+and case_item = word * word list * pipeline_list [@@deriving show { with_path = false }]
 
-(** Function *)
-type func =
-  | Func of name * compound (** function name \[()\] compound or name () compound *)
-[@@deriving show { with_path = false }]
+(** Function in the form of function name \[()\] compound or name () compound *)
+type func = name * compound [@@deriving show { with_path = false }]
 
 (** AST root *)
 type script =
@@ -148,6 +136,6 @@ type script =
 
 (** A function declaration or a pipeline list *)
 and script_elem =
-  | FuncDecl of func
+  | Func of func
   | Pipelines of pipeline_list
 [@@deriving show { with_path = false }]

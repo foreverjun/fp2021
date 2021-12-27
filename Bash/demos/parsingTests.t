@@ -18,61 +18,55 @@ the answer is correct.
   > EOF
   (Script (
      (Pipelines
-        (SinglePipeline
-           (Pipeline (false,
-              (SimpleCommand (
-                 (Assignt (
-                    (SimpleAssignt ((SimpleVar (Name "VAR")),
-                       (Some (Word "100")))),
-                    [])),
-                 [])),
-              [])))),
+        (Pipeline
+           (false,
+            (SimpleCommand (
+               (Assignt (
+                  (SimpleAssignt ((SimpleVar "VAR"), (Some (Word "100")))), 
+                  [])),
+               [])),
+            []))),
      (Script (
-        (FuncDecl
-           (Func ((Name "some_f"),
-              (SimpleCommand (
-                 (Command ([], (Word "echo"), [(Word "something")])),
-                 [(AppendOtp (1, (Word "output.txt")))]))
-              ))),
+        (Func
+           ("some_f",
+            (SimpleCommand (
+               (Command ([], (Word "echo"), [(Word "something")])),
+               [(AppendOtp (1, (Word "output.txt")))])))),
         (Script (
            (Pipelines
-              (SinglePipeline
-                 (Pipeline (false,
-                    (For (
-                       (ListFor ((Name "i"),
-                          [(Word "1"); (Word "2"); (Word "3")],
-                          (SinglePipeline
-                             (Pipeline (false,
-                                (SimpleCommand (
-                                   (Command ([], (Word "echo"), [(Word "i")])),
-                                   [])),
-                                [])))
-                          )),
-                       [])),
-                    [(SimpleCommand (
-                        (Command ([], (Word "grep"), [(Word "2")])), []))
-                      ]
-                    )))),
+              (Pipeline
+                 (false,
+                  (ForList (
+                     ("i", [(Word "1"); (Word "2"); (Word "3")],
+                      (Pipeline
+                         (false,
+                          (SimpleCommand (
+                             (Command ([], (Word "echo"), [(Word "i")])), 
+                             [])),
+                          []))),
+                     [])),
+                  [(SimpleCommand ((Command ([], (Word "grep"), [(Word "2")])),
+                      []))
+                    ]))),
            (Script (
               (Pipelines
                  (PipelineAndList (
-                    (Pipeline (false,
-                       (SimpleCommand (
-                          (Command ([], (Word "echo"), [(Word "1")])), 
-                          [])),
-                       [])),
+                    (false,
+                     (SimpleCommand (
+                        (Command ([], (Word "echo"), [(Word "1")])), [])),
+                     []),
                     (PipelineOrList (
-                       (Pipeline (false,
-                          (SimpleCommand (
-                             (Command ([], (Word "echo"), [(Word "2")])), 
-                             [])),
-                          [])),
-                       (SinglePipeline
-                          (Pipeline (false,
-                             (SimpleCommand (
-                                (Command ([], (Word "echo"), [(Word "3")])), 
-                                [])),
-                             [])))
+                       (false,
+                        (SimpleCommand (
+                           (Command ([], (Word "echo"), [(Word "2")])), 
+                           [])),
+                        []),
+                       (Pipeline
+                          (false,
+                           (SimpleCommand (
+                              (Command ([], (Word "echo"), [(Word "3")])), 
+                              [])),
+                           []))
                        ))
                     ))),
               Empty))
