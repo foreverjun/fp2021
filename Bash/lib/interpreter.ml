@@ -185,7 +185,8 @@ module Eval (M : MonadFail) = struct
       let p = if 0 <= pos && pos < s_len then pos else s_len + pos in
       let l =
         match len with
-        | Some l -> if l >= 0 then min l (s_len - p) else s_len + l - p
+        | Some l when l >= 0 -> min l (s_len - p)
+        | Some l -> s_len + l - p
         | None -> s_len - p
       in
       if p >= 0 && l >= 0
