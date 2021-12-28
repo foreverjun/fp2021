@@ -52,7 +52,6 @@ type run_err =
   | Exc of exc
   | Non_exhaustive of ptrn list
   | Div0
-  | Invalid_rec of string
 [@@deriving eq]
 
 let pp_run_err fmt = function
@@ -62,11 +61,6 @@ let pp_run_err fmt = function
   | Non_exhaustive ps ->
     fprintf fmt "This pattern-matching is not exhaustive:\n%a" (pp_print_list pp_ptrn) ps
   | Div0 -> fprintf fmt "Division by zero"
-  | Invalid_rec s ->
-    fprintf
-      fmt
-      "This kind of expression is not allowed as right-hand side of `let rec %s`"
-      s
 ;;
 
 type run_ok_elm = string * (ty * value) [@@deriving eq]
@@ -86,12 +80,9 @@ end = struct
   open M
 
   let lookup_val name env =
-    match BindMap.find_opt name env with
+    match Option.bind (BindMap.find_opt name env) ( ! ) with
     | None -> fail (Unbound name)
-    | Some ref ->
-      (match !ref with
-      | None -> fail (Invalid_rec name)
-      | Some v -> return v)
+    | Some v -> return v
   ;;
 
   let add_val name value env = BindMap.add name (ref (Some value)) env
@@ -538,10 +529,6 @@ let%test _ =
 let x : bool = true && (false || true)
 |} [ "x", VBool true ]
 ;;
-
-let%test _ = test_parse_and_run_err {|
-let rec x : int = x
-|} (Invalid_rec "x")
 
 let%test _ = test_parse_and_run_err {|
 let x : int = 1 / 0

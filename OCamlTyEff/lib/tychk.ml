@@ -8,6 +8,8 @@ exception Occurs_fail
 exception Empty_match
 exception Matching_rebound (* inside pattern *)
 
+exception Invalid_rec of string
+
 type ty_map = ty BindMap.t
 type effs_map = eff_set BindMap.t
 
@@ -433,11 +435,49 @@ let rec infer_ty_effs env expr =
     env
 ;;
 
+let rec remove_ptrn_vals vals = function
+  | PVal name -> BindSet.remove name vals
+  | PConst _ -> vals
+  | PTuple l -> List.fold_left remove_ptrn_vals vals l
+  | PCons (ps, p) -> List.fold_left remove_ptrn_vals vals (p :: ps)
+;;
+
+let rec check_invalid_rec_decl invalid_vals decl =
+  check_invalid_rec_expr
+    (if decl.is_rec then BindSet.add decl.name invalid_vals else invalid_vals)
+    decl.expr
+
+and check_invalid_rec_expr invalid_vals = function
+  | EVal name when is_bound name invalid_vals -> raise (Invalid_rec name)
+  | EConst _ | EVal _ | ENative _ -> ()
+  | EUnop (_, expr) -> check_invalid_rec_expr invalid_vals expr
+  | EBinop (expr1, _, expr2) | EApp (expr1, expr2) ->
+    check_invalid_rec_expr invalid_vals expr1;
+    check_invalid_rec_expr invalid_vals expr2
+  | ETuple l -> List.iter (fun expr -> check_invalid_rec_expr invalid_vals expr) l
+  | ELet (decl, expr) ->
+    check_invalid_rec_decl invalid_vals decl;
+    check_invalid_rec_expr (BindSet.remove decl.name invalid_vals) expr
+  | EMatch (scr, cases) ->
+    check_invalid_rec_expr invalid_vals scr;
+    List.iter
+      (fun (ptrn, expr) ->
+        check_invalid_rec_expr (remove_ptrn_vals invalid_vals ptrn) expr)
+      cases
+  | EFun (_, _, expr) -> check_invalid_rec_expr BindSet.empty expr
+  | ETry (scr, cases) ->
+    check_invalid_rec_expr invalid_vals scr;
+    List.iter (fun (_, expr) -> check_invalid_rec_expr invalid_vals expr) cases
+;;
+
+let check_invalid_rec_program = List.iter (check_invalid_rec_decl BindSet.empty)
+
 let empty_ty_chk_env =
   { decls = BindMap.empty; ty_bvars = BindSet.empty; eff_bvars = BindSet.empty }
 ;;
 
 let check_program program =
+  check_invalid_rec_program program;
   List.fold_left
     (fun env (decl : decl) ->
       let decl_ty = fresh_ty decl.ty env in
