@@ -13,6 +13,7 @@ and variable_modifier =
 
 (* Базовые типы *)
 and typename =
+  | Unit
   | Int
   | String
   | Boolean
@@ -51,13 +52,15 @@ and variable_t =
   }
 
 and function_t =
-  { fun_typename : typename
+  { identity_code : int
+  ; fun_typename : typename
   ; arguments : (string * typename) list
   ; statement : statement
   }
 
 and object_t =
-  { classname : string
+  { identity_code : int
+  ; classname : string
   ; super : object_t option
   ; obj_class : class_t
   ; fields : record_t list

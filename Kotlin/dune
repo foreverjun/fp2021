@@ -10,7 +10,7 @@
  (name REPL)
  (public_name REPL)
  (modules REPL)
- (libraries Kotlin.Lib))
+ (libraries Kotlin.Lib core))
 
 (cram
  (deps ./REPL.exe %{bin:REPL}))
