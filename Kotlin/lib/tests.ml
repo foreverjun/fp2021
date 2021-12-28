@@ -297,6 +297,15 @@ let%test _ =
 ;;
 
 let%test _ =
+  apply_parser statement {| if(true) 1 else 2|}
+  = Some
+      (If
+         ( Const (BooleanValue true)
+         , Expression (Const (IntValue 1))
+         , Some (Expression (Const (IntValue 2))) ))
+;;
+
+let%test _ =
   apply_parser statement {| a = 1 |}
   = Some (Assign (VarIdentifier "a", Const (IntValue 1)))
 ;;
@@ -307,4 +316,525 @@ let%test _ =
       (Assign
          ( Dereference (VarIdentifier "a", VarIdentifier "foo")
          , Add (Mul (Const (IntValue 1), Const (IntValue 2)), Const (IntValue 3)) ))
+;;
+
+(* Тесты на интерпретатор *)
+exception Test_failed
+
+open Utils
+open Interpreter
+open Interpreter.Interpret (Base.Result)
+
+let empty_ctx =
+  let ctx =
+    { environment = []
+    ; checked_not_null_values = []
+    ; last_eval_expr = Unitialized
+    ; last_return_value = Unitialized
+    ; last_derefered_variable = None
+    ; scope = Initialize
+    }
+  in
+  let ctx_with_standard_classes =
+    Base.Option.value_exn (Base.Result.ok (load_standard_classes ctx))
+  in
+  ctx_with_standard_classes
+;;
+
+let%test _ =
+  let ctx = parse_and_run {| fun main(): Int { 
+    return 1
+  } 
+  |} in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 1
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression empty_ctx (Add (Const (IntValue 1), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 3
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Add (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = StringValue "foobar"
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Add (Const (BooleanValue false), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression empty_ctx (Sub (Const (IntValue 1), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue (-1)
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Sub (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression empty_ctx (Mul (Const (IntValue 1), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 2
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Mul (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression empty_ctx (Div (Const (IntValue 2), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 1
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression empty_ctx (Div (Const (IntValue 3), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 1
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression empty_ctx (Mod (Const (IntValue 2), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 0
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression empty_ctx (Mod (Const (IntValue 3), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 1
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Div (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Mod (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (And (Const (BooleanValue true), Const (BooleanValue false)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (And (Const (BooleanValue false), Const (BooleanValue false)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (And (Const (BooleanValue true), Const (BooleanValue true)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (And (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Or (Const (BooleanValue true), Const (BooleanValue false)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Or (Const (BooleanValue false), Const (BooleanValue false)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Or (Const (BooleanValue true), Const (BooleanValue true)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Or (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
+;;
+
+let%test _ =
+  let ctx = interpret_expression empty_ctx (Not (Const (BooleanValue false))) in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+;;
+
+let%test _ =
+  let ctx = interpret_expression empty_ctx (Not (Const (BooleanValue true))) in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+;;
+
+let%test _ =
+  let ctx = interpret_expression empty_ctx (Not (Const (StringValue "foo"))) in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression empty_ctx (Equal (Const (IntValue 1), Const (IntValue 1)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression empty_ctx (Equal (Const (IntValue 42), Const (IntValue 1)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Equal (Const (StringValue "foo"), Const (StringValue "foo")))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Equal (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Equal (Const (StringValue "foo"), Const (StringValue "foo")))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Equal (Const (BooleanValue false), Const (BooleanValue true)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Equal (Const (BooleanValue true), Const (BooleanValue true)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+;;
+
+let%test _ =
+  let ctx = interpret_expression empty_ctx (Equal (Const NullValue, Const NullValue)) in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+;;
+
+let%test _ =
+  let ctx = interpret_expression empty_ctx (Equal (Const Unitialized, Const NullValue)) in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      empty_ctx
+      (Equal
+         ( Const
+             (AnonymousFunction
+                { identity_code = 1
+                ; fun_typename = Int
+                ; arguments = []
+                ; statement = Block []
+                })
+         , Const
+             (AnonymousFunction
+                { identity_code = 2
+                ; fun_typename = Int
+                ; arguments = []
+                ; statement = Block []
+                }) ))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+;;
+;;
+
+let ctx =
+  let obj_class = { constructor_args = []; super_call = None; statements = [] } in
+  interpret_expression
+    empty_ctx
+    (Equal
+       ( Const
+           (Object
+              { identity_code = 1
+              ; classname = "foo"
+              ; super = None
+              ; obj_class
+              ; fields = []
+              ; methods = []
+              })
+       , Const
+           (Object
+              { identity_code = 2
+              ; classname = "foo"
+              ; super = None
+              ; obj_class
+              ; fields = []
+              ; methods = []
+              }) ))
+in
+match ctx with
+| Error _ -> raise Test_failed
+| Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+
+let%test _ =
+  let ctx =
+    interpret_expression empty_ctx (Less (Const (IntValue 1), Const (IntValue 42)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression empty_ctx (Less (Const (IntValue 42), Const (IntValue 1)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression empty_ctx (Less (Const (BooleanValue false), Const (IntValue 1)))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
+;;
+
+let%test _ =
+  let ctx = interpret_expression empty_ctx (Const (IntValue 1)) in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 1
+;;
+
+let%test _ =
+  let ctx = interpret_expression empty_ctx (Const (IntValue 1)) in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 1
+;;
+
+let%test _ =
+  let ctx = interpret_expression empty_ctx (Const (StringValue "foo")) in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = StringValue "foo"
+;;
+
+let%test _ =
+  let ctx = interpret_expression empty_ctx (Const NullValue) in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expr = NullValue
+;;
+
+let%test _ =
+  let rc =
+    { name = "foo"
+    ; modifiers = []
+    ; clojure = ref []
+    ; content =
+        Variable { var_typename = Int; mutable_status = false; value = ref (IntValue 1) }
+    }
+  in
+  let ctx_with_variable = { empty_ctx with environment = [ rc ] } in
+  let ctx = interpret_expression ctx_with_variable (VarIdentifier "foo") in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx ->
+    eval_ctx.last_eval_expr = IntValue 1 && eval_ctx.last_derefered_variable = Some rc
+;;
+
+let%test _ =
+  let ctx = interpret_expression empty_ctx (VarIdentifier "foo") in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnknownVariable "foo" -> true
+    | _ -> raise Test_failed)
+  | Ok _ -> raise Test_failed
 ;;
