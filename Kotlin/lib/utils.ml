@@ -3,6 +3,10 @@ open Ast
 
 type error =
   | EmptyProgram
+  | UnsupportedOperandTypes of expression
+  | IllegalKindOfStatementInsideClass of statement
+  | NotAllowedStatementThere of statement
+  | NullUnsafeAccessError
   | DereferenceError
   | FunctionReturnTypeMismatch of string * typename * value
   | UnknownVariable of string
@@ -19,8 +23,10 @@ type error =
   | ClassSuperConstructorNotValid
   | ExpectedVarIdentifer
   | ExprectedObjectToDereference
+  | ClassNotOpen of string
   | PrivateAccessError of string * string
   | UnknownField of string * string (* первый элемент в паре - имя класса, второй - имя поля *)
+  | UnknownMethod of string * string (* первый элемент в паре - имя класса, второй - имя поля *)
 (* Кидаем если пользователь хотел переменную, а по такому имени в окружении записана функция *)
 [@@deriving show]
 
