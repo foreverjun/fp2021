@@ -203,7 +203,9 @@ and param_exp_p =
     var_p
     >>= fun v ->
     char ':' *> int_p
-    >>= fun off -> option 0 (char ':' *> int_p) >>| fun len -> Substring (v, off, len)
+    >>= fun off ->
+    option None (char ':' *> int_p >>| fun n -> Some n)
+    >>| fun len -> Substring (v, off, len)
   in
   let cut d t = var_p >>= fun v -> string d *> take_till is_end >>| fun p -> t (v, p) in
   let cut_min_beg = cut "#" (fun (v, p) -> CutMinBeg (v, p)) in
@@ -609,8 +611,8 @@ let%test _ = succ_param_exp "$1" (PosParam 1)
 let%test _ = succ_param_exp "${ABC}" (Param (SimpleVar "ABC"))
 let%test _ = succ_param_exp "${1}" (PosParam 1)
 let%test _ = succ_param_exp "${#ABC}" (Length (SimpleVar "ABC"))
-let%test _ = succ_param_exp "${ABC:-20}" (Substring (SimpleVar "ABC", -20, 0))
-let%test _ = succ_param_exp "${ABC:5:5}" (Substring (SimpleVar "ABC", 5, 5))
+let%test _ = succ_param_exp "${ABC:-20}" (Substring (SimpleVar "ABC", -20, None))
+let%test _ = succ_param_exp "${ABC:5:5}" (Substring (SimpleVar "ABC", 5, Some 5))
 let%test _ = succ_param_exp "${ABC#*.ml}" (CutMinBeg (SimpleVar "ABC", "*.ml"))
 let%test _ = succ_param_exp "${ABC##*.ml}" (CutMaxBeg (SimpleVar "ABC", "*.ml"))
 let%test _ = succ_param_exp "${ABC%*.ml}" (CutMinEnd (SimpleVar "ABC", "*.ml"))

@@ -30,7 +30,7 @@ type param_exp =
   | Param of var (** $name, $\{name\} *)
   | PosParam of int (** Positional parameters denoted with a number *)
   | Length of var (** $\{#name\} *)
-  | Substring of var * int * int (** $\{name:offset\[:length\]\} *)
+  | Substring of var * int * int option (** $\{name:offset\[:length\]\} *)
   | CutMinBeg of var * string (** $\{name#pattern\} *)
   | CutMaxBeg of var * string (** $\{name##pattern\} *)
   | CutMinEnd of var * string (** $\{name%pattern\} *)
