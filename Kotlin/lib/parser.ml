@@ -417,8 +417,7 @@ end = struct
          >>= fun var_typename -> return (parse_var_identifier, var_typename))
          (token ","))
     >>= fun args ->
-    token ":"
-    >> parse_typename
+    option Unit (token ":" >> parse_typename)
     >>= fun fun_typename ->
     block_statement
     >>= fun fun_statement ->
@@ -446,8 +445,7 @@ end = struct
     option
       (If (if_expresssion, if_statement, None))
       (token "else"
-      >> block_statement
-      <|> expression_statement
+      >> (block_statement <|> expression_statement)
       >>= fun else_statement ->
       return (If (if_expresssion, if_statement, Some else_statement))))
       input
