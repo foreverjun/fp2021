@@ -202,12 +202,14 @@ and param_exp_p =
   let substring =
     var_p
     >>= fun v ->
-    char ':' *> int_p
+    char ':' *> trim arithm_p
     >>= fun off ->
-    option None (char ':' *> int_p >>| fun n -> Some n)
+    option None (char ':' *> trim arithm_p >>| fun n -> Some n)
     >>| fun len -> Substring (v, off, len)
   in
-  let cut d t = var_p >>= fun v -> string d *> take_till is_end >>| fun p -> t (v, p) in
+  let cut d t =
+    var_p >>= fun v -> string d *> take_till is_end >>| fun p -> t (v, String.trim p)
+  in
   let cut_min_beg = cut "#" (fun (v, p) -> CutMinBeg (v, p)) in
   let cut_max_beg = cut "##" (fun (v, p) -> CutMaxBeg (v, p)) in
   let cut_min_end = cut "%" (fun (v, p) -> CutMinEnd (v, p)) in
@@ -216,7 +218,9 @@ and param_exp_p =
     var_p
     >>= fun v ->
     string d *> take_till (fun c -> is_end c || c = '/')
-    >>= fun p -> option "" (char '/' *> take_till is_end) >>| fun s -> t (v, p, s)
+    >>= fun p ->
+    option "" (char '/' *> take_till is_end)
+    >>| fun s -> t (v, String.trim p, String.trim s)
   in
   let subst_one = subst "/" (fun (v, p, s) -> SubstOne (v, p, s)) in
   let subst_all = subst "//" (fun (v, p, s) -> SubstAll (v, p, s)) in
@@ -611,8 +615,14 @@ let%test _ = succ_param_exp "$1" (PosParam 1)
 let%test _ = succ_param_exp "${ABC}" (Param (SimpleVar "ABC"))
 let%test _ = succ_param_exp "${1}" (PosParam 1)
 let%test _ = succ_param_exp "${#ABC}" (Length (SimpleVar "ABC"))
-let%test _ = succ_param_exp "${ABC:-20}" (Substring (SimpleVar "ABC", -20, None))
-let%test _ = succ_param_exp "${ABC:5:5}" (Substring (SimpleVar "ABC", 5, Some 5))
+let%test _ = succ_param_exp "${ABC:-20}" (Substring (SimpleVar "ABC", Num (-20), None))
+
+let%test _ =
+  succ_param_exp
+    "${ABC:  5 + 5  :  5 }"
+    (Substring (SimpleVar "ABC", Plus (Num 5, Num 5), Some (Num 5)))
+;;
+
 let%test _ = succ_param_exp "${ABC#*.ml}" (CutMinBeg (SimpleVar "ABC", "*.ml"))
 let%test _ = succ_param_exp "${ABC##*.ml}" (CutMaxBeg (SimpleVar "ABC", "*.ml"))
 let%test _ = succ_param_exp "${ABC%*.ml}" (CutMinEnd (SimpleVar "ABC", "*.ml"))

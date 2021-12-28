@@ -175,6 +175,12 @@ module Eval (M : MonadFail) = struct
     | Substring (v, pos, len) ->
       ev_var env v
       >>= fun s ->
+      ev_arithm env pos
+      >>= fun pos ->
+      (match len with
+      | Some a -> ev_arithm env a >>| fun n -> Some n
+      | None -> return None)
+      >>= fun len ->
       let s_len = String.length s in
       let p = if 0 <= pos && pos < s_len then pos else s_len + pos in
       let l =
@@ -417,98 +423,98 @@ let%test _ =
 let%test _ =
   succ_ev_param_exp
     ~env:{ vars = SMap.singleton "ABC" (Val "01234"); funs = SMap.empty; retcode = 0 }
-    (Substring (SimpleVar "ABC", 0, Some 3))
+    (Substring (SimpleVar "ABC", Num 0, Some (Num 3)))
     "012"
 ;;
 
 let%test _ =
   succ_ev_param_exp
     ~env:{ vars = SMap.singleton "ABC" (Val "01234"); funs = SMap.empty; retcode = 0 }
-    (Substring (SimpleVar "ABC", 0, Some 5))
+    (Substring (SimpleVar "ABC", Num 0, Some (Num 5)))
     "01234"
 ;;
 
 let%test _ =
   succ_ev_param_exp
     ~env:{ vars = SMap.singleton "ABC" (Val "01234"); funs = SMap.empty; retcode = 0 }
-    (Substring (SimpleVar "ABC", 0, Some 7))
+    (Substring (SimpleVar "ABC", Num 0, Some (Num 7)))
     "01234"
 ;;
 
 let%test _ =
   succ_ev_param_exp
     ~env:{ vars = SMap.singleton "ABC" (Val "01234"); funs = SMap.empty; retcode = 0 }
-    (Substring (SimpleVar "ABC", 2, Some 2))
+    (Substring (SimpleVar "ABC", Num 2, Some (Num 2)))
     "23"
 ;;
 
 let%test _ =
   succ_ev_param_exp
     ~env:{ vars = SMap.singleton "ABC" (Val "01234"); funs = SMap.empty; retcode = 0 }
-    (Substring (SimpleVar "ABC", 2, Some 0))
+    (Substring (SimpleVar "ABC", Num 2, Some (Num 0)))
     ""
 ;;
 
 let%test _ =
   succ_ev_param_exp
     ~env:{ vars = SMap.singleton "ABC" (Val "01234"); funs = SMap.empty; retcode = 0 }
-    (Substring (SimpleVar "ABC", 2, None))
+    (Substring (SimpleVar "ABC", Num 2, None))
     "234"
 ;;
 
 let%test _ =
   succ_ev_param_exp
     ~env:{ vars = SMap.singleton "ABC" (Val "01234"); funs = SMap.empty; retcode = 0 }
-    (Substring (SimpleVar "ABC", -3, Some 2))
+    (Substring (SimpleVar "ABC", Num (-3), Some (Num 2)))
     "23"
 ;;
 
 let%test _ =
   succ_ev_param_exp
     ~env:{ vars = SMap.singleton "ABC" (Val "01234"); funs = SMap.empty; retcode = 0 }
-    (Substring (SimpleVar "ABC", -1, Some 2))
+    (Substring (SimpleVar "ABC", Num (-1), Some (Num 2)))
     "4"
 ;;
 
 let%test _ =
   succ_ev_param_exp
     ~env:{ vars = SMap.singleton "ABC" (Val "01234"); funs = SMap.empty; retcode = 0 }
-    (Substring (SimpleVar "ABC", -6, Some 3))
+    (Substring (SimpleVar "ABC", Num (-6), Some (Num 3)))
     ""
 ;;
 
 let%test _ =
   succ_ev_param_exp
     ~env:{ vars = SMap.singleton "ABC" (Val "01234"); funs = SMap.empty; retcode = 0 }
-    (Substring (SimpleVar "ABC", -3, Some (-2)))
+    (Substring (SimpleVar "ABC", Num (-3), Some (Num (-2))))
     "2"
 ;;
 
 let%test _ =
   succ_ev_param_exp
     ~env:{ vars = SMap.singleton "ABC" (Val "01234"); funs = SMap.empty; retcode = 0 }
-    (Substring (SimpleVar "ABC", -3, Some (-3)))
+    (Substring (SimpleVar "ABC", Num (-3), Some (Num (-3))))
     ""
 ;;
 
 let%test _ =
   succ_ev_param_exp
     ~env:{ vars = SMap.singleton "ABC" (Val "01234"); funs = SMap.empty; retcode = 0 }
-    (Substring (SimpleVar "ABC", 0, Some (-5)))
+    (Substring (SimpleVar "ABC", Num 0, Some (Num (-5))))
     ""
 ;;
 
 let%test _ =
   fail_ev_param_exp
     ~env:{ vars = SMap.singleton "ABC" (Val "01234"); funs = SMap.empty; retcode = 0 }
-    (Substring (SimpleVar "ABC", 4, Some (-3)))
+    (Substring (SimpleVar "ABC", Num 4, Some (Num (-3))))
     "substring expression < 0"
 ;;
 
 let%test _ =
   fail_ev_param_exp
     ~env:{ vars = SMap.singleton "ABC" (Val "01234"); funs = SMap.empty; retcode = 0 }
-    (Substring (SimpleVar "ABC", 0, Some (-6)))
+    (Substring (SimpleVar "ABC", Num 0, Some (Num (-6))))
     "substring expression < 0"
 ;;
 
