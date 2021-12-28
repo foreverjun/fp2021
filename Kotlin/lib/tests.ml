@@ -329,7 +329,7 @@ let empty_ctx =
   let ctx =
     { environment = []
     ; checked_not_null_values = []
-    ; last_eval_expr = Unitialized
+    ; last_eval_expression = Unitialized
     ; last_return_value = Unitialized
     ; last_derefered_variable = None
     ; scope = Initialize
@@ -348,7 +348,7 @@ let%test _ =
   |} in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 1
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
@@ -357,7 +357,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 3
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 3
 ;;
 
 let%test _ =
@@ -368,7 +368,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = StringValue "foobar"
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = StringValue "foobar"
 ;;
 
 let%test _ =
@@ -391,7 +391,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue (-1)
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue (-1)
 ;;
 
 let%test _ =
@@ -414,7 +414,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 2
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 2
 ;;
 
 let%test _ =
@@ -437,7 +437,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 1
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
@@ -446,7 +446,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 1
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
@@ -455,7 +455,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 0
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 0
 ;;
 
 let%test _ =
@@ -464,7 +464,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 1
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
@@ -503,7 +503,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
@@ -514,7 +514,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
@@ -525,7 +525,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
@@ -550,7 +550,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
@@ -561,7 +561,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
@@ -572,7 +572,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
@@ -593,14 +593,14 @@ let%test _ =
   let ctx = interpret_expression empty_ctx (Not (Const (BooleanValue false))) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
   let ctx = interpret_expression empty_ctx (Not (Const (BooleanValue true))) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
@@ -619,7 +619,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
@@ -628,7 +628,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
@@ -639,7 +639,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
@@ -650,7 +650,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
@@ -661,7 +661,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
@@ -672,7 +672,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
@@ -683,21 +683,21 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
   let ctx = interpret_expression empty_ctx (Equal (Const NullValue, Const NullValue)) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
   let ctx = interpret_expression empty_ctx (Equal (Const Unitialized, Const NullValue)) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
@@ -722,7 +722,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 ;;
 
@@ -752,7 +752,7 @@ let ctx =
 in
 match ctx with
 | Error _ -> raise Test_failed
-| Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+| Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 
 let%test _ =
   let ctx =
@@ -760,7 +760,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
@@ -769,7 +769,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
@@ -788,28 +788,28 @@ let%test _ =
   let ctx = interpret_expression empty_ctx (Const (IntValue 1)) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 1
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
   let ctx = interpret_expression empty_ctx (Const (IntValue 1)) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = IntValue 1
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
   let ctx = interpret_expression empty_ctx (Const (StringValue "foo")) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = StringValue "foo"
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = StringValue "foo"
 ;;
 
 let%test _ =
   let ctx = interpret_expression empty_ctx (Const NullValue) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expr = NullValue
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = NullValue
 ;;
 
 let%test _ =
@@ -826,7 +826,8 @@ let%test _ =
   match ctx with
   | Error _ -> raise Test_failed
   | Ok eval_ctx ->
-    eval_ctx.last_eval_expr = IntValue 1 && eval_ctx.last_derefered_variable = Some rc
+    eval_ctx.last_eval_expression = IntValue 1
+    && eval_ctx.last_derefered_variable = Some rc
 ;;
 
 let%test _ =
