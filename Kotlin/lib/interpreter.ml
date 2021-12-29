@@ -9,12 +9,14 @@ module Interpret (M : MONAD_FAIL) = struct
   type scope_type =
     | Initialize
     | Function
-    | DereferencedObject of object_t ref
-    | PrivateInObject of object_t ref
+    | ObjectInitialization of object_t ref
+    | DereferencedObject of object_t ref * context
+    | ThisDereferencedObject of object_t ref * context
     | Method of object_t ref
-    | AnonymousFunction of scope_type
+    | AnonymousFunction of object_t ref option
+  [@@deriving show]
 
-  type context =
+  and context =
     { environment : record_t list
     ; checked_not_null_values : record_t list
     ; last_eval_expression : value
@@ -31,6 +33,8 @@ module Interpret (M : MONAD_FAIL) = struct
     | (Boolean | Nullable Boolean), BooleanValue _ -> true
     | Nullable _, NullValue -> true
     | Unit, Unitialized -> true
+    | (ClassIdentifier identifier | Nullable (ClassIdentifier identifier)), Object obj
+      when String.equal obj.classname identifier -> true
     | _, _ -> false
   ;;
 
@@ -60,15 +64,6 @@ module Interpret (M : MONAD_FAIL) = struct
       (List.find_map rc.modifiers ~f:(function
           | Override -> Some Override
           | _ -> None))
-  ;;
-
-  let rec check_record_accessible_in_ctx ctx rc =
-    match ctx.scope with
-    | PrivateInObject _ | Method _ -> true
-    | AnonymousFunction outer_scope ->
-      check_record_accessible_in_ctx { ctx with scope = outer_scope } rc
-    | _ ->
-      if check_record_is_protected rc || check_record_is_private rc then false else true
   ;;
 
   let get_var_from_env env name =
@@ -117,7 +112,7 @@ module Interpret (M : MONAD_FAIL) = struct
       if not (List.mem var_names rc.name ~equal:String.equal)
       then (
         let new_environment = rc :: ctx.environment in
-        rc.clojure := new_environment;
+        rc.clojure := rc :: !(rc.clojure);
         Some { ctx with environment = new_environment })
       else None
     | Function _ ->
@@ -130,7 +125,7 @@ module Interpret (M : MONAD_FAIL) = struct
       if not (List.mem func_names rc.name ~equal:String.equal)
       then (
         let new_environment = rc :: ctx.environment in
-        rc.clojure := new_environment;
+        rc.clojure := rc :: !(rc.clojure);
         Some { ctx with environment = new_environment })
       else None
     | Class _ ->
@@ -143,7 +138,7 @@ module Interpret (M : MONAD_FAIL) = struct
       if not (List.mem cls_names rc.name ~equal:String.equal)
       then (
         let new_environment = rc :: ctx.environment in
-        rc.clojure := new_environment;
+        rc.clojure := rc :: !(rc.clojure);
         Some { ctx with environment = new_environment })
       else None
   ;;
@@ -159,7 +154,7 @@ module Interpret (M : MONAD_FAIL) = struct
       | _ -> failwith "Should not reach here")
   ;;
 
-  let rec get_field_from_object obj name =
+  let rec get_field_from_object (this_flag : bool) obj name =
     match
       List.find_map obj.fields ~f:(fun r ->
           if String.equal r.name name then Some r else None)
@@ -169,12 +164,16 @@ module Interpret (M : MONAD_FAIL) = struct
       (match obj.super with
       | None -> None
       | Some super ->
-        (match get_field_from_object super name with
+        (match get_field_from_object false super name with
         | None -> None
-        | Some r_super -> if check_record_is_private r_super then None else Some r_super))
+        | Some r_super ->
+          if check_record_is_private r_super
+             || (check_record_is_protected r_super && not this_flag)
+          then None
+          else Some r_super))
   ;;
 
-  let rec get_method_from_object obj name =
+  let rec get_method_from_object (this_flag : bool) obj name =
     match
       List.find_map obj.methods ~f:(fun r ->
           if String.equal r.name name then Some r else None)
@@ -184,9 +183,13 @@ module Interpret (M : MONAD_FAIL) = struct
       (match obj.super with
       | None -> None
       | Some super ->
-        (match get_method_from_object super name with
+        (match get_method_from_object false super name with
         | None -> None
-        | Some r_super -> if check_record_is_private r_super then None else Some r_super))
+        | Some r_super ->
+          if check_record_is_private r_super
+             || (check_record_is_protected r_super && not this_flag)
+          then None
+          else Some r_super))
   ;;
 
   let define_in_object obj rc =
@@ -206,7 +209,7 @@ module Interpret (M : MONAD_FAIL) = struct
         let new_fields = rc :: obj.fields in
         Some { obj with fields = new_fields })
       else (
-        let declared_field = Option.value_exn (get_field_from_object obj rc.name) in
+        let declared_field = Option.value_exn (get_field_from_object true obj rc.name) in
         if check_record_is_open declared_field && check_record_is_override rc
         then (
           let open_rc = { rc with modifiers = Open :: rc.modifiers } in
@@ -223,7 +226,9 @@ module Interpret (M : MONAD_FAIL) = struct
         let new_methods = rc :: obj.methods in
         Some { obj with methods = new_methods })
       else (
-        let declared_method = Option.value_exn (get_method_from_object obj rc.name) in
+        let declared_method =
+          Option.value_exn (get_method_from_object true obj rc.name)
+        in
         if check_record_is_open declared_method && check_record_is_override rc
         then (
           let open_rc = { rc with modifiers = Open :: rc.modifiers } in
@@ -231,6 +236,14 @@ module Interpret (M : MONAD_FAIL) = struct
           Some { obj with fields = new_fields })
         else None)
     | Class _ -> failwith "Not supported"
+  ;;
+
+  let rec get_enclosing_object ctx =
+    match ctx.scope with
+    | Method obj | ObjectInitialization obj | AnonymousFunction (Some obj) -> Some obj
+    | DereferencedObject (_, outer_ctx) | ThisDereferencedObject (_, outer_ctx) ->
+      get_enclosing_object outer_ctx
+    | _ -> None
   ;;
 
   let last_identity = ref 0
@@ -245,22 +258,15 @@ module Interpret (M : MONAD_FAIL) = struct
 
   and interpret_statement ctx stat =
     match stat with
+    | InitInClass statement_block ->
+      (match ctx.scope with
+      | ObjectInitialization _ -> interpret_statement ctx statement_block
+      | _ -> M.fail InitStatementNotInClass)
     | Block statements ->
       List.fold statements ~init:(M.return ctx) ~f:(fun monadic_ctx stat ->
           monadic_ctx
           >>= fun checked_ctx ->
           interpret_statement checked_ctx stat
-          >>= fun stat_eval_ctx ->
-          (match stat with
-          | Expression _ ->
-            (match ctx.scope with
-            | AnonymousFunction _ ->
-              M.return
-                { stat_eval_ctx with
-                  last_return_value = stat_eval_ctx.last_eval_expression
-                }
-            | _ -> M.return stat_eval_ctx)
-          | _ -> M.return stat_eval_ctx)
           >>= fun eval_ctx ->
           match eval_ctx.last_return_value with
           | Unitialized ->
@@ -292,7 +298,13 @@ module Interpret (M : MONAD_FAIL) = struct
       interpret_expression ctx expression
       >>= fun ret_ctx ->
       M.return { ctx with last_return_value = ret_ctx.last_eval_expression }
-    | Expression expression -> interpret_expression ctx expression
+    | Expression expression ->
+      interpret_expression ctx expression
+      >>= fun ret_ctx ->
+      (match ctx.scope with
+      | AnonymousFunction _ ->
+        M.return { ctx with last_return_value = ret_ctx.last_eval_expression }
+      | _ -> M.return ret_ctx)
     | ClassDeclaration
         (modifiers, name, constructor_args, super_call_option, class_statement) ->
       (match class_statement with
@@ -310,6 +322,7 @@ module Interpret (M : MONAD_FAIL) = struct
            { name
            ; modifiers
            ; clojure = ref ctx.environment
+           ; enclosing_object = get_enclosing_object ctx
            ; content = Class { constructor_args; super_call; statements }
            }
        with
@@ -326,6 +339,7 @@ module Interpret (M : MONAD_FAIL) = struct
            { name
            ; modifiers
            ; clojure = ref ctx.environment
+           ; enclosing_object = get_enclosing_object ctx
            ; content =
                Function
                  { identity_code = get_unique_identity_code ()
@@ -350,6 +364,7 @@ module Interpret (M : MONAD_FAIL) = struct
            { name
            ; modifiers
            ; clojure = ref ctx.environment
+           ; enclosing_object = get_enclosing_object ctx
            ; content =
                Variable
                  { var_typename; mutable_status = var_modifier == Var; value = ref value }
@@ -400,7 +415,7 @@ module Interpret (M : MONAD_FAIL) = struct
         if log_val
         then
           interpret_statement ctx while_statement
-          >>= fun eval_while_ctx -> interpret_statement eval_while_ctx stat
+          >>= fun _ -> interpret_statement ctx stat
         else M.return eval_ctx
       | _ -> M.fail ExpectedBooleanValue)
 
@@ -428,15 +443,21 @@ module Interpret (M : MONAD_FAIL) = struct
       M.return { ctx with last_eval_expression = NullValue }
     | AnonymousFunctionDeclaration stat -> interpret_statement ctx stat
     | FunctionCall (identifier, arg_expressions) ->
-      let define_args args_ctx args exprs =
+      let define_args define_ctx args exprs =
+        let args_ctx =
+          match ctx.scope with
+          | DereferencedObject (_, outer_ctx) | ThisDereferencedObject (_, outer_ctx) ->
+            outer_ctx
+          | _ -> ctx
+        in
         List.fold2
           args
           exprs
-          ~init:(M.return args_ctx)
+          ~init:(M.return define_ctx)
           ~f:(fun monadic_ctx (arg_name, arg_typename) arg_expr ->
             monadic_ctx
             >>= fun monadic_ctx ->
-            interpret_expression ctx arg_expr
+            interpret_expression args_ctx arg_expr
             >>= fun eval_expr_ctx ->
             if check_typename_value_correspondance
                  (arg_typename, eval_expr_ctx.last_eval_expression)
@@ -446,7 +467,8 @@ module Interpret (M : MONAD_FAIL) = struct
                   monadic_ctx
                   { name = arg_name
                   ; modifiers = []
-                  ; clojure = ref ctx.environment
+                  ; clojure = ref args_ctx.environment
+                  ; enclosing_object = get_enclosing_object args_ctx
                   ; content =
                       Variable
                         { var_typename = arg_typename
@@ -456,7 +478,7 @@ module Interpret (M : MONAD_FAIL) = struct
                   }
               with
               | None -> M.fail (Redeclaration arg_name)
-              | Some ctx -> M.return ctx)
+              | Some defined_ctx -> M.return defined_ctx)
             else M.fail (VariableTypeMismatch arg_name))
       in
       let eval_function new_ctx func =
@@ -464,7 +486,9 @@ module Interpret (M : MONAD_FAIL) = struct
         | Ok fun_ctx ->
           fun_ctx
           >>= fun fun_ctx ->
-          interpret_statement fun_ctx func.statement
+          interpret_statement
+            { fun_ctx with last_return_value = Unitialized }
+            func.statement
           >>= fun func_eval_ctx ->
           if check_typename_value_correspondance
                (func.fun_typename, func_eval_ctx.last_return_value)
@@ -477,46 +501,40 @@ module Interpret (M : MONAD_FAIL) = struct
         | _ -> M.fail FunctionArgumentsCountMismatch
       in
       (match ctx.scope with
-      | DereferencedObject obj | PrivateInObject obj | Method obj ->
-        (match get_method_from_object !obj identifier with
+      | DereferencedObject (obj, _) | ThisDereferencedObject (obj, _) ->
+        let this_flag =
+          match ctx.scope with
+          | DereferencedObject _ -> false
+          | ThisDereferencedObject _ -> true
+          | _ -> failwith "should not reach here"
+        in
+        (match get_method_from_object this_flag !obj identifier with
         | None ->
-          (match get_field_from_object !obj identifier with
-          | None ->
-            (match ctx.scope with
-            | PrivateInObject _ | Method _ ->
-              interpret_expression { ctx with scope = Initialize } expr
-            | _ -> M.fail (UnknownMethod (!obj.classname, identifier)))
+          (match get_field_from_object this_flag !obj identifier with
+          | None -> M.fail (UnknownMethod (!obj.classname, identifier))
           | Some rc ->
-            if check_record_accessible_in_ctx ctx rc
-            then (
-              match rc.content with
-              | Variable content ->
-                (match !(content.value) with
-                | AnonymousFunction f -> M.return f
-                | _ -> M.fail (UnknownFunction identifier))
-                >>= fun func ->
-                let new_ctx =
-                  { ctx with
-                    environment = !(rc.clojure)
-                  ; scope = AnonymousFunction ctx.scope
-                  }
-                in
-                eval_function new_ctx func
-              | _ -> failwith "should not reach here")
-            else M.fail (PrivateAccessError (!obj.classname, rc.name)))
+            (match rc.content with
+            | Variable content ->
+              (match !(content.value) with
+              | AnonymousFunction f -> M.return f
+              | _ -> M.fail (UnknownFunction identifier))
+              >>= fun func ->
+              let new_ctx =
+                { ctx with
+                  environment = !(rc.clojure)
+                ; scope = AnonymousFunction rc.enclosing_object
+                }
+              in
+              eval_function new_ctx func
+            | _ -> failwith "should not reach here"))
         | Some meth ->
           let meth_content =
             match meth.content with
             | Function f -> f
             | _ -> failwith "should not reach here"
           in
-          if check_record_accessible_in_ctx ctx meth
-          then (
-            let new_ctx =
-              { ctx with environment = !(meth.clojure); scope = Method obj }
-            in
-            eval_function new_ctx meth_content)
-          else M.fail (PrivateAccessError (!obj.classname, meth.name)))
+          let new_ctx = { ctx with environment = !(meth.clojure); scope = Method obj } in
+          eval_function new_ctx meth_content)
       | _ ->
         (match get_function_or_class_from_env ctx.environment identifier with
         | None ->
@@ -532,7 +550,7 @@ module Interpret (M : MONAD_FAIL) = struct
               let new_ctx =
                 { ctx with
                   environment = !(rc.clojure)
-                ; scope = AnonymousFunction ctx.scope
+                ; scope = AnonymousFunction rc.enclosing_object
                 }
               in
               eval_function new_ctx func
@@ -579,14 +597,14 @@ module Interpret (M : MONAD_FAIL) = struct
                 | _ -> M.fail ClassSuperConstructorNotValid))
               >>= fun evaluated_constructor_ctx ->
               M.return
-                { evaluated_constructor_ctx with scope = PrivateInObject new_object }
+                { evaluated_constructor_ctx with scope = ObjectInitialization new_object }
               >>= fun class_inner_ctx ->
               List.fold
                 class_data.statements
                 ~init:(M.return class_inner_ctx)
-                ~f:(fun acc stat ->
-                  acc
-                  >>= fun _ ->
+                ~f:(fun monadic_ctx stat ->
+                  monadic_ctx
+                  >>= fun checked_ctx ->
                   match stat with
                   | VarDeclaration
                       (modifiers, var_modifier, name, var_typename, init_expression) ->
@@ -603,6 +621,7 @@ module Interpret (M : MONAD_FAIL) = struct
                          { name
                          ; modifiers
                          ; clojure = ref ctx.environment
+                         ; enclosing_object = get_enclosing_object class_inner_ctx
                          ; content =
                              Variable
                                { var_typename
@@ -627,6 +646,7 @@ module Interpret (M : MONAD_FAIL) = struct
                          { name
                          ; modifiers
                          ; clojure = ref ctx.environment
+                         ; enclosing_object = get_enclosing_object class_inner_ctx
                          ; content =
                              Function
                                { identity_code = get_unique_identity_code ()
@@ -640,6 +660,7 @@ module Interpret (M : MONAD_FAIL) = struct
                     | Some updated_obj ->
                       new_object := updated_obj;
                       M.return class_inner_ctx)
+                  | InitInClass block -> interpret_statement checked_ctx block
                   | _ -> M.fail (IllegalKindOfStatementInsideClass stat))
               >>= fun _ -> M.return { ctx with last_eval_expression = Object !new_object }
             | _ -> M.fail FunctionArgumentsCountMismatch)
@@ -647,28 +668,29 @@ module Interpret (M : MONAD_FAIL) = struct
             let new_ctx = { ctx with environment = !(rc.clojure); scope = Function } in
             eval_function new_ctx func)))
     | Const x -> M.return { ctx with last_eval_expression = x }
+    | This -> M.fail ThisExpressionError
     | VarIdentifier identifier ->
       (match ctx.scope with
-      | DereferencedObject obj | PrivateInObject obj | Method obj ->
-        if String.equal identifier "this"
-        then M.return { ctx with last_eval_expression = Object !obj }
-        else (
-          match get_field_from_object !obj identifier with
-          | None -> interpret_expression { ctx with scope = Initialize } expr
-          | Some rc ->
-            if check_record_accessible_in_ctx ctx rc
-            then (
-              let field_content =
-                match rc.content with
-                | Variable v -> v
-                | _ -> failwith "should not reach here"
-              in
-              M.return
-                { ctx with
-                  last_eval_expression = !(field_content.value)
-                ; last_derefered_variable = Some rc
-                })
-            else M.fail (PrivateAccessError (!obj.classname, rc.name)))
+      | DereferencedObject (obj, _) | ThisDereferencedObject (obj, _) ->
+        let this_flag =
+          match ctx.scope with
+          | DereferencedObject _ -> false
+          | ThisDereferencedObject _ -> true
+          | _ -> failwith "should not reach here"
+        in
+        (match get_field_from_object this_flag !obj identifier with
+        | None -> M.fail (UnknownField (!obj.classname, identifier))
+        | Some rc ->
+          let field_content =
+            match rc.content with
+            | Variable v -> v
+            | _ -> failwith "should not reach here"
+          in
+          M.return
+            { ctx with
+              last_eval_expression = !(field_content.value)
+            ; last_derefered_variable = Some rc
+            })
       | _ ->
         (match get_var_from_env ctx.environment identifier with
         | None -> M.fail (UnknownVariable identifier)
@@ -683,22 +705,35 @@ module Interpret (M : MONAD_FAIL) = struct
           | _ -> failwith "should not reach here")))
     | Dereference (obj_expression, der_expression)
     | ElvisDereference (obj_expression, der_expression) ->
-      interpret_expression ctx obj_expression
-      >>= fun eval_ctx ->
+      (match obj_expression with
+      | This ->
+        (match ctx.scope with
+        | Method obj | ObjectInitialization obj | AnonymousFunction (Some obj) ->
+          M.return ({ ctx with last_eval_expression = Object !obj }, true)
+        | _ -> M.fail ThisExpressionError)
+      | _ ->
+        interpret_expression ctx obj_expression
+        >>= fun obj_expr_eval_ctx -> M.return (obj_expr_eval_ctx, false))
+      >>= fun (eval_ctx, this_flag) ->
       (match eval_ctx.last_eval_expression with
       | Object obj ->
         let scope =
           match ctx.scope with
-          | DereferencedObject sc_obj | PrivateInObject sc_obj | Method sc_obj ->
-            if !sc_obj == obj
-            then PrivateInObject (ref obj)
-            else DereferencedObject (ref obj)
-          | _ -> DereferencedObject (ref obj)
+          | DereferencedObject (_, outer_ctx) | ThisDereferencedObject (_, outer_ctx) ->
+            if this_flag
+            then ThisDereferencedObject (ref obj, outer_ctx)
+            else DereferencedObject (ref obj, outer_ctx)
+          | _ ->
+            if this_flag
+            then ThisDereferencedObject (ref obj, ctx)
+            else DereferencedObject (ref obj, ctx)
         in
         let obj_ctx = { ctx with scope } in
         (match der_expression with
         | VarIdentifier _ | FunctionCall _ | Dereference _ ->
           interpret_expression obj_ctx der_expression
+          >>= fun ctx_with_eval_dereference ->
+          M.return { ctx_with_eval_dereference with scope = ctx.scope }
         | _ -> M.fail DereferenceError)
       | NullValue ->
         (match expr with
@@ -760,7 +795,6 @@ module Interpret (M : MONAD_FAIL) = struct
           { ctx with
             last_eval_expression = BooleanValue (x.identity_code == y.identity_code)
           }
-        (* FIXME: Кажется, что так сравнивать не верно, так как тут мы хотим узнать, что x и y - это один и тот же (а не структурно одинаковый) объект *)
       | Object x, Object y ->
         M.return
           { ctx with
