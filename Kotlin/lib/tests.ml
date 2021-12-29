@@ -945,9 +945,19 @@ let%test _ =
 open Demos
 
 let%test _ =
-  match parse_and_run dijkstra_algorithm with
+  print_endline "";
+  print_endline "BFS demo";
+  match parse_and_run bfs_algorithm with
+  | Ok _ -> true
+  | Error _ -> raise Test_failed
+;;
+
+let%test _ =
+  print_endline "";
+  print_endline "IteratorMap demo";
+  match parse_and_run iterator_map_algorithm with
   | Ok _ -> true
   | Error err ->
     print_endline (show_error err);
-    false
+    raise Test_failed
 ;;

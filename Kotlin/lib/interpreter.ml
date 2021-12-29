@@ -173,7 +173,7 @@ module Interpret (M : MONAD_FAIL) = struct
           else Some r_super))
   ;;
 
-  let rec get_method_from_object (this_flag : bool) obj name =
+  let rec get_method_from_object this_flag obj name =
     match
       List.find_map obj.methods ~f:(fun r ->
           if String.equal r.name name then Some r else None)
@@ -232,8 +232,8 @@ module Interpret (M : MONAD_FAIL) = struct
         if check_record_is_open declared_method && check_record_is_override rc
         then (
           let open_rc = { rc with modifiers = Open :: rc.modifiers } in
-          let new_fields = open_rc :: obj.fields in
-          Some { obj with fields = new_fields })
+          let new_methods = open_rc :: obj.methods in
+          Some { obj with methods = new_methods })
         else None)
     | Class _ -> failwith "Not supported"
   ;;
