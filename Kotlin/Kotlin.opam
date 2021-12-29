@@ -3,12 +3,12 @@ opam-version: "2.0"
 version: "0.1"
 synopsis: "An interpreter for kotlin"
 description:
-  "FIXME. A longer description, for example, which are the most interesing features being supported, etc."
+  "Kotlin language interpreter with OOP and anonymous functions support"
 maintainer: ["https://github.com/IAmFunkyFrog"]
 authors: ["Stepan Trefilov"]
 license: "LGPL-3.0-only"
-homepage: "FIXME Homepage"
-bug-reports: "FIXME where to put bug reports about the code"
+homepage: "https://github.com/IAmFunkyFrog/fp2021/tree/kotlin/Kotlin"
+bug-reports: "https://github.com/IAmFunkyFrog/fp2021/pulls"
 depends: [
   "dune" {>= "2.8"}
   "angstrom"

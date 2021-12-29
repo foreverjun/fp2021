@@ -10,15 +10,15 @@
 
 (maintainers "https://github.com/IAmFunkyFrog")
 
-(bug_reports "FIXME where to put bug reports about the code")
+(bug_reports "https://github.com/IAmFunkyFrog/fp2021/pulls")
 
-(homepage "FIXME Homepage")
+(homepage "https://github.com/IAmFunkyFrog/fp2021/tree/kotlin/Kotlin")
 
 (package
  (name Kotlin) ; FIXME and regenerate .opam file using 'dune build @install'
  (synopsis "An interpreter for kotlin")
  (description
-  "FIXME. A longer description, for example, which are the most interesing features being supported, etc.")
+  "Kotlin language interpreter with OOP and anonymous functions support")
  (version 0.1)
  (depends
   dune
