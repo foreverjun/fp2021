@@ -129,7 +129,7 @@ let arithm_p =
 (** Word parser. Parameters determine which expansions may be performed. *)
 let rec word_p ?(brc = true) ?(prm = true) ?(cmd = true) ?(ari = true) ?(fln = true) () =
   let skip = fail "Expansion not requested" in
-  (if brc then brace_exp else skip)
+  (if brc then brace_exp () else skip)
   <|> (if prm then param_exp_p >>| fun p -> ParamExp p else skip)
   <|> (if cmd then inn_cmd_subst () else skip)
   <|> (if ari then arithm_exp else skip)
@@ -140,7 +140,7 @@ let rec word_p ?(brc = true) ?(prm = true) ?(cmd = true) ?(ari = true) ?(fln = t
       | s -> return (Word s))
 
 (** Brace expansion *)
-and brace_exp =
+and brace_exp () =
   let prefix =
     take_till (function
         | '{' -> true
@@ -187,7 +187,18 @@ and brace_exp =
   <* char '}'
   >>= fun body ->
   option "" postfix
-  >>| fun post -> BraceExp (List.map (fun s -> String.concat "" [ pre; s; post ]) body)
+  >>= fun post ->
+  (* Constructing a string of form "pre+b1+post pre+b2+post ..." *)
+  let s =
+    List.fold_left
+      (fun acc b -> String.concat " " [ acc; String.concat "" [ pre; b; post ] ])
+      ""
+      body
+  in
+  (* Parsing the resulting string as a list of words without brace expansions *)
+  match parse_string ~consume:All (trim (sep_by1 blank (word_p ~brc:false ()))) s with
+  | Ok ws -> return (BraceExp ws)
+  | Error s -> fail s
 
 (** Parameter expansion parser *)
 and param_exp_p =
@@ -579,27 +590,50 @@ let%test _ = fail_arithm_p "2 + 2 == 4))"
 
 (* -------------------- Brace expansion -------------------- *)
 
-let succ_brace_exp = succ_p pp_word brace_exp
-let fail_brace_exp = fail_p pp_word brace_exp
-
-let%test _ = succ_brace_exp "ab{c,d,e}fd" (BraceExp [ "abcfd"; "abdfd"; "abefd" ])
-let%test _ = succ_brace_exp "ab{c,d,e}" (BraceExp [ "abc"; "abd"; "abe" ])
-let%test _ = succ_brace_exp "{c,d,e}fd" (BraceExp [ "cfd"; "dfd"; "efd" ])
-let%test _ = succ_brace_exp "ab{,,}fd" (BraceExp [ "abfd"; "abfd"; "abfd" ])
-let%test _ = fail_brace_exp "ab{}fd"
-let%test _ = fail_brace_exp "ab{c}fd"
-let%test _ = succ_brace_exp "1a{1..3}b5" (BraceExp [ "1a1b5"; "1a2b5"; "1a3b5" ])
-let%test _ = succ_brace_exp "1a{1..1}b5" (BraceExp [ "1a1b5" ])
-let%test _ = succ_brace_exp "1a{1..4..2}b5" (BraceExp [ "1a1b5"; "1a3b5" ])
-let%test _ = succ_brace_exp "1a{1..4..-2}b5" (BraceExp [ "1a1b5"; "1a3b5" ])
+let succ_brace_exp = succ_p pp_word (brace_exp ())
+let fail_brace_exp = fail_p pp_word (brace_exp ())
 
 let%test _ =
-  succ_brace_exp "1a{1..4..0}b5" (BraceExp [ "1a1b5"; "1a2b5"; "1a3b5"; "1a4b5" ])
+  succ_brace_exp "ab{c,d,e}fd" (BraceExp [ Word "abcfd"; Word "abdfd"; Word "abefd" ])
 ;;
 
-let%test _ = succ_brace_exp "1a{3..1}b5" (BraceExp [ "1a3b5"; "1a2b5"; "1a1b5" ])
-let%test _ = succ_brace_exp "1a{-5..0..2}b5" (BraceExp [ "1a-5b5"; "1a-3b5"; "1a-1b5" ])
-let%test _ = succ_brace_exp "1a{d..a..2}b5" (BraceExp [ "1adb5"; "1abb5" ])
+let%test _ = succ_brace_exp "ab{c,d,e}" (BraceExp [ Word "abc"; Word "abd"; Word "abe" ])
+let%test _ = succ_brace_exp "{c,d,e}fd" (BraceExp [ Word "cfd"; Word "dfd"; Word "efd" ])
+
+let%test _ =
+  succ_brace_exp "ab{,,}fd" (BraceExp [ Word "abfd"; Word "abfd"; Word "abfd" ])
+;;
+
+let%test _ = fail_brace_exp "ab{}fd"
+let%test _ = fail_brace_exp "ab{c}fd"
+
+let%test _ =
+  succ_brace_exp "1a{1..3}b5" (BraceExp [ Word "1a1b5"; Word "1a2b5"; Word "1a3b5" ])
+;;
+
+let%test _ = succ_brace_exp "1a{1..1}b5" (BraceExp [ Word "1a1b5" ])
+let%test _ = succ_brace_exp "1a{1..4..2}b5" (BraceExp [ Word "1a1b5"; Word "1a3b5" ])
+let%test _ = succ_brace_exp "1a{1..4..-2}b5" (BraceExp [ Word "1a1b5"; Word "1a3b5" ])
+
+let%test _ =
+  succ_brace_exp
+    "1a{1..4..0}b5"
+    (BraceExp [ Word "1a1b5"; Word "1a2b5"; Word "1a3b5"; Word "1a4b5" ])
+;;
+
+let%test _ =
+  succ_brace_exp "1a{3..1}b5" (BraceExp [ Word "1a3b5"; Word "1a2b5"; Word "1a1b5" ])
+;;
+
+let%test _ =
+  succ_brace_exp
+    "1a{-5..0..2}b5"
+    (BraceExp [ Word "1a-5b5"; Word "1a-3b5"; Word "1a-1b5" ])
+;;
+
+let%test _ = succ_brace_exp "1a{d..a..2}b5" (BraceExp [ Word "1adb5"; Word "1abb5" ])
+let%test _ = succ_brace_exp "/{lib,*}" (BraceExp [ Word "/lib"; FilenameExp "/*" ])
+let%test _ = fail_brace_exp "$((1{-1..1}))"
 let%test _ = fail_brace_exp " ab{c,d,e}fd"
 let%test _ = fail_brace_exp "ab{c,d,e}fd "
 let%test _ = fail_brace_exp " ab{c,d,e}fd "
@@ -709,7 +743,7 @@ let fail_word_p ?(b = true) ?(p = true) ?(c = true) ?(a = true) ?(f = true) =
 ;;
 
 let%test _ = succ_word_p "something" (Word "something")
-let%test _ = succ_word_p "1{a,b}2" (BraceExp [ "1a2"; "1b2" ])
+let%test _ = succ_word_p "1{a,b}2" (BraceExp [ Word "1a2"; Word "1b2" ])
 let%test _ = succ_word_p "$A" (ParamExp (Param (SimpleVar "A")))
 
 let%test _ =

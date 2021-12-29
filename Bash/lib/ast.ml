@@ -52,7 +52,7 @@ type word =
   Simple command: BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem
   Assignment: ParameterExp, CommandSubst, ArithmExp, QuoteRem
   *)
-  | BraceExp of string list (** Brace expansion *)
+  | BraceExp of word list (** Brace expansion *)
   | ParamExp of param_exp (** Parameter expansion *)
   | CmdSubst of cmd (** $(command) *)
   | ArithmExp of arithm (** $((...)) *)
