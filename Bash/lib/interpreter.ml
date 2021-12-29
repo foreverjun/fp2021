@@ -204,6 +204,29 @@ module Eval (M : MonadFail) = struct
     | SubstEnd (v, p, r) -> subst Re.longest ~all:false ~beg:(Some false) v p r
   ;;
 
+  (** Evaluate filename expansion *)
+  let ev_filename_exp _ = function
+    | FilenameExp s ->
+      let cts dir =
+        let re = Re.Glob.glob s |> Re.whole_string |> Re.compile in
+        let rd d = Array.to_list (Sys.readdir d) in
+        (* Source: https://gist.github.com/lindig/be55f453026c65e761f4e7012f8ab9b5 *)
+        let rec helper res = function
+          | d :: tl when Sys.is_directory d ->
+            rd d
+            |> List.map (Filename.concat d)
+            |> List.append tl
+            |> if Re.execp re d then helper (d :: res) else helper res
+          | f :: tl when Re.execp re f -> helper (f :: res) tl
+          | _ :: tl -> helper res tl
+          | [] -> res
+        in
+        helper [] (rd dir)
+      in
+      cts (Sys.getcwd ()) |> List.sort String.compare |> return
+    | _ -> fail "Not a filename expansion"
+  ;;
+
   (** Evaluate Bash script *)
   let ev_script = function
     | _ -> fail "Not implemented"
@@ -227,34 +250,36 @@ open Eval (Result)
 
 let empty_env = { vars = SMap.empty; funs = SMap.empty; retcode = 0 }
 
-let succ_ev ?(env = empty_env) pp fmt ev ast exp =
-  match ev env ast with
+let succ_ev ?(env = empty_env) pp_giv pp_res ev giv exp =
+  match ev env giv with
   | Error e ->
     Printf.printf "Error: %s\n" e;
     false
   | Ok res when exp = res -> true
   | Ok res ->
     print_string "\n-------------------- Input --------------------\n";
-    pp Format.std_formatter ast;
+    pp_giv Format.std_formatter giv;
     Format.pp_print_flush Format.std_formatter ();
     print_string "\n----------------- Environment --------------------\n";
     pp_environment Format.std_formatter env;
     Format.pp_print_flush Format.std_formatter ();
     print_string "\n------------------- Expected ------------------\n";
-    print_string (fmt exp);
+    pp_res Format.std_formatter exp;
+    Format.pp_print_flush Format.std_formatter ();
     print_string "\n-------------------- Actual -------------------\n";
-    print_string (fmt res);
+    pp_res Format.std_formatter res;
+    Format.pp_print_flush Format.std_formatter ();
     print_string "\n-----------------------------------------------\n";
     flush stdout;
     false
 ;;
 
-let fail_ev ?(env = empty_env) pp fmt ev ast exp =
-  match ev env ast with
+let fail_ev ?(env = empty_env) pp_giv pp_res ev giv exp =
+  match ev env giv with
   | Error e when exp = e -> true
   | Error e ->
     print_string "\n-------------------- Input --------------------\n";
-    pp Format.std_formatter ast;
+    pp_giv Format.std_formatter giv;
     Format.pp_print_flush Format.std_formatter ();
     print_string "\n----------------- Environment --------------------\n";
     pp_environment Format.std_formatter env;
@@ -266,13 +291,14 @@ let fail_ev ?(env = empty_env) pp fmt ev ast exp =
     false
   | Ok res ->
     print_string "\n-------------------- Input --------------------\n";
-    pp Format.std_formatter ast;
+    pp_giv Format.std_formatter giv;
     Format.pp_print_flush Format.std_formatter ();
     print_string "\n----------------- Environment --------------------\n";
     pp_environment Format.std_formatter env;
     Format.pp_print_flush Format.std_formatter ();
     print_string "\n-------------------- Actual -------------------\n";
-    print_string (fmt res);
+    pp_res Format.std_formatter res;
+    Format.pp_print_flush Format.std_formatter ();
     print_string "\n-----------------------------------------------\n";
     flush stdout;
     false
@@ -280,8 +306,8 @@ let fail_ev ?(env = empty_env) pp fmt ev ast exp =
 
 (* -------------------- Variable -------------------- *)
 
-let succ_ev_var ?(env = empty_env) = succ_ev ~env pp_var Fun.id ev_var
-let fail_ev_var ?(env = empty_env) = fail_ev ~env pp_var Fun.id ev_var
+let succ_ev_var ?(env = empty_env) = succ_ev ~env pp_var Format.pp_print_string ev_var
+let fail_ev_var ?(env = empty_env) = fail_ev ~env pp_var Format.pp_print_string ev_var
 
 let%test _ = succ_ev_var (SimpleVar "ABC") ""
 let%test _ = succ_ev_var (Subscript ("ABC", "0")) ""
@@ -379,8 +405,13 @@ let%test _ =
 
 (* -------------------- Arithmetic -------------------- *)
 
-let succ_ev_arithm ?(env = empty_env) = succ_ev ~env pp_arithm string_of_int ev_arithm
-let fail_ev_arithm ?(env = empty_env) = fail_ev ~env pp_arithm string_of_int ev_arithm
+let succ_ev_arithm ?(env = empty_env) =
+  succ_ev ~env pp_arithm Format.pp_print_int ev_arithm
+;;
+
+let fail_ev_arithm ?(env = empty_env) =
+  fail_ev ~env pp_arithm Format.pp_print_int ev_arithm
+;;
 
 let%test _ = succ_ev_arithm (Plus (Num 1, Num 2)) 3
 let%test _ = succ_ev_arithm (Div (Num 1, Num 3)) 0
@@ -390,8 +421,13 @@ let%test _ = fail_ev_arithm (Div (Num 1, Num 0)) "Division by 0"
 
 (* -------------------- Parameter expansion-------------------- *)
 
-let succ_ev_param_exp ?(env = empty_env) = succ_ev ~env pp_param_exp Fun.id ev_param_exp
-let fail_ev_param_exp ?(env = empty_env) = fail_ev ~env pp_param_exp Fun.id ev_param_exp
+let succ_ev_param_exp ?(env = empty_env) =
+  succ_ev ~env pp_param_exp Format.pp_print_string ev_param_exp
+;;
+
+let fail_ev_param_exp ?(env = empty_env) =
+  fail_ev ~env pp_param_exp Format.pp_print_string ev_param_exp
+;;
 
 let%test _ =
   succ_ev_param_exp
@@ -658,3 +694,35 @@ let%test _ =
     (SubstEnd (SimpleVar "ABC", "ab", "!"))
     "abcab!"
 ;;
+
+(* -------------------- Filename expansion-------------------- *)
+
+let succ_ev_filename_exp ?(env = empty_env) =
+  succ_ev
+    ~env
+    pp_word
+    (Format.pp_print_list ~pp_sep:Format.pp_print_newline Format.pp_print_string)
+    ev_filename_exp
+;;
+
+let fail_ev_filename_exp ?(env = empty_env) =
+  fail_ev
+    ~env
+    pp_word
+    (Format.pp_print_list ~pp_sep:Format.pp_print_newline Format.pp_print_string)
+    ev_filename_exp
+;;
+
+let%test _ =
+  succ_ev_filename_exp
+    (FilenameExp "*.ml")
+    (let cwd = Sys.getcwd () in
+     cwd
+     |> Sys.readdir
+     |> Array.to_list
+     |> List.filter (fun f ->
+            Sys.file_exists (Filename.concat cwd f) && Filename.check_suffix f ".ml")
+     |> List.sort String.compare)
+;;
+
+let%test _ = fail_ev_filename_exp (Word "meow") "Not a filename expansion"
