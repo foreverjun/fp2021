@@ -454,7 +454,7 @@ and check_invalid_rec_expr invalid_vals = function
   | EBinop (expr1, _, expr2) | EApp (expr1, expr2) ->
     check_invalid_rec_expr invalid_vals expr1;
     check_invalid_rec_expr invalid_vals expr2
-  | ETuple l -> List.iter (fun expr -> check_invalid_rec_expr invalid_vals expr) l
+  | ETuple l -> List.iter (check_invalid_rec_expr invalid_vals) l
   | ELet (decl, expr) ->
     check_invalid_rec_decl invalid_vals decl;
     check_invalid_rec_expr (BindSet.remove decl.name invalid_vals) expr
