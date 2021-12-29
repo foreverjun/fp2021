@@ -41,6 +41,7 @@ and record_t =
   { name : string
   ; modifiers : modifier list
   ; clojure : (record_t list ref[@opaque])
+  ; enclosing_object : (object_t ref option[@opaque])
   ; content : record_content
   }
 
@@ -86,6 +87,7 @@ and expression =
   | Less of expression * expression
   | Const of value
   | VarIdentifier of string
+  | This
   | AnonymousFunctionDeclaration of statement
   | FunctionCall of string * expression list
   | Println of expression (* println(expression) *)
@@ -108,5 +110,6 @@ and statement =
       modifier list * string * (string * typename) list * expression option * statement (* modifiers class string(string * typename list): expression option statement*)
   | Block of statement list
   | InitializeBlock of statement list
+  | InitInClass of statement (* init { ... } *)
   | AnonymousFunctionDeclarationStatement of (string * typename) list * statement
 [@@deriving show { with_path = false }]

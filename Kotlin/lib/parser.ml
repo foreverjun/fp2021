@@ -163,10 +163,10 @@ end = struct
 
   let parse_var_identifier =
     parse_identifier
-    >>= (function
-          | x when List.mem x reserved_keywords -> mzero
-          | x -> return x)
-    >>= fun x -> return (VarIdentifier x)
+    >>= function
+    | x when String.equal x "this" -> return This
+    | x when List.mem x reserved_keywords -> mzero
+    | x -> return (VarIdentifier x)
   ;;
 
   let parse_int_value =
@@ -249,9 +249,9 @@ end = struct
   and highest_prior_expression input =
     (choice
        [ parens expression
+       ; dereference_expression
        ; anonymous_function_expression
        ; parse_const_value
-       ; dereference_expression
        ; function_call_expression
        ; parse_var_identifier
        ])
@@ -311,6 +311,7 @@ and Statement : sig
   val if_statement : char Opal.input -> (Ast.statement * char Opal.input) option
   val while_statement : char Opal.input -> (Ast.statement * char Opal.input) option
   val return_statement : char Opal.input -> (Ast.statement * char Opal.input) option
+  val init_statement : char Opal.input -> (Ast.statement * char Opal.input) option
 
   val anonymous_function_statement
     :  char Opal.input
@@ -325,6 +326,7 @@ end = struct
   and statement input =
     (choice
        [ block_statement
+       ; init_statement
        ; anonymous_function_statement
        ; fun_declaration_statement
        ; class_declaration_statement
@@ -339,7 +341,7 @@ end = struct
 
   and initialize_block_statement input =
     (skip_many (exactly ' ')
-    >> sep_by statement (skip_many (exactly ' ') >> newline)
+    >> sep_by statement spaces
     >>= fun expressions -> return (InitializeBlock expressions))
       input
 
@@ -488,5 +490,8 @@ end = struct
     >>= fun (args, statements) ->
     return (AnonymousFunctionDeclarationStatement (args, Block statements)))
       input
+
+  and init_statement input =
+    (token "init" >> block_statement >>= fun block -> return (InitInClass block)) input
   ;;
 end
