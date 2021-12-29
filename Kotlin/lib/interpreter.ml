@@ -370,7 +370,10 @@ module Interpret (M : MONAD_FAIL) = struct
            ; enclosing_object = get_enclosing_object ctx
            ; content =
                Variable
-                 { var_typename; mutable_status = var_modifier == Var; value = ref value }
+                 { var_typename
+                 ; mutable_status = Base.phys_equal var_modifier Var
+                 ; value = ref value
+                 }
            }
        with
       | None -> M.fail (Redeclaration name)
@@ -437,10 +440,10 @@ module Interpret (M : MONAD_FAIL) = struct
       interpret_expression ctx print_expr
       >>= fun eval_ctx ->
       (match eval_ctx.last_eval_expression with
-      | IntValue v -> print_endline (Int.to_string v)
-      | StringValue v -> print_endline v
-      | BooleanValue v -> print_endline (if v then "true" else "false")
-      | NullValue | Unitialized -> print_endline "null"
+      | IntValue v -> Stdio.print_endline (Int.to_string v)
+      | StringValue v -> Stdio.print_endline v
+      | BooleanValue v -> Stdio.print_endline (if v then "true" else "false")
+      | NullValue | Unitialized -> Stdio.print_endline "null"
       | Object obj -> Stdlib.Printf.printf "%s@%x\n" obj.classname obj.identity_code
       | _ -> failwith "Unsupported argument for println");
       M.return { ctx with last_eval_expression = NullValue }
@@ -496,7 +499,8 @@ module Interpret (M : MONAD_FAIL) = struct
           if check_typename_value_correspondance
                (func.fun_typename, func_eval_ctx.last_return_value)
           then
-            if func.fun_typename != Unit && func_eval_ctx.last_return_value == Unitialized
+            if (not (Base.phys_equal func.fun_typename Unit))
+               && Base.phys_equal func_eval_ctx.last_return_value Unitialized
             then M.fail (ExprectedReturnInFunction identifier)
             else
               M.return { ctx with last_eval_expression = func_eval_ctx.last_return_value }
@@ -631,7 +635,7 @@ module Interpret (M : MONAD_FAIL) = struct
                          ; content =
                              Variable
                                { var_typename
-                               ; mutable_status = var_modifier == Var
+                               ; mutable_status = Base.phys_equal var_modifier Var
                                ; value = ref value
                                }
                          }
@@ -799,12 +803,12 @@ module Interpret (M : MONAD_FAIL) = struct
       | AnonymousFunction x, AnonymousFunction y ->
         M.return
           { ctx with
-            last_eval_expression = BooleanValue (x.identity_code == y.identity_code)
+            last_eval_expression = BooleanValue (x.identity_code = y.identity_code)
           }
       | Object x, Object y ->
         M.return
           { ctx with
-            last_eval_expression = BooleanValue (x.identity_code == y.identity_code)
+            last_eval_expression = BooleanValue (x.identity_code = y.identity_code)
           }
       | NullValue, NullValue
       | NullValue, Unitialized

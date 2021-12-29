@@ -30,8 +30,8 @@ let rec repl ctx =
   try
     while true do
       printf ">> ";
-      flush stdout;
-      let line = input_line stdin in
+      Out_channel.flush stdout;
+      let line = Option.value_exn (In_channel.input_line In_channel.stdin) in
       if String.is_prefix line ~prefix:"@"
       then interpert_repl_command ctx line
       else if String.is_suffix line ~suffix:";;"
@@ -42,9 +42,6 @@ let rec repl ctx =
       else buffered_lines := line :: !buffered_lines
     done
   with
-  | End_of_file ->
-    print_endline "";
-    repl ctx
   | End_of_input ->
     let acc_input =
       List.fold !buffered_lines ~init:"" ~f:(fun acc line -> line ^ "\n" ^ acc)
@@ -84,6 +81,9 @@ let rec repl ctx =
             eval_ctx))
     in
     repl new_ctx
+  | _ ->
+    print_endline "";
+    repl ctx
 ;;
 
 let () = print_endline "Kotlin REPL"

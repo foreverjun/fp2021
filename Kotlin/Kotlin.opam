@@ -20,6 +20,7 @@ depends: [
   "ocamlformat" {build}
   "base"
   "opal"
+  "core"
 ]
 build: [
   ["dune" "subst"] {dev}
