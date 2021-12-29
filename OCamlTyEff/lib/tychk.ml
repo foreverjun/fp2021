@@ -489,6 +489,16 @@ let check_program program =
     (stdlib @ program)
 ;;
 
+let checked_program_or_exit program =
+  let _ =
+    try check_program program with
+    | exc ->
+      eprintf "Type checking error: %s\n%!" (Printexc.to_string exc);
+      exit 1
+  in
+  program
+;;
+
 let stdlib_ty_chk_env = check_program []
 
 (* Tests *)

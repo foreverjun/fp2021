@@ -1,0 +1,44 @@
+(executable
+ (name demoRefClosure)
+ (modules demoRefClosure)
+ (public_name demoRefClosure)
+ (libraries ocaml_ty_eff_lib))
+
+(executable
+ (name demoRec)
+ (modules demoRec)
+ (public_name demoRec)
+ (libraries ocaml_ty_eff_lib))
+
+(executable
+ (name demoPrint)
+ (modules demoPrint)
+ (public_name demoPrint)
+ (libraries ocaml_ty_eff_lib))
+
+(executable
+ (name demoList)
+ (modules demoList)
+ (public_name demoList)
+ (libraries ocaml_ty_eff_lib))
+
+(executable
+ (name demoExc)
+ (modules demoExc)
+ (public_name demoExc)
+ (libraries ocaml_ty_eff_lib))
+
+(executable
+ (name demoFail)
+ (modules demoFail)
+ (public_name demoFail)
+ (libraries ocaml_ty_eff_lib))
+
+(cram
+ (deps
+  ./demoRefClosure.exe
+  ./demoRec.exe
+  ./demoPrint.exe
+  ./demoList.exe
+  ./demoExc.exe
+  ./demoFail.exe))

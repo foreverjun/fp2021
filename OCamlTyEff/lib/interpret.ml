@@ -71,7 +71,7 @@ let pp_run_ok_elm fmt (name, (ty, value)) =
 
 type run_ok = run_ok_elm list [@@deriving eq]
 
-let pp_run_ok = pp_print_list pp_run_ok_elm
+let pp_run_ok = pp_print_list ~pp_sep:pp_force_newline pp_run_ok_elm
 
 module Interpret (M : FailBimapMonad) : sig
   val run : program -> (run_ok, run_err) M.t
@@ -240,7 +240,6 @@ end = struct
   ;;
 
   let run program =
-    let _ = Tychk.check_program program in
     List.fold_left
       (fun acc decl ->
         acc
@@ -250,7 +249,7 @@ end = struct
         lookup_val decl.name env
         >>| fun v -> env, (decl.name, (decl.ty, v)) :: List.remove_assoc decl.name vals)
       (return (stdlib_env, []))
-      program
+      (Tychk.checked_program_or_exit program)
     >>| fun (_, res) -> List.rev res
   ;;
 
@@ -269,17 +268,7 @@ module InterpretResult = Interpret (struct
   ;;
 end)
 
-let parse_and_run str =
-  let ans =
-    match parse str with
-    | Ok program -> InterpretResult.run program
-    | Error err ->
-      eprintf "Parsing error:%s\n%!" err;
-      exit 1
-  in
-  ans
-;;
-
+let parse_and_run str = InterpretResult.run (parse_or_exit str)
 let pp_res = InterpretResult.pp_res
 let pp_parse_and_run fmt str = pp_res fmt (parse_and_run str)
 

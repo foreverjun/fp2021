@@ -107,9 +107,9 @@ let pid =
        (take_while (fun ch -> ch = '_' || is_letter ch || is_digit ch))
   >>= fun s ->
   if is_keyword s
-  then fail "Parsing error: keyword reserved"
+  then fail "keyword reserved"
   else if s = "_"
-  then fail "Parsing error: wildcard `_` isn't supported"
+  then fail "wildcard `_` isn't supported"
   else return s
 ;;
 
@@ -179,7 +179,7 @@ let pcint =
        >>= fun s ->
        match int_of_string_opt s with
        | Some x -> return x
-       | None -> fail "Parsing error: invalid int")
+       | None -> fail "invalid int")
 ;;
 
 let pcstring =
@@ -317,6 +317,14 @@ let pdecl = ptoken (pdecl_base pexpr)
 let pdecl_delim = many (pstoken ";;") *> pspace
 let pprogram = pdecl_delim *> many (pdecl <* pdecl_delim)
 let parse s = parse_string ~consume:Consume.All pprogram s
+
+let parse_or_exit s =
+  match parse s with
+  | Ok ast -> ast
+  | Error err ->
+    eprintf "Parsing error: %s\n%!" err;
+    exit 1
+;;
 
 (* Tests *)
 
