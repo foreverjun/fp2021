@@ -10,10 +10,9 @@ Features done (append only):
 
 - Parser
 - Type checker
+- Interpreter
 
 Features in progress (and TODOs):
-
-- Interpreter
 
 ##### Замечания по стилю кодирования
 
