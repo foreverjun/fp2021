@@ -1,4 +1,4 @@
-(* Модификаторы, которые могут быть припианы перед именем класса\метода\поля *)
+(* Модификаторы доступа*)
 type modifier =
   | Private
   | Protected
@@ -6,7 +6,7 @@ type modifier =
   | Open
   | Override
 
-(* Обязательный модификатор в котлин, который применяется только к полям*)
+(* Модификатор, указывающий на изменяемость переменной (val - неизменяемая, var - изменяемая)*)
 and variable_modifier =
   | Val
   | Var
@@ -19,8 +19,9 @@ and typename =
   | Boolean
   | ClassIdentifier of string
   | FunctionType of typename list * typename
-  | Dynamic (* данный тип по большей части кастыль, так как не удалось сделать алгоритм выведения типа для анонимной функции *)
+  | Dynamic (* данный тип по большей части костыль, так как не удалось сделать алгоритм выведения типа для анонимной функции *)
   | Nullable of typename
+(* если переменная некоторого типа typename может содержать null, то она обязана быть typename = Nullable _ *)
 
 (* Значения, которые могут принимать переменные *)
 and value =
@@ -45,7 +46,6 @@ and record_t =
   ; content : record_content
   }
 
-(* Переменная представляется как пара из имени переменной и значения *)
 and variable_t =
   { var_typename : typename
   ; mutable_status : bool
@@ -71,45 +71,45 @@ and object_t =
 and class_t =
   { constructor_args : (string * typename) list
   ; super_call : expression option
+        (* Выражение, содержащее содержащее вызов конструктора супер класса. Например, для class Foo(): Bar() будет super_call = FunctionCall ("Bar", []) *)
   ; statements : statement list
   }
 
 and expression =
-  | Add of expression * expression
-  | Sub of expression * expression
-  | Mul of expression * expression
-  | Div of expression * expression
-  | Mod of expression * expression
-  | And of expression * expression
-  | Or of expression * expression
-  | Not of expression
-  | Equal of expression * expression
-  | Less of expression * expression
-  | Const of value
-  | VarIdentifier of string
-  | This
+  | Add of expression * expression (* expression + expression *)
+  | Sub of expression * expression (* expression - expression *)
+  | Mul of expression * expression (* expression * expression *)
+  | Div of expression * expression (* expression / expression *)
+  | Mod of expression * expression (* expression % expression *)
+  | And of expression * expression (* expression && expression *)
+  | Or of expression * expression (* expression || expression *)
+  | Not of expression (* !expression *)
+  | Equal of expression * expression (* expression == expression *)
+  | Less of expression * expression (* expression < expression *)
+  | Const of value (* Например: 1, "string", false *)
+  | VarIdentifier of string (* Строки string, не заключенные в кавычки, преставляются как VarIdentifier ("string") *)
+  | This (* Специальное выражение для вызова this внутри объекта *)
   | AnonymousFunctionDeclaration of statement
-  | FunctionCall of string * expression list
+  | FunctionCall of string * expression list (* Например: foo(bar) <=> FunctionCall ("foo", [VarIdentifier "bar"])*)
   | Println of expression (* println(expression) *)
-  | Dereference of expression * expression
+  | Dereference of expression * expression (* expression.expression где expression = FunctionCall | VarIdentifier *)
   | ElvisDereference of expression * expression
-(* expression.expression where expression = FunctionCall | VarIdentifier *)
+(* expression?.expression  *)
 
 and statement =
-  | Return of expression
-  | Expression of expression
-  | Assign of expression * expression (* string = expression *)
-  | If of expression * statement * statement option (* if(expression) statement else statement *)
-  | While of expression * statement (* while(expression) statement *)
+  | Return of expression (* return expression *)
+  | Expression of expression (* expression *)
+  | Assign of expression * expression (* expression = expression *)
+  | If of expression * statement * statement option (* if(expression) statement else statement, причем statement = Block*)
+  | While of expression * statement (* while(expression) statement, причем statement = Block *)
   | VarDeclaration of
-      modifier list * variable_modifier * string * typename * expression option (* modifiers variable_modifier string: typename = expression *)
+      modifier list * variable_modifier * string * typename * expression option (* modifiers variable_modifier string: typename = expression. Например: open val foo: String = "string" *)
   | FunDeclaration of
-      modifier list * string * (string * typename) list * typename * statement (* modifiers fun string((string * typename) list): typename statement *)
-  (* пофиксить проблему с тем, что тип функции может быть пустым *)
+      modifier list * string * (string * typename) list * typename * statement (* modifiers fun string((string * typename) list): typename statement. Например: private fun foo(bar: Int): Int { return bar } *)
   | ClassDeclaration of
-      modifier list * string * (string * typename) list * expression option * statement (* modifiers class string(string * typename list): expression option statement*)
-  | Block of statement list
-  | InitializeBlock of statement list
-  | InitInClass of statement (* init { ... } *)
-  | AnonymousFunctionDeclarationStatement of (string * typename) list * statement
+      modifier list * string * (string * typename) list * expression option * statement (* modifiers class string(string * typename list): expression option statement. Например: open class Foo(bar: Int): Baz(bar) { ... } *)
+  | Block of statement list (* { statement list } - набор выражений, окруженных фигурными скобками *)
+  | InitializeBlock of statement list (* Вырожденный случай Block. Нужен только для функции parse_and_run, и по сути является Block без фигурных скобок вокруг *)
+  | InitInClass of statement (* init { ... }, причем данная конструкция должна встречаться только внутри классов *)
+  | AnonymousFunctionDeclarationStatement of (string * typename) list * statement (* { (string * typename) list -> statement }. Например: {elem: Int -> elem * elem} *)
 [@@deriving show { with_path = false }]
