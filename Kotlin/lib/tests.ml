@@ -961,3 +961,13 @@ let%test _ =
     print_endline (show_error err);
     raise Test_failed
 ;;
+
+let%test _ =
+  print_endline "";
+  print_endline "Factorial demo";
+  match parse_and_run factorial_algorithm with
+  | Ok _ -> true
+  | Error err ->
+    print_endline (show_error err);
+    raise Test_failed
+;;

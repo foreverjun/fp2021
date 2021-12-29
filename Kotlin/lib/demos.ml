@@ -1,5 +1,3 @@
-open Interpreter
-
 (*
   Пример программы, реализующей алгоритм поиска в ширину над графом с матрицей смежности
   [
@@ -190,6 +188,24 @@ let iterator_map_algorithm =
 
     println("IteratorMap-ed collection")
     while(itmap.hasNext()) println(itmap.next())
+  }
+
+|}
+;;
+
+(*
+  Пример программы с рекурсивным факториалом
+*)
+let factorial_algorithm =
+  {|
+
+  fun fact(n: Int): Int {
+    if(n > 1) return n * fact(n - 1)
+    else return 1
+  }
+
+  fun main() {
+    println(fact(5))
   }
 
 |}
