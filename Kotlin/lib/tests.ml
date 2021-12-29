@@ -817,6 +817,7 @@ let%test _ =
     { name = "foo"
     ; modifiers = []
     ; clojure = ref []
+    ; enclosing_object = None
     ; content =
         Variable { var_typename = Int; mutable_status = false; value = ref (IntValue 1) }
     }
@@ -845,6 +846,7 @@ let%test _ =
     { name = "foo"
     ; modifiers = []
     ; clojure = ref []
+    ; enclosing_object = None
     ; content =
         Function
           { identity_code = 1
@@ -876,6 +878,7 @@ let%test _ =
     { name = "foo"
     ; modifiers = []
     ; clojure = ref []
+    ; enclosing_object = None
     ; content =
         Variable
           { var_typename = ClassIdentifier "MyClass"
@@ -892,6 +895,7 @@ let%test _ =
                        [ { name = "field"
                          ; modifiers = []
                          ; clojure = ref []
+                         ; enclosing_object = None
                          ; content =
                              Variable
                                { var_typename = Int
@@ -921,6 +925,7 @@ let%test _ =
     { name = "foo"
     ; modifiers = []
     ; clojure = ref []
+    ; enclosing_object = None
     ; content =
         Variable { var_typename = Int; mutable_status = false; value = ref NullValue }
     }
@@ -934,4 +939,15 @@ let%test _ =
   match ctx with
   | Error _ -> raise Test_failed
   | Ok eval_ctx -> eval_ctx.last_eval_expression = NullValue
+;;
+
+(* Демо *)
+open Demos
+
+let%test _ =
+  match parse_and_run dijkstra_algorithm with
+  | Ok _ -> true
+  | Error err ->
+    print_endline (show_error err);
+    false
 ;;
