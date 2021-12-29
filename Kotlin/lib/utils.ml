@@ -3,6 +3,8 @@ open Ast
 
 type error =
   | EmptyProgram
+  | InitStatementNotInClass
+  | ThisExpressionError
   | UnsupportedOperandTypes of expression
   | IllegalKindOfStatementInsideClass of statement
   | NotAllowedStatementThere of statement
