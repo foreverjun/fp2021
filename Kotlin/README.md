@@ -24,3 +24,16 @@ Features in progress (and TODOs):
 - Строгая типизация анонимных функций
 - Upcasting объектов
 - Pretty-printer
+
+Пример работы с REPL:
+<pre>
+Kotlin REPL
+Type @help for getting further information
+>> fun fact(n: Int): Int { 
+>>      if(n > 1) return n * fact(n - 1)
+>>      else return 1
+>> };;
+Kotlin REPL # &lt;REPL empty answer&gt;
+>> fact(5);;
+Kotlin REPL # IntValue (120)
+</pre>
