@@ -263,20 +263,29 @@ module Interpret (M : MONAD_FAIL) = struct
       | ObjectInitialization _ -> interpret_statement ctx statement_block
       | _ -> M.fail InitStatementNotInClass)
     | Block statements ->
-      List.fold statements ~init:(M.return ctx) ~f:(fun monadic_ctx stat ->
-          monadic_ctx
-          >>= fun checked_ctx ->
-          interpret_statement checked_ctx stat
-          >>= fun eval_ctx ->
-          match eval_ctx.last_return_value with
-          | Unitialized ->
-            (match stat with
-            | Block _ -> M.return checked_ctx
-            | _ -> M.return eval_ctx)
-          | _ ->
-            (match checked_ctx.scope with
-            | Function | Method _ | AnonymousFunction _ -> M.return eval_ctx
-            | _ -> M.fail ReturnNotInFunction))
+      let exception Return_exception of context in
+      (try
+         List.fold statements ~init:(M.return ctx) ~f:(fun monadic_ctx inner_stat ->
+             monadic_ctx
+             >>= fun checked_ctx ->
+             interpret_statement checked_ctx inner_stat
+             >>= fun eval_ctx ->
+             match inner_stat with
+             | Return _ -> raise (Return_exception eval_ctx)
+             | If _ -> M.return eval_ctx
+             | _ -> M.return eval_ctx)
+         >>= fun ret_ctx ->
+         match ctx.scope with
+         | AnonymousFunction _ ->
+           raise
+             (Return_exception
+                { ret_ctx with last_return_value = ret_ctx.last_eval_expression })
+         | _ -> M.return ret_ctx
+       with
+      | Return_exception returned_ctx ->
+        (match ctx.scope with
+        | Method _ | AnonymousFunction _ | Function -> M.return returned_ctx
+        | _ -> M.fail ReturnNotInFunction))
     | InitializeBlock statements ->
       List.fold statements ~init:(M.return ctx) ~f:(fun monadic_ctx stat ->
           monadic_ctx
@@ -298,13 +307,7 @@ module Interpret (M : MONAD_FAIL) = struct
       interpret_expression ctx expression
       >>= fun ret_ctx ->
       M.return { ctx with last_return_value = ret_ctx.last_eval_expression }
-    | Expression expression ->
-      interpret_expression ctx expression
-      >>= fun ret_ctx ->
-      (match ctx.scope with
-      | AnonymousFunction _ ->
-        M.return { ctx with last_return_value = ret_ctx.last_eval_expression }
-      | _ -> M.return ret_ctx)
+    | Expression expression -> interpret_expression ctx expression
     | ClassDeclaration
         (modifiers, name, constructor_args, super_call_option, class_statement) ->
       (match class_statement with
@@ -493,7 +496,10 @@ module Interpret (M : MONAD_FAIL) = struct
           if check_typename_value_correspondance
                (func.fun_typename, func_eval_ctx.last_return_value)
           then
-            M.return { ctx with last_eval_expression = func_eval_ctx.last_return_value }
+            if func.fun_typename != Unit && func_eval_ctx.last_return_value == Unitialized
+            then M.fail (ExprectedReturnInFunction identifier)
+            else
+              M.return { ctx with last_eval_expression = func_eval_ctx.last_return_value }
           else
             M.fail
               (FunctionReturnTypeMismatch

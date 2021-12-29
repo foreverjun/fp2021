@@ -301,8 +301,8 @@ let%test _ =
   = Some
       (If
          ( Const (BooleanValue true)
-         , Expression (Const (IntValue 1))
-         , Some (Expression (Const (IntValue 2))) ))
+         , Block [ Expression (Const (IntValue 1)) ]
+         , Some (Block [ Expression (Const (IntValue 2)) ]) ))
 ;;
 
 let%test _ =

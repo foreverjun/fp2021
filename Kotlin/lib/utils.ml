@@ -4,6 +4,7 @@ open Ast
 type error =
   | EmptyProgram
   | InitStatementNotInClass
+  | ExprectedReturnInFunction of string
   | ThisExpressionError
   | UnsupportedOperandTypes of expression
   | IllegalKindOfStatementInsideClass of statement

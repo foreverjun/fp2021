@@ -443,17 +443,19 @@ end = struct
     >> parens expression
     >>= fun if_expresssion ->
     block_statement
-    <|> expression_statement
-    <|> assign_statement
-    <|> return_statement
+    <|> (expression_statement
+        <|> assign_statement
+        <|> return_statement
+        >>= fun stat -> return (Block [ stat ]))
     >>= fun if_statement ->
     option
       (If (if_expresssion, if_statement, None))
       (token "else"
       >> (block_statement
-         <|> expression_statement
-         <|> assign_statement
-         <|> return_statement)
+         <|> (expression_statement
+             <|> assign_statement
+             <|> return_statement
+             >>= fun stat -> return (Block [ stat ])))
       >>= fun else_statement ->
       return (If (if_expresssion, if_statement, Some else_statement))))
       input
@@ -463,9 +465,10 @@ end = struct
     >> parens expression
     >>= fun while_expression ->
     block_statement
-    <|> expression_statement
-    <|> assign_statement
-    <|> return_statement
+    <|> (expression_statement
+        <|> assign_statement
+        <|> return_statement
+        >>= fun stat -> return (Block [ stat ]))
     >>= fun while_statement -> return (While (while_expression, while_statement)))
       input
 

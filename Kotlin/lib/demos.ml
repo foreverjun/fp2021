@@ -81,10 +81,10 @@ let bfs_algorithm =
     var i: Int = 0
     var cur: Int? = list.get(i)
     while(cur != null) {
-      if(cur.value == value) return true
+      if(cur == value) return true
       else {
         i = i + 1
-        list.get(i)
+        cur = list.get(i)
       }
     }
     return false
@@ -94,6 +94,7 @@ let bfs_algorithm =
     val infinity: Int = 1000
     val mat: IntMatrix = init_matrix()
     val query: IntQuery = IntQuery()
+    val visited: IntArrayList = IntArrayList(0)
     val distances: IntArrayList = IntArrayList(4)
     distances.map({index: Int, old: Int -> 
       infinity
@@ -102,19 +103,30 @@ let bfs_algorithm =
     query.push(0)
     distances.set(0, 0)
     while(!query.isEmpty()) {
-      val cur: Int = query.pop()
+      val cur: Int? = query.pop()
       
-      distances.map({index: Int, old: Int -> 
-        if(mat.get(cur, index) != 0 && distances.get(cur) + mat.get(cur, index) < old) {
-          query.push(index)
-          distances.get(cur) + mat.get(cur, index)
-        }
-        else old
-      })
+      if(cur != null && !checkInList(visited, cur)) {
+        distances.map({index: Int, old: Int -> 
+          val weight: Int? = mat.get(cur, index)
+          val curDistance: Int? = distances.get(cur)
+          if(weight != null && curDistance != null && weight != 0 && weight + curDistance < old) {
+            query.push(index)
+            weight + curDistance
+          }
+          else old
+        })
+        visited.append(cur)
+      }
     }
 
     println("answer")
-    distances.map({index: Int, old: Int -> 
+    distances.map({index: Int, old: Int ->
+      println(old)
+      old
+    })
+
+    println("answer")
+    distances.map({index: Int, old: Int ->
       println(old)
       old
     })
@@ -146,7 +158,7 @@ let iterator_map_algorithm =
         this.curIndex = this.curIndex + 1
         return cur
       }
-      else null
+      else return null
     }
 
   }
