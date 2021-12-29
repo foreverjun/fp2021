@@ -839,3 +839,99 @@ let%test _ =
     | _ -> raise Test_failed)
   | Ok _ -> raise Test_failed
 ;;
+
+let%test _ =
+  let rc =
+    { name = "foo"
+    ; modifiers = []
+    ; clojure = ref []
+    ; content =
+        Function
+          { identity_code = 1
+          ; fun_typename = Int
+          ; arguments = []
+          ; statement = Block [ Return (Const (IntValue 1)) ]
+          }
+    }
+  in
+  let ctx_with_function = { empty_ctx with environment = [ rc ] } in
+  let ctx = interpret_expression ctx_with_function (FunctionCall ("foo", [])) in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
+;;
+
+let%test _ =
+  let ctx = interpret_expression empty_ctx (FunctionCall ("foo", [])) in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnknownFunction "foo" -> true
+    | _ -> raise Test_failed)
+  | Ok _ -> raise Test_failed
+;;
+
+let%test _ =
+  let rc =
+    { name = "foo"
+    ; modifiers = []
+    ; clojure = ref []
+    ; content =
+        Variable
+          { var_typename = ClassIdentifier "MyClass"
+          ; mutable_status = false
+          ; value =
+              ref
+                (Object
+                   { identity_code = 1
+                   ; classname = "MyClass"
+                   ; super = None
+                   ; obj_class =
+                       { constructor_args = []; super_call = None; statements = [] }
+                   ; fields =
+                       [ { name = "field"
+                         ; modifiers = []
+                         ; clojure = ref []
+                         ; content =
+                             Variable
+                               { var_typename = Int
+                               ; mutable_status = false
+                               ; value = ref (IntValue 1)
+                               }
+                         }
+                       ]
+                   ; methods = []
+                   })
+          }
+    }
+  in
+  let ctx_with_object = { empty_ctx with environment = [ rc ] } in
+  let ctx =
+    interpret_expression
+      ctx_with_object
+      (Dereference (VarIdentifier "foo", VarIdentifier "field"))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
+;;
+
+let%test _ =
+  let rc =
+    { name = "foo"
+    ; modifiers = []
+    ; clojure = ref []
+    ; content =
+        Variable { var_typename = Int; mutable_status = false; value = ref NullValue }
+    }
+  in
+  let ctx_with_object = { empty_ctx with environment = [ rc ] } in
+  let ctx =
+    interpret_expression
+      ctx_with_object
+      (ElvisDereference (VarIdentifier "foo", VarIdentifier "field"))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = NullValue
+;;
