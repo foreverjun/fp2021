@@ -62,6 +62,7 @@ let rec parse_typename input =
   <|> (parse_identifier
       >>= fun identifier ->
       (match identifier with
+      | "Unit" -> return Unit
       | "Int" -> return Int
       | "String" -> return String
       | "Boolean" -> return Boolean
@@ -441,11 +442,16 @@ end = struct
     >>= fun if_expresssion ->
     block_statement
     <|> expression_statement
+    <|> assign_statement
+    <|> return_statement
     >>= fun if_statement ->
     option
       (If (if_expresssion, if_statement, None))
       (token "else"
-      >> (block_statement <|> expression_statement)
+      >> (block_statement
+         <|> expression_statement
+         <|> assign_statement
+         <|> return_statement)
       >>= fun else_statement ->
       return (If (if_expresssion, if_statement, Some else_statement))))
       input
@@ -456,6 +462,8 @@ end = struct
     >>= fun while_expression ->
     block_statement
     <|> expression_statement
+    <|> assign_statement
+    <|> return_statement
     >>= fun while_statement -> return (While (while_expression, while_statement)))
       input
 
