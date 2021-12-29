@@ -70,21 +70,17 @@ let rec repl ctx =
           | Return _ ->
             print_as_repl_answer "Return expressions are not supported in REPL";
             ctx
+          | InitInClass _ ->
+            print_as_repl_answer "Init expressions are not supported in REPL";
+            ctx
           | Expression _ | Assign _ | AnonymousFunctionDeclarationStatement _ ->
             print_as_repl_answer (show_value eval_ctx.last_eval_expression);
             eval_ctx
-          | If _ | While _ ->
+          | If _ | While _
+          | FunDeclaration (_, _, _, _, _)
+          | ClassDeclaration (_, _, _, _, _)
+          | VarDeclaration (_, _, _, _, _) ->
             print_as_repl_answer "<REPL empty answer>";
-            eval_ctx
-          | VarDeclaration (_, _, name, _, _) ->
-            let var = Option.value_exn (get_var_from_env eval_ctx.environment name) in
-            print_as_repl_answer (show_record_t var);
-            eval_ctx
-          | FunDeclaration (_, name, _, _, _) | ClassDeclaration (_, name, _, _, _) ->
-            let func =
-              Option.value_exn (get_function_or_class_from_env eval_ctx.environment name)
-            in
-            print_as_repl_answer (show_record_t func);
             eval_ctx))
     in
     repl new_ctx
