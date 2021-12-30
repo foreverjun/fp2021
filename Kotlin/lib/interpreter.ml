@@ -301,7 +301,7 @@ module Interpret (M : MONAD_FAIL) = struct
           match stat with
           | VarDeclaration _ | FunDeclaration _ | ClassDeclaration _ ->
             interpret_statement checked_ctx stat
-          | _ -> M.fail (NotAllowedStatementThere stat))
+          | _ -> M.fail (NotAllowedStatementInInitializeBlock stat))
     | AnonymousFunctionDeclarationStatement (arguments, statement) ->
       let func =
         { identity_code = get_unique_identity_code ()
@@ -509,7 +509,7 @@ module Interpret (M : MONAD_FAIL) = struct
           then
             if (not (Base.phys_equal func.fun_typename Unit))
                && Base.phys_equal func_eval_ctx.last_return_value Unitialized
-            then M.fail (ExprectedReturnInFunction identifier)
+            then M.fail (ExpectedReturnInFunction identifier)
             else
               M.return
                 { ctx with
@@ -760,8 +760,8 @@ module Interpret (M : MONAD_FAIL) = struct
       | NullValue ->
         (match expr with
         | ElvisDereference _ -> M.return { ctx with last_eval_expression = NullValue }
-        | _ -> M.fail ExprectedObjectToDereference)
-      | _ -> M.fail ExprectedObjectToDereference)
+        | _ -> M.fail ExpectedObjectToDereference)
+      | _ -> M.fail ExpectedObjectToDereference)
     | Add (l, r) ->
       eval_bin_args l r
       >>= (function

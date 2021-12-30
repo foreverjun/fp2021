@@ -4,11 +4,11 @@ open Ast
 type error =
   | EmptyProgram
   | InitStatementNotInClass
-  | ExprectedReturnInFunction of string
+  | ExpectedReturnInFunction of string
   | ThisExpressionError
   | UnsupportedOperandTypes of expression
   | IllegalKindOfStatementInsideClass of statement
-  | NotAllowedStatementThere of statement
+  | NotAllowedStatementInInitializeBlock of statement
   | NullUnsafeAccessError
   | DereferenceError
   | FunctionReturnTypeMismatch of string * typename * value
@@ -25,7 +25,7 @@ type error =
   | ClassBodyExpected
   | ClassSuperConstructorNotValid
   | ExpectedVarIdentifer
-  | ExprectedObjectToDereference
+  | ExpectedObjectToDereference
   | ClassNotOpen of string
   | PrivateAccessError of string * string
   | UnknownField of string * string (* первый элемент в паре - имя класса, второй - имя поля *)
