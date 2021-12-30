@@ -28,9 +28,8 @@ type error =
   | ExpectedObjectToDereference
   | ClassNotOpen of string
   | PrivateAccessError of string * string
-  | UnknownField of string * string (* первый элемент в паре - имя класса, второй - имя поля *)
-  | UnknownMethod of string * string (* первый элемент в паре - имя класса, второй - имя поля *)
-(* Кидаем если пользователь хотел переменную, а по такому имени в окружении записана функция *)
+  | UnknownField of string * string
+  | UnknownMethod of string * string
 [@@deriving show]
 
 module type MONAD_FAIL = sig
