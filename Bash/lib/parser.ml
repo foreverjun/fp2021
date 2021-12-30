@@ -141,6 +141,7 @@ let rec word_p ?(brc = true) ?(prm = true) ?(cmd = true) ?(ari = true) ?(fln = t
 
 (** Brace expansion *)
 and brace_exp () =
+  let word = word_p ~brc:false in
   let prefix =
     take_till (function
         | '{' -> true
@@ -196,7 +197,7 @@ and brace_exp () =
       body
   in
   (* Parsing the resulting string as a list of words without brace expansions *)
-  match parse_string ~consume:All (trim (sep_by1 blank (word_p ~brc:false ()))) s with
+  match parse_string ~consume:All (trim (sep_by1 blank (word ()))) s with
   | Ok ws -> return (BraceExp ws)
   | Error s -> fail s
 
@@ -275,12 +276,20 @@ and filename_exp =
 (** Inner assignment parser to use for mutual recursion *)
 and inn_assignt_p () =
   let word = word_p ~brc:false ~fln:false in
-  var_p
-  >>= fun v ->
-  char '='
-  *> (parens (sep_by blank (word ()))
-     >>| (fun ws -> CompoundAssignt (v, ws))
-     <|> (option None (word () >>| fun w -> Some w) >>| fun w -> SimpleAssignt (v, w)))
+  let simple =
+    var_p
+    >>= fun v -> char '=' *> option (Word "") (word ()) >>| fun w -> SimpleAssignt (v, w)
+  in
+  let cmpnd p c =
+    name_p >>= fun n -> char '=' *> parens (sep_by1 blank (p ())) >>| fun vs -> c n vs
+  in
+  let ind = cmpnd word (fun n ws -> IndArrAssignt (n, ws)) in
+  let assoc =
+    cmpnd
+      (fun () -> name_p <* char '=' >>= fun k -> word () >>| fun v -> k, v)
+      (fun n ps -> AssocArrAssignt (n, ps))
+  in
+  assoc <|> ind <|> simple
 
 (** Inner simple command parser to use for mutual recursion *)
 and inn_cmd_p () =
@@ -682,7 +691,7 @@ let fail_cmd_subst = fail_p pp_word (inn_cmd_subst ())
 let%test _ =
   succ_cmd_subst
     "$(X=2)"
-    (CmdSubst (Assignt (SimpleAssignt (SimpleVar "X", Some (Word "2")), [])))
+    (CmdSubst (Assignt (SimpleAssignt (SimpleVar "X", Word "2"), [])))
 ;;
 
 let%test _ =
@@ -764,19 +773,16 @@ let%test _ = succ_word_p ~f:false "?.a" (Word "?.a")
 let succ_cmd_p = succ_p pp_cmd cmd_p
 let fail_cmd_p = fail_p pp_cmd cmd_p
 
-let%test _ =
-  succ_cmd_p "A=123" (Assignt (SimpleAssignt (SimpleVar "A", Some (Word "123")), []))
-;;
-
-let%test _ = succ_cmd_p "A=" (Assignt (SimpleAssignt (SimpleVar "A", None), []))
+let%test _ = succ_cmd_p "A=123" (Assignt (SimpleAssignt (SimpleVar "A", Word "123"), []))
+let%test _ = succ_cmd_p "A=" (Assignt (SimpleAssignt (SimpleVar "A", Word ""), []))
 
 let%test _ =
   succ_cmd_p
     "A=123      B=567      _ckd24=df!5[]%$~7"
     (Assignt
-       ( SimpleAssignt (SimpleVar "A", Some (Word "123"))
-       , [ SimpleAssignt (SimpleVar "B", Some (Word "567"))
-         ; SimpleAssignt (SimpleVar "_ckd24", Some (Word "df!5[]%$~7"))
+       ( SimpleAssignt (SimpleVar "A", Word "123")
+       , [ SimpleAssignt (SimpleVar "B", Word "567")
+         ; SimpleAssignt (SimpleVar "_ckd24", Word "df!5[]%$~7")
          ] ))
 ;;
 
@@ -785,24 +791,33 @@ let%test _ = succ_cmd_p "1A=123" (Command ([], Word "1A=123", []))
 let%test _ =
   succ_cmd_p
     "ARR[3]=123"
-    (Assignt (SimpleAssignt (Subscript ("ARR", "3"), Some (Word "123")), []))
+    (Assignt (SimpleAssignt (Subscript ("ARR", "3"), Word "123"), []))
 ;;
-
-let%test _ = succ_cmd_p "ARR=()" (Assignt (CompoundAssignt (SimpleVar "ARR", []), []))
 
 let%test _ =
   succ_cmd_p
     "ARR=( 1   2  abc    )"
-    (Assignt (CompoundAssignt (SimpleVar "ARR", [ Word "1"; Word "2"; Word "abc" ]), []))
+    (Assignt (IndArrAssignt ("ARR", [ Word "1"; Word "2"; Word "abc" ]), []))
 ;;
 
 let%test _ =
   succ_cmd_p
     "ARR1=( 1   2  abc    )        ARR2=(bcd)"
     (Assignt
-       ( CompoundAssignt (SimpleVar "ARR1", [ Word "1"; Word "2"; Word "abc" ])
-       , [ CompoundAssignt (SimpleVar "ARR2", [ Word "bcd" ]) ] ))
+       ( IndArrAssignt ("ARR1", [ Word "1"; Word "2"; Word "abc" ])
+       , [ IndArrAssignt ("ARR2", [ Word "bcd" ]) ] ))
 ;;
+
+let%test _ = fail_cmd_p "ARR=()"
+let%test _ = fail_cmd_p "ARR[1]=(a b c)"
+
+let%test _ =
+  succ_cmd_p
+    "ARR=(k1=v1 k2=v2)"
+    (Assignt (AssocArrAssignt ("ARR", [ "k1", Word "v1"; "k2", Word "v2" ]), []))
+;;
+
+let%test _ = fail_cmd_p "ARR[1]=(k1=v1 k2=v2)"
 
 let%test _ =
   succ_cmd_p "cmd arg1 arg2" (Command ([], Word "cmd", [ Word "arg1"; Word "arg2" ]))
@@ -812,8 +827,8 @@ let%test _ =
   succ_cmd_p
     "VAR1=123    VAR2=    cmd     arg1     arg2"
     (Command
-       ( [ SimpleAssignt (SimpleVar "VAR1", Some (Word "123"))
-         ; SimpleAssignt (SimpleVar "VAR2", None)
+       ( [ SimpleAssignt (SimpleVar "VAR1", Word "123")
+         ; SimpleAssignt (SimpleVar "VAR2", Word "")
          ]
        , Word "cmd"
        , [ Word "arg1"; Word "arg2" ] ))

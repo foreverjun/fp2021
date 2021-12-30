@@ -67,11 +67,13 @@ and cmd =
       (** \[ assignments \] command \[ parameters \] *)
 [@@deriving show { with_path = false }]
 
-(** Assignment *)
+(** Assignment (differs from the original Bash not to depend on the declare built-in) *)
 and assignt =
-  | SimpleAssignt of var * word option (** variable=\[ value \] *)
-  | CompoundAssignt of var * word list
-      (** variable=(word1 ... wordn), if no words are provided, the array is not set *)
+  | SimpleAssignt of var * word (** variable=\[ value \] *)
+  | IndArrAssignt of name * word list
+      (** name=(word1 word2 ...), if no words are provided, the indexed array is not set *)
+  | AssocArrAssignt of name * (name * word) list
+      (** name=(key1=value1 key2=value2 ...), if no pairs are provided, the array is not set *)
 [@@deriving show { with_path = false }]
 
 (** Redirection *)
