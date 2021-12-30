@@ -1,6 +1,6 @@
 (** AST *)
 
-(** Variable reference in the form of name\[subscript\] *)
+(** Variable reference in the form of [name\[subscript\]] *)
 type var = string * string [@@deriving show { with_path = false }]
 
 (** Arithmetical expression *)
@@ -21,18 +21,18 @@ type arithm =
 
 (** Parameter expansion *)
 type param_exp =
-  | Param of var (** $name, $\{name\} *)
+  | Param of var (** [$name], [$\{name\}] *)
   | PosParam of int (** Positional parameters denoted with a number *)
-  | Length of var (** $\{#name\} *)
-  | Substring of var * arithm * arithm option (** $\{name:offset\[:length\]\} *)
-  | CutMinBeg of var * string (** $\{name#pattern\} *)
-  | CutMaxBeg of var * string (** $\{name##pattern\} *)
-  | CutMinEnd of var * string (** $\{name%pattern\} *)
-  | CutMaxEnd of var * string (** $\{name%%pattern\} *)
-  | SubstOne of var * string * string (** $\{name/pattern\[/string\]\} *)
-  | SubstAll of var * string * string (** $\{name//pattern\[/string\]\} *)
-  | SubstBeg of var * string * string (** $\{name/#pattern\[/string\]\} *)
-  | SubstEnd of var * string * string (** $\{name/%pattern\[/string\]\} *)
+  | Length of var (** [$\{#name\}] *)
+  | Substring of var * arithm * arithm option (** [$\{name:offset\[:length\]\}] *)
+  | CutMinBeg of var * string (** [$\{name#pattern\}] *)
+  | CutMaxBeg of var * string (** [$\{name##pattern\}] *)
+  | CutMinEnd of var * string (** [$\{name%pattern\}] *)
+  | CutMaxEnd of var * string (** [$\{name%%pattern\}] *)
+  | SubstOne of var * string * string (** [$\{name/pattern\[/string\]\}] *)
+  | SubstAll of var * string * string (** [$\{name//pattern\[/string\]\}] *)
+  | SubstBeg of var * string * string (** [$\{name/#pattern\[/string\]\}] *)
+  | SubstEnd of var * string * string (** [$\{name/%pattern\[/string\]\}] *)
 [@@deriving show { with_path = false }]
 
 (** Token that may be subject to expansions *)
@@ -48,45 +48,45 @@ type word =
   *)
   | BraceExp of word list (** Brace expansion *)
   | ParamExp of param_exp (** Parameter expansion *)
-  | CmdSubst of cmd (** $(command) *)
-  | ArithmExp of arithm (** $((...)) *)
-  | FilenameExp of string (** A string that includes *, ? or \[ *)
+  | CmdSubst of cmd (** [$(command)] *)
+  | ArithmExp of arithm (** [$((...))] *)
+  | FilenameExp of string (** A string that includes [*], [?] or [\[] *)
   | Word of string (** If none of the expansions above are applicable *)
 [@@deriving show { with_path = false }]
 
 (** Simple command *)
 and cmd =
-  | Assignt of assignt * assignt list (** assignment \[ other_assignments \] *)
+  | Assignt of assignt * assignt list (** [assignment \[ other_assignments \]] *)
   | Command of assignt list * word * word list
-      (** \[ assignments \] command \[ parameters \] *)
+      (** [\[ assignments \] command \[ parameters \]] *)
 [@@deriving show { with_path = false }]
 
 (** Assignment (differs from the original Bash not to depend on the declare built-in) *)
 and assignt =
-  | SimpleAssignt of var * word (** variable=\[ value \] *)
+  | SimpleAssignt of var * word (** [variable=\[ value \]] *)
   | IndArrAssignt of string * word list
-      (** name=(word1 word2 ...), if no words are provided, the indexed array is not set *)
+      (** [name=(word1 word2 ...)], if no words are provided, the indexed array is not set *)
   | AssocArrAssignt of string * (string * word) list
-      (** name=(key1=value1 key2=value2 ...), if no pairs are provided, the array is not set *)
+      (** [name=(key1=value1 key2=value2 ...)], if no pairs are provided, the array is not set *)
 [@@deriving show { with_path = false }]
 
 (** Redirection *)
 type redir =
-  | RedirInp of int * word (** \[n\]<word *)
-  | RedirOtp of int * word (** \[n\]>word *)
-  | AppendOtp of int * word (** \[n\]>>word *)
-  | DuplInp of int * word (** \[n\]<&word *)
-  | DuplOtp of int * word (** \[n\]>&word *)
+  | RedirInp of int * word (** [\[n\]<word] *)
+  | RedirOtp of int * word (** [\[n\]>word] *)
+  | AppendOtp of int * word (** [\[n\]>>word] *)
+  | DuplInp of int * word (** [\[n\]<&word] *)
+  | DuplOtp of int * word (** [\[n\]>&word] *)
 [@@deriving show { with_path = false }]
 
 (** List of pipelines *)
 type pipeline_list =
   | Pipeline of pipeline (** list containing a single pipeline *)
-  | PipelineAndList of pipeline * pipeline_list (** pipeline && other-pipelines *)
-  | PipelineOrList of pipeline * pipeline_list (** pipeline || other-pipelines *)
+  | PipelineAndList of pipeline * pipeline_list (** [pipeline && other-pipelines] *)
+  | PipelineOrList of pipeline * pipeline_list (** [pipeline || other-pipelines] *)
 [@@deriving show { with_path = false }]
 
-(** Pipeline in the form of \[ ! \] command1 \[ | command2 \[ | ... \] \] *)
+(** Pipeline in the form of [\[ ! \] command1 \[ | command2 \[ | ... \] \]] *)
 and pipeline = bool * compound * compound list [@@deriving show { with_path = false }]
 
 (** Compound command *)
@@ -96,32 +96,32 @@ and compound =
   | ForExpr of for_expr_loop * redir list
   | If of if_stmt * redir list
   | Case of case_stmt * redir list
-  | ArithmExpr of arithm * redir list (** (( ... )) *)
+  | ArithmExpr of arithm * redir list (** [(( ... ))] *)
   | SimpleCommand of cmd * redir list
 [@@deriving show { with_path = false }]
 
-(** While loop in the form of while list; do list; done *)
+(** While loop in the form of [while list; do list; done] *)
 and while_loop = pipeline_list * pipeline_list [@@deriving show { with_path = false }]
 
-(** For loop in the form of or name in \[ word ... \]; do list ; done *)
+(** For loop in the form of or [name in \[ word ... \]; do list ; done] *)
 and for_list_loop = string * word list * pipeline_list
 [@@deriving show { with_path = false }]
 
-(** For loop in the form of for (( expr1 ; expr2 ; expr3 )) ; do list ; done *)
+(** For loop in the form of [for (( expr1 ; expr2 ; expr3 )) ; do list ; done] *)
 and for_expr_loop = arithm * arithm * arithm * pipeline_list
 [@@deriving show { with_path = false }]
 
-(** If statement in the form of if list; then list; \[ else list; \] fi *)
+(** If statement in the form of [if list; then list; \[ else list; \] fi] *)
 and if_stmt = pipeline_list * pipeline_list * pipeline_list option
 [@@deriving show { with_path = false }]
 
-(** Case statement in the form case word in \[ case_item \] ... esac *)
+(** Case statement in the form of [case word in \[ case_item \] ... esac] *)
 and case_stmt = word * case_item list [@@deriving show { with_path = false }]
 
-(** An element of a case statement in the form \[(\] pattern \[ | pattern \] ... ) list ;; *)
+(** An element of a case statement in the form of [\[(\] pattern \[ | pattern \] ... ) list ;;] *)
 and case_item = word * word list * pipeline_list [@@deriving show { with_path = false }]
 
-(** Function in the form of function name \[()\] compound or name () compound *)
+(** Function in the form of [function name \[()\] compound] or [name () compound] *)
 type func = string * compound [@@deriving show { with_path = false }]
 
 (** AST root *)
