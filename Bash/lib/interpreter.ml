@@ -64,25 +64,18 @@ module Eval (M : MonadFail) = struct
 
   (* -------------------- Helper functions -------------------- *)
 
-  (** [mapr f l] applies [f] to each element of [l] returning the resulting list if all
+  (** [mapm f l] applies [f] to each element of [l] returning the resulting list if all
   applications succeed and failing otherwise *)
-  let mapr f l =
-    let rec helper res = function
-      | hd :: tl -> f hd >>= fun r -> helper (r :: res) tl
-      | [] -> return res
-    in
-    helper [] (List.rev l)
+  let mapm f l =
+    List.fold_right
+      (fun e acc -> acc >>= fun tl -> f e >>| fun hd -> hd :: tl)
+      l
+      (return [])
   ;;
 
-  (** [flat_mapr f l] applies [f] to each element of [l] returning the resulting flattened
+  (** [flat_mapm f l] applies [f] to each element of [l] returning the resulting flattened
   list if all applications succeed and failing otherwise *)
-  let flat_mapr f l =
-    let rec helper res = function
-      | hd :: tl -> f hd >>= fun rs -> helper (rs @ res) tl
-      | [] -> return res
-    in
-    helper [] (List.rev l)
-  ;;
+  let flat_mapm f l = mapm f l >>| List.concat
 
   (* -------------------- Environment -------------------- *)
 
@@ -239,7 +232,7 @@ module Eval (M : MonadFail) = struct
 
   (** Evaluate word *)
   let rec ev_word (env : environment) : word -> string list t = function
-    | BraceExp ws -> flat_mapr (ev_word env) ws
+    | BraceExp ws -> flat_mapm (ev_word env) ws
     | ParamExp p -> ev_param_exp env p >>| fun s -> [ s ]
     | CmdSubst _ -> fail "Not implemented"
     | ArithmExp a -> ev_arithm env a >>| fun n -> [ string_of_int n ]
@@ -276,9 +269,9 @@ module Eval (M : MonadFail) = struct
       | [ s ] -> return (env_set name (Simple (i, s)))
       | _ -> fail "Illegal expansion in simple assignment")
     | IndArrAssignt (name, vs) ->
-      flat_mapr (ev_word env) vs >>| fun ss -> env_set name (Ind ss)
+      flat_mapm (ev_word env) vs >>| fun ss -> env_set name (Ind ss)
     | AssocArrAssignt (name, ps) ->
-      mapr
+      mapm
         (fun (k, w) ->
           ev_word env w
           >>= function
