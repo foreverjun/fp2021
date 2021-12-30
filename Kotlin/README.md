@@ -1,4 +1,4 @@
-### An implementaion of Lambda mini-language
+### An implementaion of Kotlin mini-language
 
 This is a homework for functional programming course.
 
