@@ -159,12 +159,16 @@ module Interpret (M : MONAD_FAIL) = struct
       List.find_map obj.fields ~f:(fun r ->
           if String.equal r.name name then Some r else None)
     with
-    | Some r -> Some r
+    | Some r ->
+      if (check_record_is_private r && not this_flag)
+         || (check_record_is_protected r && not this_flag)
+      then None
+      else Some r
     | None ->
       (match obj.super with
       | None -> None
       | Some super ->
-        (match get_field_from_object false super name with
+        (match get_field_from_object true super name with
         | None -> None
         | Some r_super ->
           if check_record_is_private r_super
@@ -178,12 +182,16 @@ module Interpret (M : MONAD_FAIL) = struct
       List.find_map obj.methods ~f:(fun r ->
           if String.equal r.name name then Some r else None)
     with
-    | Some r -> Some r
+    | Some r ->
+      if (check_record_is_private r && not this_flag)
+         || (check_record_is_protected r && not this_flag)
+      then None
+      else Some r
     | None ->
       (match obj.super with
       | None -> None
       | Some super ->
-        (match get_method_from_object false super name with
+        (match get_method_from_object true super name with
         | None -> None
         | Some r_super ->
           if check_record_is_private r_super
@@ -503,7 +511,11 @@ module Interpret (M : MONAD_FAIL) = struct
                && Base.phys_equal func_eval_ctx.last_return_value Unitialized
             then M.fail (ExprectedReturnInFunction identifier)
             else
-              M.return { ctx with last_eval_expression = func_eval_ctx.last_return_value }
+              M.return
+                { ctx with
+                  last_eval_expression = func_eval_ctx.last_return_value
+                ; last_return_value = Unitialized
+                }
           else
             M.fail
               (FunctionReturnTypeMismatch

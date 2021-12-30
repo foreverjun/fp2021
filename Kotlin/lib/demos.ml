@@ -122,12 +122,6 @@ let bfs_algorithm =
       println(old)
       old
     })
-
-    println("answer")
-    distances.map({index: Int, old: Int ->
-      println(old)
-      old
-    })
   }
 
 |}
@@ -143,15 +137,15 @@ let iterator_map_algorithm =
 
   open class Iterator(list: IntArrayList) {
 
-    private val list: IntArrayList = list
+    protected val list: IntArrayList = list
     protected var curIndex: Int = 0
 
     public fun hasNext(): Boolean {
-      return list.get(this.curIndex) != null
+      return this.list.get(this.curIndex) != null
     }
 
     public open fun next(): Int? {
-      val cur: Int? = list.get(this.curIndex)
+      val cur: Int? = this.list.get(this.curIndex)
       if(cur != null) {
         this.curIndex = this.curIndex + 1
         return cur
@@ -166,12 +160,12 @@ let iterator_map_algorithm =
     private val mapf: (Int, Int) -> Int = mapf
 
     override fun next(): Int? {
-      val cur: Int? = list.get(this.curIndex)
+      val cur: Int? = this.list.get(this.curIndex)
       if(cur != null) {
         this.curIndex = this.curIndex + 1
         return this.mapf(this.curIndex - 1, cur)
       }
-      else null
+      else return null
     }
 
   }
