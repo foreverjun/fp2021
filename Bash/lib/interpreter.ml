@@ -33,6 +33,8 @@ end
 module TMap (T : PpOrderedType) = struct
   include Map.Make (T)
 
+  let of_list l = of_seq (List.to_seq l)
+
   let pp pp_v ppf m =
     Format.fprintf ppf "@[[@[";
     iter (fun k v -> Format.fprintf ppf "@[%a: %a@],@\n" T.pp_t k pp_v v) m;
@@ -95,12 +97,14 @@ module Eval (M : MonadFail) = struct
 
   type variables = var_t SMap.t [@@deriving show { with_path = false }]
   type functions = fun_t SMap.t [@@deriving show { with_path = false }]
+  type channels = string IMap.t [@@deriving show { with_path = false }]
 
   (** Complete environment *)
   type environment =
-    { vars : variables
-    ; funs : functions
-    ; retcode : int
+    { vars : variables (** Variables available in the current scope *)
+    ; funs : functions (** Functions available in the current scope *)
+    ; chs : channels (** Current contents of channels (i.e. stdin, stdout, stderr) *)
+    ; retcode : int (** Return code of the last operation *)
     }
   [@@deriving show { with_path = false }]
 
@@ -262,10 +266,8 @@ module Eval (M : MonadFail) = struct
           | Some (IndArray a), None -> IndArray (IMap.add 0 v a)
           | Some (IndArray a), Some i -> IndArray (IMap.add i v a)
           | Some (AssocArray a), _ -> AssocArray (SMap.add k v a))
-      | Ind vs ->
-        env_with
-          (IndArray (vs |> List.mapi (fun i v -> i, v) |> List.to_seq |> IMap.of_seq))
-      | Assoc ps -> env_with (AssocArray (ps |> List.to_seq |> SMap.of_seq))
+      | Ind vs -> env_with (IndArray (vs |> List.mapi (fun i v -> i, v) |> IMap.of_list))
+      | Assoc ps -> env_with (AssocArray (SMap.of_list ps))
     in
     function
     | SimpleAssignt ((name, i), w) ->
@@ -307,7 +309,13 @@ open Eval (Result)
 
 (* -------------------- Helper functions -------------------- *)
 
-let empty_env = { vars = SMap.empty; funs = SMap.empty; retcode = 0 }
+let empty_env =
+  { vars = SMap.empty
+  ; funs = SMap.empty
+  ; chs = IMap.of_list [ 0, ""; 1, ""; 2, "" ]
+  ; retcode = 0
+  }
+;;
 
 let succ_ev ?(env = empty_env) pp_giv pp_res ev giv exp =
   match ev env giv with
@@ -381,10 +389,7 @@ let%test _ =
   succ_ev_var
     ~env:
       { empty_env with
-        vars =
-          SMap.singleton
-            "ABC"
-            (IndArray (IMap.of_seq (List.to_seq [ 0, "a"; 1, "b"; 2, "c" ])))
+        vars = SMap.singleton "ABC" (IndArray (IMap.of_list [ 0, "a"; 1, "b"; 2, "c" ]))
       }
     ("ABC", "0")
     "a"
@@ -394,10 +399,7 @@ let%test _ =
   succ_ev_var
     ~env:
       { empty_env with
-        vars =
-          SMap.singleton
-            "ABC"
-            (IndArray (IMap.of_seq (List.to_seq [ 0, "a"; 1, "b"; 2, "c" ])))
+        vars = SMap.singleton "ABC" (IndArray (IMap.of_list [ 0, "a"; 1, "b"; 2, "c" ]))
       }
     ("ABC", "1")
     "b"
@@ -407,10 +409,7 @@ let%test _ =
   succ_ev_var
     ~env:
       { empty_env with
-        vars =
-          SMap.singleton
-            "ABC"
-            (IndArray (IMap.of_seq (List.to_seq [ 0, "a"; 1, "b"; 2, "c" ])))
+        vars = SMap.singleton "ABC" (IndArray (IMap.of_list [ 0, "a"; 1, "b"; 2, "c" ]))
       }
     ("ABC", "3")
     ""
@@ -423,7 +422,7 @@ let%test _ =
         vars =
           SMap.singleton
             "ABC"
-            (AssocArray (SMap.of_seq (List.to_seq [ "a", "a1"; "b", "b1"; "0", "01" ])))
+            (AssocArray (SMap.of_list [ "a", "a1"; "b", "b1"; "0", "01" ]))
       }
     ("ABC", "0")
     "01"
@@ -436,7 +435,7 @@ let%test _ =
         vars =
           SMap.singleton
             "ABC"
-            (AssocArray (SMap.of_seq (List.to_seq [ "a", "a1"; "b", "b1"; "0", "01" ])))
+            (AssocArray (SMap.of_list [ "a", "a1"; "b", "b1"; "0", "01" ]))
       }
     ("ABC", "b")
     "b1"
@@ -449,7 +448,7 @@ let%test _ =
         vars =
           SMap.singleton
             "ABC"
-            (AssocArray (SMap.of_seq (List.to_seq [ "a", "a1"; "b", "b1"; "0", "01" ])))
+            (AssocArray (SMap.of_list [ "a", "a1"; "b", "b1"; "0", "01" ]))
       }
     ("ABC", "!")
     ""
@@ -903,10 +902,7 @@ let%test _ =
   succ_ev_assignt
     (IndArrAssignt ("X", [ Word "x"; BraceExp [ Word "y"; Word "z" ] ]))
     { empty_env with
-      vars =
-        SMap.singleton
-          "X"
-          (IndArray ([ 0, "x"; 1, "y"; 2, "z" ] |> List.to_seq |> IMap.of_seq))
+      vars = SMap.singleton "X" (IndArray (IMap.of_list [ 0, "x"; 1, "y"; 2, "z" ]))
     }
 ;;
 
@@ -941,8 +937,7 @@ let%test _ =
     ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 1 "x")) }
     (SimpleAssignt (("X", "0"), Word "y"))
     { empty_env with
-      vars =
-        SMap.singleton "X" (IndArray ([ 1, "x"; 0, "y" ] |> List.to_seq |> IMap.of_seq))
+      vars = SMap.singleton "X" (IndArray (IMap.of_list [ 1, "x"; 0, "y" ]))
     }
 ;;
 
@@ -960,10 +955,7 @@ let%test _ =
       { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "a" "x")) }
     (SimpleAssignt (("X", "0"), Word "y"))
     { empty_env with
-      vars =
-        SMap.singleton
-          "X"
-          (AssocArray ([ "a", "x"; "0", "y" ] |> List.to_seq |> SMap.of_seq))
+      vars = SMap.singleton "X" (AssocArray (SMap.of_list [ "a", "x"; "0", "y" ]))
     }
 ;;
 
@@ -972,8 +964,7 @@ let%test _ =
     ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
     (SimpleAssignt (("X", "1"), Word "y"))
     { empty_env with
-      vars =
-        SMap.singleton "X" (IndArray ([ 0, "x"; 1, "y" ] |> List.to_seq |> IMap.of_seq))
+      vars = SMap.singleton "X" (IndArray (IMap.of_list [ 0, "x"; 1, "y" ]))
     }
 ;;
 
@@ -1004,8 +995,7 @@ let%test _ =
     ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 1 "x")) }
     (SimpleAssignt (("X", "a"), Word "y"))
     { empty_env with
-      vars =
-        SMap.singleton "X" (IndArray ([ 1, "x"; 0, "y" ] |> List.to_seq |> IMap.of_seq))
+      vars = SMap.singleton "X" (IndArray (IMap.of_list [ 1, "x"; 0, "y" ]))
     }
 ;;
 
@@ -1015,10 +1005,7 @@ let%test _ =
       { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "1" "x")) }
     (SimpleAssignt (("X", "a"), Word "y"))
     { empty_env with
-      vars =
-        SMap.singleton
-          "X"
-          (AssocArray ([ "1", "x"; "a", "y" ] |> List.to_seq |> SMap.of_seq))
+      vars = SMap.singleton "X" (AssocArray (SMap.of_list [ "1", "x"; "a", "y" ]))
     }
 ;;
 
