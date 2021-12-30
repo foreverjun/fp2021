@@ -112,26 +112,19 @@ module Eval (M : MonadFail) = struct
   (* -------------------- Evaluation -------------------- *)
 
   (** Evaluate variable *)
-  let ev_var env =
+  let ev_var env ((name, index) : var) =
     let find f a i =
       match f i a with
       | None -> ""
       | Some v -> v
     in
-    function
-    | SimpleVar name ->
-      (match get_var name env with
-      | None -> return ""
-      | Some (IndArray vs) -> return (find IMap.find_opt vs 0)
-      | Some (AssocArray vs) -> return (find SMap.find_opt vs "0"))
-    | Subscript (name, index) ->
-      (match get_var name env with
-      | None -> return ""
-      | Some (IndArray vs) ->
-        (match int_of_string_opt index with
-        | None -> return (find IMap.find_opt vs 0)
-        | Some i -> return (find IMap.find_opt vs i))
-      | Some (AssocArray vs) -> return (find SMap.find_opt vs index))
+    match get_var name env with
+    | None -> return ""
+    | Some (IndArray vs) ->
+      (match int_of_string_opt index with
+      | None -> return (find IMap.find_opt vs 0)
+      | Some i -> return (find IMap.find_opt vs i))
+    | Some (AssocArray vs) -> return (find SMap.find_opt vs index)
   ;;
 
   (** Evaluate arithmetic *)
@@ -185,7 +178,7 @@ module Eval (M : MonadFail) = struct
     in
     function
     | Param v -> ev_var env v
-    | PosParam i -> ev_var env (SimpleVar (string_of_int i))
+    | PosParam i -> ev_var env (string_of_int i, "0")
     | Length v -> ev_var env v >>| fun s -> string_of_int (String.length s)
     | Substring (v, pos, len) ->
       ev_var env v
@@ -275,12 +268,7 @@ module Eval (M : MonadFail) = struct
       | Assoc ps -> env_with (AssocArray (ps |> List.to_seq |> SMap.of_seq))
     in
     function
-    | SimpleAssignt (SimpleVar name, w) ->
-      ev_word env w
-      >>= (function
-      | [ s ] -> return (env_set name (Simple ("0", s)))
-      | _ -> fail "Illegal expansion in simple assignment")
-    | SimpleAssignt (Subscript (name, i), w) ->
+    | SimpleAssignt ((name, i), w) ->
       ev_word env w
       >>= (function
       | [ s ] -> return (env_set name (Simple (i, s)))
@@ -379,13 +367,13 @@ let fail_ev ?(env = empty_env) pp_giv pp_res ev giv exp =
 
 let succ_ev_var ?(env = empty_env) = succ_ev ~env pp_var Format.pp_print_string ev_var
 
-let%test _ = succ_ev_var (SimpleVar "ABC") ""
-let%test _ = succ_ev_var (Subscript ("ABC", "0")) ""
+let%test _ = succ_ev_var ("ABC", "0") ""
+let%test _ = succ_ev_var ("ABC", "0") ""
 
 let%test _ =
   succ_ev_var
     ~env:{ empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "2")) }
-    (SimpleVar "ABC")
+    ("ABC", "0")
     "2"
 ;;
 
@@ -398,7 +386,7 @@ let%test _ =
             "ABC"
             (IndArray (IMap.of_seq (List.to_seq [ 0, "a"; 1, "b"; 2, "c" ])))
       }
-    (SimpleVar "ABC")
+    ("ABC", "0")
     "a"
 ;;
 
@@ -411,7 +399,7 @@ let%test _ =
             "ABC"
             (IndArray (IMap.of_seq (List.to_seq [ 0, "a"; 1, "b"; 2, "c" ])))
       }
-    (Subscript ("ABC", "1"))
+    ("ABC", "1")
     "b"
 ;;
 
@@ -424,7 +412,7 @@ let%test _ =
             "ABC"
             (IndArray (IMap.of_seq (List.to_seq [ 0, "a"; 1, "b"; 2, "c" ])))
       }
-    (Subscript ("ABC", "3"))
+    ("ABC", "3")
     ""
 ;;
 
@@ -437,7 +425,7 @@ let%test _ =
             "ABC"
             (AssocArray (SMap.of_seq (List.to_seq [ "a", "a1"; "b", "b1"; "0", "01" ])))
       }
-    (SimpleVar "ABC")
+    ("ABC", "0")
     "01"
 ;;
 
@@ -450,7 +438,7 @@ let%test _ =
             "ABC"
             (AssocArray (SMap.of_seq (List.to_seq [ "a", "a1"; "b", "b1"; "0", "01" ])))
       }
-    (Subscript ("ABC", "b"))
+    ("ABC", "b")
     "b1"
 ;;
 
@@ -463,7 +451,7 @@ let%test _ =
             "ABC"
             (AssocArray (SMap.of_seq (List.to_seq [ "a", "a1"; "b", "b1"; "0", "01" ])))
       }
-    (Subscript ("ABC", "!"))
+    ("ABC", "!")
     ""
 ;;
 
@@ -497,11 +485,11 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "abc")) }
-    (Param (SimpleVar "ABC"))
+    (Param ("ABC", "0"))
     "abc"
 ;;
 
-let%test _ = succ_ev_param_exp (Param (SimpleVar "ABC")) ""
+let%test _ = succ_ev_param_exp (Param ("ABC", "0")) ""
 
 let%test _ =
   succ_ev_param_exp
@@ -514,14 +502,14 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "12345")) }
-    (Length (SimpleVar "ABC"))
+    (Length ("ABC", "0"))
     "5"
 ;;
 
 let%test _ =
   succ_ev_param_exp
     ~env:{ empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "")) }
-    (Length (SimpleVar "ABC"))
+    (Length ("ABC", "0"))
     "0"
 ;;
 
@@ -529,7 +517,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (Substring (SimpleVar "ABC", Num 0, Some (Num 3)))
+    (Substring (("ABC", "0"), Num 0, Some (Num 3)))
     "012"
 ;;
 
@@ -537,7 +525,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (Substring (SimpleVar "ABC", Num 0, Some (Num 5)))
+    (Substring (("ABC", "0"), Num 0, Some (Num 5)))
     "01234"
 ;;
 
@@ -545,7 +533,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (Substring (SimpleVar "ABC", Num 0, Some (Num 7)))
+    (Substring (("ABC", "0"), Num 0, Some (Num 7)))
     "01234"
 ;;
 
@@ -553,7 +541,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (Substring (SimpleVar "ABC", Num 2, Some (Num 2)))
+    (Substring (("ABC", "0"), Num 2, Some (Num 2)))
     "23"
 ;;
 
@@ -561,7 +549,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (Substring (SimpleVar "ABC", Num 2, Some (Num 0)))
+    (Substring (("ABC", "0"), Num 2, Some (Num 0)))
     ""
 ;;
 
@@ -569,7 +557,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (Substring (SimpleVar "ABC", Num 2, None))
+    (Substring (("ABC", "0"), Num 2, None))
     "234"
 ;;
 
@@ -577,7 +565,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (Substring (SimpleVar "ABC", Num (-3), Some (Num 2)))
+    (Substring (("ABC", "0"), Num (-3), Some (Num 2)))
     "23"
 ;;
 
@@ -585,7 +573,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (Substring (SimpleVar "ABC", Num (-1), Some (Num 2)))
+    (Substring (("ABC", "0"), Num (-1), Some (Num 2)))
     "4"
 ;;
 
@@ -593,7 +581,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (Substring (SimpleVar "ABC", Num (-6), Some (Num 3)))
+    (Substring (("ABC", "0"), Num (-6), Some (Num 3)))
     ""
 ;;
 
@@ -601,7 +589,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (Substring (SimpleVar "ABC", Num (-3), Some (Num (-2))))
+    (Substring (("ABC", "0"), Num (-3), Some (Num (-2))))
     "2"
 ;;
 
@@ -609,7 +597,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (Substring (SimpleVar "ABC", Num (-3), Some (Num (-3))))
+    (Substring (("ABC", "0"), Num (-3), Some (Num (-3))))
     ""
 ;;
 
@@ -617,7 +605,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (Substring (SimpleVar "ABC", Num 0, Some (Num (-5))))
+    (Substring (("ABC", "0"), Num 0, Some (Num (-5))))
     ""
 ;;
 
@@ -625,7 +613,7 @@ let%test _ =
   fail_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (Substring (SimpleVar "ABC", Num 4, Some (Num (-3))))
+    (Substring (("ABC", "0"), Num 4, Some (Num (-3))))
     "substring expression < 0"
 ;;
 
@@ -633,7 +621,7 @@ let%test _ =
   fail_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (Substring (SimpleVar "ABC", Num 0, Some (Num (-6))))
+    (Substring (("ABC", "0"), Num 0, Some (Num (-6))))
     "substring expression < 0"
 ;;
 
@@ -641,7 +629,7 @@ let%test _ =
   fail_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (Substring (SimpleVar "ABC", Div (Num 1, Num 0), None))
+    (Substring (("ABC", "0"), Div (Num 1, Num 0), None))
     "Division by 0"
 ;;
 
@@ -649,7 +637,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (CutMinBeg (SimpleVar "ABC", "*"))
+    (CutMinBeg (("ABC", "0"), "*"))
     "01234"
 ;;
 
@@ -657,7 +645,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (CutMinBeg (SimpleVar "ABC", "?"))
+    (CutMinBeg (("ABC", "0"), "?"))
     "1234"
 ;;
 
@@ -665,7 +653,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (CutMinBeg (SimpleVar "ABC", "[0-9][0-9]"))
+    (CutMinBeg (("ABC", "0"), "[0-9][0-9]"))
     "234"
 ;;
 
@@ -673,7 +661,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (CutMinBeg (SimpleVar "ABC", "23"))
+    (CutMinBeg (("ABC", "0"), "23"))
     "01234"
 ;;
 
@@ -681,7 +669,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (CutMinBeg (SimpleVar "ABC", "01"))
+    (CutMinBeg (("ABC", "0"), "01"))
     "234"
 ;;
 
@@ -689,7 +677,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (CutMaxBeg (SimpleVar "ABC", "*"))
+    (CutMaxBeg (("ABC", "0"), "*"))
     ""
 ;;
 
@@ -697,7 +685,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (CutMinEnd (SimpleVar "ABC", "?"))
+    (CutMinEnd (("ABC", "0"), "?"))
     "0123"
 ;;
 
@@ -705,7 +693,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (CutMinEnd (SimpleVar "ABC", "*"))
+    (CutMinEnd (("ABC", "0"), "*"))
     "01234"
 ;;
 
@@ -713,7 +701,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (CutMaxEnd (SimpleVar "ABC", "?"))
+    (CutMaxEnd (("ABC", "0"), "?"))
     "0123"
 ;;
 
@@ -721,7 +709,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (CutMaxEnd (SimpleVar "ABC", "*"))
+    (CutMaxEnd (("ABC", "0"), "*"))
     ""
 ;;
 
@@ -729,7 +717,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (SubstOne (SimpleVar "ABC", "?", "a"))
+    (SubstOne (("ABC", "0"), "?", "a"))
     "a1234"
 ;;
 
@@ -737,14 +725,14 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (SubstOne (SimpleVar "ABC", "*", "a"))
+    (SubstOne (("ABC", "0"), "*", "a"))
     "a"
 ;;
 
 let%test _ =
   succ_ev_param_exp
     ~env:{ empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "")) }
-    (SubstOne (SimpleVar "ABC", "*", "a"))
+    (SubstOne (("ABC", "0"), "*", "a"))
     "a"
 ;;
 
@@ -752,7 +740,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (SubstAll (SimpleVar "ABC", "?", "a"))
+    (SubstAll (("ABC", "0"), "?", "a"))
     "aaaaa"
 ;;
 
@@ -760,7 +748,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (SubstAll (SimpleVar "ABC", "*", "a"))
+    (SubstAll (("ABC", "0"), "*", "a"))
     "a"
 ;;
 
@@ -770,7 +758,7 @@ let%test _ =
       { empty_env with
         vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "abacab"))
       }
-    (SubstAll (SimpleVar "ABC", "a", "heh"))
+    (SubstAll (("ABC", "0"), "a", "heh"))
     "hehbhehchehb"
 ;;
 
@@ -778,7 +766,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (SubstBeg (SimpleVar "ABC", "*", "a"))
+    (SubstBeg (("ABC", "0"), "*", "a"))
     "a"
 ;;
 
@@ -788,7 +776,7 @@ let%test _ =
       { empty_env with
         vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "abcabab"))
       }
-    (SubstBeg (SimpleVar "ABC", "ab", "!"))
+    (SubstBeg (("ABC", "0"), "ab", "!"))
     "!cabab"
 ;;
 
@@ -796,7 +784,7 @@ let%test _ =
   succ_ev_param_exp
     ~env:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
-    (SubstEnd (SimpleVar "ABC", "*", "a"))
+    (SubstEnd (("ABC", "0"), "*", "a"))
     "a"
 ;;
 
@@ -806,7 +794,7 @@ let%test _ =
       { empty_env with
         vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "abcabab"))
       }
-    (SubstEnd (SimpleVar "ABC", "ab", "!"))
+    (SubstEnd (("ABC", "0"), "ab", "!"))
     "abcab!"
 ;;
 
@@ -852,14 +840,12 @@ let fail_ev_word ?(env = empty_env) =
     ev_word
 ;;
 
-let%test _ =
-  succ_ev_word (BraceExp [ ParamExp (Param (SimpleVar "X")); Word "y" ]) [ ""; "y" ]
-;;
+let%test _ = succ_ev_word (BraceExp [ ParamExp (Param ("X", "0")); Word "y" ]) [ ""; "y" ]
 
 let%test _ =
   succ_ev_word
     ~env:{ empty_env with vars = SMap.singleton "M" (IndArray (IMap.singleton 0 "meow")) }
-    (ParamExp (Param (SimpleVar "M")))
+    (ParamExp (Param ("M", "0")))
     [ "meow" ]
 ;;
 
@@ -879,31 +865,31 @@ let fail_ev_assignt ?(env = empty_env) = fail_ev ~env pp_assignt pp_environment 
 
 let%test _ =
   succ_ev_assignt
-    (SimpleAssignt (SimpleVar "X", Word "x"))
+    (SimpleAssignt (("X", "0"), Word "x"))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
 ;;
 
 let%test _ =
   fail_ev_assignt
-    (SimpleAssignt (SimpleVar "X", BraceExp [ Word "x"; Word "y" ]))
+    (SimpleAssignt (("X", "0"), BraceExp [ Word "x"; Word "y" ]))
     "Illegal expansion in simple assignment"
 ;;
 
 let%test _ =
   succ_ev_assignt
-    (SimpleAssignt (Subscript ("X", "1"), Word "x"))
+    (SimpleAssignt (("X", "1"), Word "x"))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 1 "x")) }
 ;;
 
 let%test _ =
   succ_ev_assignt
-    (SimpleAssignt (Subscript ("X", "a"), Word "x"))
+    (SimpleAssignt (("X", "a"), Word "x"))
     { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "a" "x")) }
 ;;
 
 let%test _ =
   fail_ev_assignt
-    (SimpleAssignt (Subscript ("X", "1"), BraceExp [ Word "x"; Word "y" ]))
+    (SimpleAssignt (("X", "1"), BraceExp [ Word "x"; Word "y" ]))
     "Illegal expansion in simple assignment"
 ;;
 
@@ -939,21 +925,21 @@ let%test _ =
 let%test _ =
   succ_ev_assignt
     ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
-    (SimpleAssignt (SimpleVar "X", Word "y"))
+    (SimpleAssignt (("X", "0"), Word "y"))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "y")) }
 ;;
 
 let%test _ =
   succ_ev_assignt
     ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
-    (SimpleAssignt (SimpleVar "X", Word "y"))
+    (SimpleAssignt (("X", "0"), Word "y"))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "y")) }
 ;;
 
 let%test _ =
   succ_ev_assignt
     ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 1 "x")) }
-    (SimpleAssignt (SimpleVar "X", Word "y"))
+    (SimpleAssignt (("X", "0"), Word "y"))
     { empty_env with
       vars =
         SMap.singleton "X" (IndArray ([ 1, "x"; 0, "y" ] |> List.to_seq |> IMap.of_seq))
@@ -964,7 +950,7 @@ let%test _ =
   succ_ev_assignt
     ~env:
       { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "0" "x")) }
-    (SimpleAssignt (SimpleVar "X", Word "y"))
+    (SimpleAssignt (("X", "0"), Word "y"))
     { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "0" "y")) }
 ;;
 
@@ -972,7 +958,7 @@ let%test _ =
   succ_ev_assignt
     ~env:
       { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "a" "x")) }
-    (SimpleAssignt (SimpleVar "X", Word "y"))
+    (SimpleAssignt (("X", "0"), Word "y"))
     { empty_env with
       vars =
         SMap.singleton
@@ -984,7 +970,7 @@ let%test _ =
 let%test _ =
   succ_ev_assignt
     ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
-    (SimpleAssignt (Subscript ("X", "1"), Word "y"))
+    (SimpleAssignt (("X", "1"), Word "y"))
     { empty_env with
       vars =
         SMap.singleton "X" (IndArray ([ 0, "x"; 1, "y" ] |> List.to_seq |> IMap.of_seq))
@@ -994,7 +980,7 @@ let%test _ =
 let%test _ =
   succ_ev_assignt
     ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 1 "x")) }
-    (SimpleAssignt (Subscript ("X", "1"), Word "y"))
+    (SimpleAssignt (("X", "1"), Word "y"))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 1 "y")) }
 ;;
 
@@ -1002,21 +988,21 @@ let%test _ =
   succ_ev_assignt
     ~env:
       { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "1" "x")) }
-    (SimpleAssignt (Subscript ("X", "1"), Word "y"))
+    (SimpleAssignt (("X", "1"), Word "y"))
     { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "1" "y")) }
 ;;
 
 let%test _ =
   succ_ev_assignt
     ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
-    (SimpleAssignt (Subscript ("X", "a"), Word "y"))
+    (SimpleAssignt (("X", "a"), Word "y"))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "y")) }
 ;;
 
 let%test _ =
   succ_ev_assignt
     ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 1 "x")) }
-    (SimpleAssignt (Subscript ("X", "a"), Word "y"))
+    (SimpleAssignt (("X", "a"), Word "y"))
     { empty_env with
       vars =
         SMap.singleton "X" (IndArray ([ 1, "x"; 0, "y" ] |> List.to_seq |> IMap.of_seq))
@@ -1027,7 +1013,7 @@ let%test _ =
   succ_ev_assignt
     ~env:
       { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "1" "x")) }
-    (SimpleAssignt (Subscript ("X", "a"), Word "y"))
+    (SimpleAssignt (("X", "a"), Word "y"))
     { empty_env with
       vars =
         SMap.singleton

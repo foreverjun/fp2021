@@ -69,8 +69,8 @@ let non_meta = take_while1 (fun c -> not (is_meta c))
 
 (* -------------------- Variables -------------------- *)
 
-(** Name parser *)
-let name_p =
+(** Name of a variable or a function *)
+let name =
   let is_name_beg = function
     | 'a' .. 'z' | 'A' .. 'Z' | '_' -> true
     | _ -> false
@@ -86,16 +86,10 @@ let name_p =
 ;;
 
 (** Variable parser *)
-let var_p =
-  name_p
+let var_p : var t =
+  name
   >>= fun n ->
-  char '['
-  *> take_while1 (function
-         | ']' -> false
-         | _ -> true)
-  <* char ']'
-  >>| (fun subscr -> Subscript (n, subscr))
-  <|> return (SimpleVar n)
+  option "0" (char '[' *> take_while1 (( <> ) ']') <* char ']') >>| fun i -> n, i
 ;;
 
 (* -------------------- Arithmetic -------------------- *)
@@ -281,12 +275,12 @@ and inn_assignt_p () =
     >>= fun v -> char '=' *> option (Word "") (word ()) >>| fun w -> SimpleAssignt (v, w)
   in
   let cmpnd p c =
-    name_p >>= fun n -> char '=' *> parens (sep_by1 blank (p ())) >>| fun vs -> c n vs
+    name >>= fun n -> char '=' *> parens (sep_by1 blank (p ())) >>| fun vs -> c n vs
   in
   let ind = cmpnd word (fun n ws -> IndArrAssignt (n, ws)) in
   let assoc =
     cmpnd
-      (fun () -> name_p <* char '=' >>= fun k -> word () >>| fun v -> k, v)
+      (fun () -> name <* char '=' >>= fun k -> word () >>| fun v -> k, v)
       (fun n ps -> AssocArrAssignt (n, ps))
   in
   assoc <|> ind <|> simple
@@ -388,7 +382,7 @@ and for_loop_with : 'a. 'a t -> ('a * pipeline_list) t =
 and inn_for_list_loop_p () : for_list_loop t =
   let word = word_p in
   let list_cnd =
-    name_p >>= fun n -> trim (string "in") *> sep_by blank (word ()) >>| fun ws -> n, ws
+    name >>= fun n -> trim (string "in") *> sep_by blank (word ()) >>| fun ws -> n, ws
   in
   for_loop_with list_cnd >>| fun ((n, ws), act) -> n, ws, act
 
@@ -470,9 +464,9 @@ let case_item_p = inn_case_item_p ()
 
 (** Function parser *)
 let func_p : func t =
-  string "function" *> trim name_p
+  string "function" *> trim name
   <* option "" (string "()" <* blank)
-  <|> (name_p <* trim (string "()"))
+  <|> (name <* trim (string "()"))
   <* many delim1
   >>= fun n -> blank *> compound_p >>| fun body -> n, body
 ;;
@@ -548,10 +542,10 @@ let fail_p pp p s =
 let succ_var_p = succ_p pp_var var_p
 let fail_var_p = fail_p pp_var var_p
 
-let%test _ = succ_var_p "VAR" (SimpleVar "VAR")
-let%test _ = succ_var_p "_var" (SimpleVar "_var")
-let%test _ = succ_var_p "ARR[hi there]" (Subscript ("ARR", "hi there"))
-let%test _ = succ_var_p "ARR[ ]" (Subscript ("ARR", " "))
+let%test _ = succ_var_p "VAR" ("VAR", "0")
+let%test _ = succ_var_p "_var" ("_var", "0")
+let%test _ = succ_var_p "ARR[hi there]" ("ARR", "hi there")
+let%test _ = succ_var_p "ARR[ ]" ("ARR", " ")
 let%test _ = fail_var_p " VAR"
 let%test _ = fail_var_p "VAR "
 let%test _ = fail_var_p " VAR "
@@ -583,9 +577,7 @@ let%test _ =
 ;;
 
 let%test _ =
-  succ_arithm_p
-    "x + y + 1"
-    (Plus (Plus (Var (SimpleVar "x"), Var (SimpleVar "y")), Num 1))
+  succ_arithm_p "x + y + 1" (Plus (Plus (Var ("x", "0"), Var ("y", "0")), Num 1))
 ;;
 
 let%test _ = fail_arithm_p " 100"
@@ -653,31 +645,31 @@ let%test _ = fail_brace_exp "1a{d..a..}b5"
 let succ_param_exp = succ_p pp_param_exp param_exp_p
 let fail_param_exp = fail_p pp_param_exp param_exp_p
 
-let%test _ = succ_param_exp "$ABC" (Param (SimpleVar "ABC"))
+let%test _ = succ_param_exp "$ABC" (Param ("ABC", "0"))
 let%test _ = succ_param_exp "$1" (PosParam 1)
-let%test _ = succ_param_exp "${ABC}" (Param (SimpleVar "ABC"))
+let%test _ = succ_param_exp "${ABC}" (Param ("ABC", "0"))
 let%test _ = succ_param_exp "${1}" (PosParam 1)
-let%test _ = succ_param_exp "${#ABC}" (Length (SimpleVar "ABC"))
-let%test _ = succ_param_exp "${ABC:-20}" (Substring (SimpleVar "ABC", Num (-20), None))
+let%test _ = succ_param_exp "${#ABC}" (Length ("ABC", "0"))
+let%test _ = succ_param_exp "${ABC:-20}" (Substring (("ABC", "0"), Num (-20), None))
 
 let%test _ =
   succ_param_exp
     "${ABC:  5 + 5  :  5 }"
-    (Substring (SimpleVar "ABC", Plus (Num 5, Num 5), Some (Num 5)))
+    (Substring (("ABC", "0"), Plus (Num 5, Num 5), Some (Num 5)))
 ;;
 
-let%test _ = succ_param_exp "${ABC#*.ml}" (CutMinBeg (SimpleVar "ABC", "*.ml"))
-let%test _ = succ_param_exp "${ABC##*.ml}" (CutMaxBeg (SimpleVar "ABC", "*.ml"))
-let%test _ = succ_param_exp "${ABC%*.ml}" (CutMinEnd (SimpleVar "ABC", "*.ml"))
-let%test _ = succ_param_exp "${ABC%%*.ml}" (CutMaxEnd (SimpleVar "ABC", "*.ml"))
-let%test _ = succ_param_exp "${ABC/a}" (SubstOne (SimpleVar "ABC", "a", ""))
-let%test _ = succ_param_exp "${ABC/a/b}" (SubstOne (SimpleVar "ABC", "a", "b"))
-let%test _ = succ_param_exp "${ABC//a}" (SubstAll (SimpleVar "ABC", "a", ""))
-let%test _ = succ_param_exp "${ABC//a/b}" (SubstAll (SimpleVar "ABC", "a", "b"))
-let%test _ = succ_param_exp "${ABC/#a}" (SubstBeg (SimpleVar "ABC", "a", ""))
-let%test _ = succ_param_exp "${ABC/#a/b}" (SubstBeg (SimpleVar "ABC", "a", "b"))
-let%test _ = succ_param_exp "${ABC/%a}" (SubstEnd (SimpleVar "ABC", "a", ""))
-let%test _ = succ_param_exp "${ABC/%a/b}" (SubstEnd (SimpleVar "ABC", "a", "b"))
+let%test _ = succ_param_exp "${ABC#*.ml}" (CutMinBeg (("ABC", "0"), "*.ml"))
+let%test _ = succ_param_exp "${ABC##*.ml}" (CutMaxBeg (("ABC", "0"), "*.ml"))
+let%test _ = succ_param_exp "${ABC%*.ml}" (CutMinEnd (("ABC", "0"), "*.ml"))
+let%test _ = succ_param_exp "${ABC%%*.ml}" (CutMaxEnd (("ABC", "0"), "*.ml"))
+let%test _ = succ_param_exp "${ABC/a}" (SubstOne (("ABC", "0"), "a", ""))
+let%test _ = succ_param_exp "${ABC/a/b}" (SubstOne (("ABC", "0"), "a", "b"))
+let%test _ = succ_param_exp "${ABC//a}" (SubstAll (("ABC", "0"), "a", ""))
+let%test _ = succ_param_exp "${ABC//a/b}" (SubstAll (("ABC", "0"), "a", "b"))
+let%test _ = succ_param_exp "${ABC/#a}" (SubstBeg (("ABC", "0"), "a", ""))
+let%test _ = succ_param_exp "${ABC/#a/b}" (SubstBeg (("ABC", "0"), "a", "b"))
+let%test _ = succ_param_exp "${ABC/%a}" (SubstEnd (("ABC", "0"), "a", ""))
+let%test _ = succ_param_exp "${ABC/%a/b}" (SubstEnd (("ABC", "0"), "a", "b"))
 let%test _ = fail_param_exp "$-1"
 let%test _ = fail_param_exp " $ABC"
 let%test _ = fail_param_exp "$ABC "
@@ -689,9 +681,7 @@ let succ_cmd_subst = succ_p pp_word (inn_cmd_subst ())
 let fail_cmd_subst = fail_p pp_word (inn_cmd_subst ())
 
 let%test _ =
-  succ_cmd_subst
-    "$(X=2)"
-    (CmdSubst (Assignt (SimpleAssignt (SimpleVar "X", Word "2"), [])))
+  succ_cmd_subst "$(X=2)" (CmdSubst (Assignt (SimpleAssignt (("X", "0"), Word "2"), [])))
 ;;
 
 let%test _ =
@@ -753,7 +743,7 @@ let fail_word_p ?(b = true) ?(p = true) ?(c = true) ?(a = true) ?(f = true) =
 
 let%test _ = succ_word_p "something" (Word "something")
 let%test _ = succ_word_p "1{a,b}2" (BraceExp [ Word "1a2"; Word "1b2" ])
-let%test _ = succ_word_p "$A" (ParamExp (Param (SimpleVar "A")))
+let%test _ = succ_word_p "$A" (ParamExp (Param ("A", "0")))
 
 let%test _ =
   succ_word_p "$(cmd arg)" (CmdSubst (Command ([], Word "cmd", [ Word "arg" ])))
@@ -773,25 +763,23 @@ let%test _ = succ_word_p ~f:false "?.a" (Word "?.a")
 let succ_cmd_p = succ_p pp_cmd cmd_p
 let fail_cmd_p = fail_p pp_cmd cmd_p
 
-let%test _ = succ_cmd_p "A=123" (Assignt (SimpleAssignt (SimpleVar "A", Word "123"), []))
-let%test _ = succ_cmd_p "A=" (Assignt (SimpleAssignt (SimpleVar "A", Word ""), []))
+let%test _ = succ_cmd_p "A=123" (Assignt (SimpleAssignt (("A", "0"), Word "123"), []))
+let%test _ = succ_cmd_p "A=" (Assignt (SimpleAssignt (("A", "0"), Word ""), []))
 
 let%test _ =
   succ_cmd_p
     "A=123      B=567      _ckd24=df!5[]%$~7"
     (Assignt
-       ( SimpleAssignt (SimpleVar "A", Word "123")
-       , [ SimpleAssignt (SimpleVar "B", Word "567")
-         ; SimpleAssignt (SimpleVar "_ckd24", Word "df!5[]%$~7")
+       ( SimpleAssignt (("A", "0"), Word "123")
+       , [ SimpleAssignt (("B", "0"), Word "567")
+         ; SimpleAssignt (("_ckd24", "0"), Word "df!5[]%$~7")
          ] ))
 ;;
 
 let%test _ = succ_cmd_p "1A=123" (Command ([], Word "1A=123", []))
 
 let%test _ =
-  succ_cmd_p
-    "ARR[3]=123"
-    (Assignt (SimpleAssignt (Subscript ("ARR", "3"), Word "123"), []))
+  succ_cmd_p "ARR[3]=123" (Assignt (SimpleAssignt (("ARR", "3"), Word "123"), []))
 ;;
 
 let%test _ =
@@ -827,8 +815,8 @@ let%test _ =
   succ_cmd_p
     "VAR1=123    VAR2=    cmd     arg1     arg2"
     (Command
-       ( [ SimpleAssignt (SimpleVar "VAR1", Word "123")
-         ; SimpleAssignt (SimpleVar "VAR2", Word "")
+       ( [ SimpleAssignt (("VAR1", "0"), Word "123")
+         ; SimpleAssignt (("VAR2", "0"), Word "")
          ]
        , Word "cmd"
        , [ Word "arg1"; Word "arg2" ] ))
@@ -857,7 +845,7 @@ let%test _ = fail_redir_p " < abc"
 let%test _ = fail_redir_p "< abc "
 let%test _ = fail_redir_p " < abc "
 let%test _ = fail_redir_p "12 < abc"
-let%test _ = succ_redir_p "< $a" (RedirInp (0, ParamExp (Param (SimpleVar "a"))))
+let%test _ = succ_redir_p "< $a" (RedirInp (0, ParamExp (Param ("a", "0"))))
 
 (* -------------------- Pipeline list -------------------- *)
 

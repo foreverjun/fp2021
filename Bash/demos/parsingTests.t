@@ -21,8 +21,7 @@ the answer is correct.
         (Pipeline
            (false,
             (SimpleCommand (
-               (Assignt ((SimpleAssignt ((SimpleVar "VAR"), (Word "100"))), 
-                  [])),
+               (Assignt ((SimpleAssignt (("VAR", "0"), (Word "100"))), [])), 
                [])),
             []))),
      (Script (

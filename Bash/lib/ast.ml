@@ -1,13 +1,7 @@
 (** AST *)
 
-(** Name of a variable or a function *)
-type name = string [@@deriving show { with_path = false }]
-
-(** Variable reference *)
-type var =
-  | SimpleVar of name (** name *)
-  | Subscript of name * string (** name\[subscript\] *)
-[@@deriving show { with_path = false }]
+(** Variable reference in the form of name\[subscript\] *)
+type var = string * string [@@deriving show { with_path = false }]
 
 (** Arithmetical expression *)
 type arithm =
@@ -70,9 +64,9 @@ and cmd =
 (** Assignment (differs from the original Bash not to depend on the declare built-in) *)
 and assignt =
   | SimpleAssignt of var * word (** variable=\[ value \] *)
-  | IndArrAssignt of name * word list
+  | IndArrAssignt of string * word list
       (** name=(word1 word2 ...), if no words are provided, the indexed array is not set *)
-  | AssocArrAssignt of name * (name * word) list
+  | AssocArrAssignt of string * (string * word) list
       (** name=(key1=value1 key2=value2 ...), if no pairs are provided, the array is not set *)
 [@@deriving show { with_path = false }]
 
@@ -110,7 +104,7 @@ and compound =
 and while_loop = pipeline_list * pipeline_list [@@deriving show { with_path = false }]
 
 (** For loop in the form of or name in \[ word ... \]; do list ; done *)
-and for_list_loop = name * word list * pipeline_list
+and for_list_loop = string * word list * pipeline_list
 [@@deriving show { with_path = false }]
 
 (** For loop in the form of for (( expr1 ; expr2 ; expr3 )) ; do list ; done *)
@@ -128,7 +122,7 @@ and case_stmt = word * case_item list [@@deriving show { with_path = false }]
 and case_item = word * word list * pipeline_list [@@deriving show { with_path = false }]
 
 (** Function in the form of function name \[()\] compound or name () compound *)
-type func = name * compound [@@deriving show { with_path = false }]
+type func = string * compound [@@deriving show { with_path = false }]
 
 (** AST root *)
 type script =
