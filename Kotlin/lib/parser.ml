@@ -339,9 +339,27 @@ end = struct
        ])
       input
 
+  and class_inner_statement input =
+    (choice [ init_statement; fun_declaration_statement; var_declaration_statement ])
+      input
+
+  and initialize_block_inner_statement input =
+    (choice
+       [ class_declaration_statement
+       ; fun_declaration_statement
+       ; var_declaration_statement
+       ])
+      input
+
+  and class_block_statement input =
+    (skip_many (exactly ' ')
+    >> braces (sep_by class_inner_statement (skip_many (exactly ' ') >> newline))
+    >>= fun expressions -> return (Block expressions))
+      input
+
   and initialize_block_statement input =
     (skip_many (exactly ' ')
-    >> sep_by statement spaces
+    >> sep_by initialize_block_inner_statement spaces
     >>= fun expressions -> return (InitializeBlock expressions))
       input
 
@@ -370,7 +388,7 @@ end = struct
       None
       (token ":" >> function_call_expression >>= fun fun_call -> return (Some fun_call))
     >>= fun super_class_constructor ->
-    block_statement
+    class_block_statement
     >>= fun class_statement ->
     return
       (ClassDeclaration

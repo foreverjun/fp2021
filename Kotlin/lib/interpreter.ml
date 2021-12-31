@@ -38,33 +38,17 @@ module Interpret (M : MONAD_FAIL) = struct
     | _, _ -> false
   ;;
 
-  let check_record_is_private rc =
+  let check_record_contains_modifier rc modifier =
     Option.is_some
-      (List.find_map rc.modifiers ~f:(function
-          | Private -> Some Private
-          | _ -> None))
+      (List.find rc.modifiers ~f:(function
+          | found_modifier when Base.phys_equal found_modifier modifier -> true
+          | _ -> false))
   ;;
 
-  let check_record_is_protected rc =
-    Option.is_some
-      (List.find_map rc.modifiers ~f:(function
-          | Protected -> Some Protected
-          | _ -> None))
-  ;;
-
-  let check_record_is_open rc =
-    Option.is_some
-      (List.find_map rc.modifiers ~f:(function
-          | Open -> Some Open
-          | _ -> None))
-  ;;
-
-  let check_record_is_override rc =
-    Option.is_some
-      (List.find_map rc.modifiers ~f:(function
-          | Override -> Some Override
-          | _ -> None))
-  ;;
+  let check_record_is_private rc = check_record_contains_modifier rc Private
+  let check_record_is_protected rc = check_record_contains_modifier rc Protected
+  let check_record_is_open rc = check_record_contains_modifier rc Open
+  let check_record_is_override rc = check_record_contains_modifier rc Override
 
   let get_var_from_env env name =
     let filtered_env =
@@ -262,14 +246,9 @@ module Interpret (M : MONAD_FAIL) = struct
     code
   ;;
 
-  let rec run (ctx : context) statement = interpret_statement ctx statement
-
-  and interpret_statement ctx stat =
+  let rec interpret_statement ctx stat =
     match stat with
-    | InitInClass statement_block ->
-      (match ctx.scope with
-      | ObjectInitialization _ -> interpret_statement ctx statement_block
-      | _ -> M.fail InitStatementNotInClass)
+    | InitInClass statement_block -> interpret_statement ctx statement_block
     | Block statements ->
       let exception Return_exception of context in
       (try
@@ -296,12 +275,7 @@ module Interpret (M : MONAD_FAIL) = struct
         | _ -> M.fail ReturnNotInFunction))
     | InitializeBlock statements ->
       List.fold statements ~init:(M.return ctx) ~f:(fun monadic_ctx stat ->
-          monadic_ctx
-          >>= fun checked_ctx ->
-          match stat with
-          | VarDeclaration _ | FunDeclaration _ | ClassDeclaration _ ->
-            interpret_statement checked_ctx stat
-          | _ -> M.fail (NotAllowedStatementInInitializeBlock stat))
+          monadic_ctx >>= fun checked_ctx -> interpret_statement checked_ctx stat)
     | AnonymousFunctionDeclarationStatement (arguments, statement) ->
       let func =
         { identity_code = get_unique_identity_code ()
@@ -683,7 +657,7 @@ module Interpret (M : MONAD_FAIL) = struct
                       new_object := updated_obj;
                       M.return class_inner_ctx)
                   | InitInClass block -> interpret_statement checked_ctx block
-                  | _ -> M.fail (IllegalKindOfStatementInsideClass stat))
+                  | _ -> failwith "should not reach here")
               >>= fun _ -> M.return { ctx with last_eval_expression = Object !new_object }
             | _ -> M.fail FunctionArgumentsCountMismatch)
           | Function func ->
