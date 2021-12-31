@@ -60,160 +60,6 @@ module Eval (M : MonadError) = struct
   (** Enviroment variables. *)
   type env = var_t MapString.t [@@deriving show {with_path= false}]
 
-  (* let ev_expr env =
-       let find_reg s =
-         match MapString.find_opt s env with
-         | Some (R v) -> return v
-         | _ -> error ("symbol `" ^ s ^ "\' not defined") in
-       let find_label s =
-         let bytes_to_int64 bs =
-           let helper = Bytes.sub bs 0 (min (Bytes.length bs) 64) in
-           let rec calc b i =
-             if Bytes.length b > 0 then
-               calc
-                 (Bytes.sub b 1 (Bytes.length b - 1))
-                 (add (shift_right i 8) (of_int (Char.code (Bytes.get b 0))))
-             else i in
-           calc helper 0L in
-         match MapString.find_opt s env with
-         | Some (L v) -> return (bytes_to_int64 v)
-         | _ -> error ("symbol `" ^ s ^ "\' not defined") in
-       let rec ev =
-         let modulo x y =
-           let result = sub x (mul (div x y) y) in
-           if result >= 0L then result else add result y in
-         function
-         | Const n -> return n
-         | Add (l, r) -> ev l >>= fun l -> ev r >>= fun r -> return (add l r)
-         | Sub (l, r) -> ev l >>= fun l -> ev r >>= fun r -> return (sub l r)
-         | Mul (l, r) -> ev l >>= fun l -> ev r >>= fun r -> return (mul l r)
-         | Div (l, r) ->
-             ev r
-             >>= fun r ->
-             if r = 0L then error "division by zero"
-             else ev l >>= fun l -> return (div l r)
-         | Mod (l, r) ->
-             ev r
-             >>= fun r ->
-             if r = 0L then error "division by zero"
-             else ev l >>= fun l -> return (modulo l r)
-         | Shl (l, r) ->
-             ev r
-             >>= fun r ->
-             if r < 0L then error "shift by a negative value"
-             else ev l >>= fun l -> return (shift_left l (to_int r mod 64))
-         | Shr (l, r) ->
-             ev r
-             >>= fun r ->
-             if r < 0L then error "shift by a negative value"
-             else ev l >>= fun l -> return (shift_right l (to_int r mod 64))
-         | Reg s -> find_reg s
-         | Label s -> find_label s in
-       ev
-
-     let prepr1 env =
-       let pr_expr env =
-         let modulo x y =
-           let result = sub x (mul (div x y) y) in
-           if result >= 0L then result else add result y in
-         let int64_to_bytes i =
-           let rec helper acc k n =
-             if k != 0L then (
-               Bytes.set acc n (Char.chr (to_int (modulo k 256L)));
-               helper acc (shift_right k 8) (n + 1) )
-             else acc in
-           helper (Bytes.make 8 '\x00') i 0 in
-         let find_label s =
-           match MapString.find_opt s env with
-           | Some (L v) -> return (of_int (Char.code (Bytes.get v 0)))
-           | _ -> error "relocation truncated to fit: R_X86_64_8 against `.data\'"
-         in
-         let rec ev = function
-           | Const n -> return n
-           | Add (l, r) -> ev l >>= fun l -> ev r >>= fun r -> return (add l r)
-           | Sub (l, r) -> ev l >>= fun l -> ev r >>= fun r -> return (sub l r)
-           | Mul (l, r) -> ev l >>= fun l -> ev r >>= fun r -> return (mul l r)
-           | Div (l, r) ->
-               ev r
-               >>= fun r ->
-               if r = 0L then error "division by zero"
-               else ev l >>= fun l -> return (div l r)
-           | Mod (l, r) ->
-               ev r
-               >>= fun r ->
-               if r = 0L then error "division by zero"
-               else ev l >>= fun l -> return (modulo l r)
-           | Shl (l, r) ->
-               ev r
-               >>= fun r ->
-               if r < 0L then error "shift by a negative value"
-               else ev l >>= fun l -> return (shift_left l (to_int r mod 64))
-           | Shr (l, r) ->
-               ev r
-               >>= fun r ->
-               if r < 0L then error "shift by a negative value"
-               else ev l >>= fun l -> return (shift_right l (to_int r mod 64))
-           | Reg _ -> error "expression is not simple or relocatable"
-           | Label s -> find_label s in
-         ev in
-       let rec pr_isd =
-         let helper = function
-           | EqualDir (id, e) -> MapString.add_seq evn ()
-           | EquDir (id, e) -> ()
-           | InDir (Some id, inseg) -> ()
-           | _ -> () in
-         function hd :: tl -> helper hd; pr_isd tl | [] -> () in
-       let rec pr_sec_dir acc env =
-         let helper = function
-           | Section ("DATA", l) -> pr_isd l; []
-           | Section ("CONST", l) -> pr_isd l; []
-           | sec -> [sec] in
-         function
-         | hd :: tl -> pr_sec_dir (acc @ helper hd) tl | [] -> (Directive acc, env)
-       in
-       fun (Directive list) -> pr_sec_dir [] list env
-
-     (* let ev_init_value env = function
-        | Expr e -> ev_expr env e
-        | Str s -> return (Bytes.of_string s) *)
-
-     let prepr2 env =
-
-       let rec pr_expr env8 =
-         let set_label s v =
-           match MapString.find_opt s env with
-           | Some (L _) -> error ("label `" ^ s ^ "\' inconsistently redefined")
-           | _ -> return (MapString.add s v env8)
-         in
-         function
-       | Reg _ -> error "expression is not simple or relocatable"
-       | Label s -> (match MapString.find_opt s env8 with
-           | Some (L v) -> return (L v)
-           | _ -> error "relocation truncated to fit: R_X86_64_8 against `.data\'")
-       | _ -> error ""
-       in
-       let rec pr_data env5 =
-         let helper env7 = function
-           | EqualDir (Id id, e)
-           | EquDir (Id id, e) ->  pr_expr env7 id e >>= (function
-             |  )
-           | InDir (Some id, inseg) -> env7 (* TODO *)
-           | _ -> env7 in
-         function
-         | hd :: tl -> ( match helper env5 hd with env6 -> pr_data env6 tl )
-         | [] -> (env5, []) in
-       let rec pr_sec_dir env1 acc1 =
-         let helper env3 = function
-           | Section ("DATA", l1) | Section ("CONST", l1) -> (
-             match pr_data env3 l1 with env4, _ -> (env4, acc1) )
-           | sec -> (env1, acc1 @ [sec])
-           (* TODO *) in
-         function
-         | hd :: tl -> (
-           match helper env1 hd with env2, l -> pr_sec_dir env2 l tl )
-         | [] -> (env1, acc1) in
-       fun (Directive list) -> pr_sec_dir env [] list *)
-
   let prepr env =
     let modulo x y =
       let result = rem x y in
@@ -265,14 +111,15 @@ module Eval (M : MonadError) = struct
         | Label l -> (
           match MapString.find_opt l e with
           | Some (Lb s) | Some (Ls s) -> return (string_to_int64 s)
+          | Some Er -> error "byte data exceeds bounds"
           | _ ->
               error "relocation truncated to fit: R_X86_64_8 against `.data\'" )
       in
       function
       | Label l -> (
         match MapString.find_opt l env17 with
-        | Some (Lb b) -> return (Lb b)
-        | Some (Ls s) -> return (Ls s)
+        | Some (Lb s) | Some (Ls s) -> return (Ls s)
+        | Some Er -> error "byte data exceeds bounds"
         | _ -> error "relocation truncated to fit: R_X86_64_8 against `.data\'"
         )
       | Reg _ -> error "expression is not simple or relocatable"
