@@ -29,6 +29,5 @@
   (ocamlformat :build)
   base
   opal
-  core
   ; After adding dependencies to 'dune' files and the same dependecies here too
   ))

@@ -1,4 +1,5 @@
-open Core
+open Base
+open Stdio
 open Kotlin_lib.Ast
 open Kotlin_lib.Utils
 open Kotlin_lib.Interpreter.Interpret (Result)
@@ -33,7 +34,7 @@ let rec repl buffered_lines ctx =
     then interpert_repl_command ctx line
     else if String.is_suffix line ~suffix:";;"
     then (
-      let filtered_line = String.slice line 0 (String.length line - 2) in
+      let filtered_line = String.rstrip ?drop:(Some (fun c -> Char.equal c ';')) line in
       raise (End_of_input filtered_line))
     else repl (line :: buffered_lines) ctx
   with
