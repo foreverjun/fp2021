@@ -59,9 +59,7 @@ let is_mnemonic = function
   (*
      mov <reg>,<reg>
      mov <reg>,<mem>
-     mov <mem>,<reg>
      mov <reg>,<con>
-     mov <mem>,<con>
   *)
    |"PUSH"
   (*
@@ -82,13 +80,10 @@ let is_mnemonic = function
     (*
        add/sub <reg>,<reg>
        add/sub <reg>,<mem>
-       add/sub <mem>,<reg>
        add/sub <reg>,<con>
-       add/sub <mem>,<con>
     *)
    |"INC" | "DEC" (*
        inc/dec <reg>
-       inc/dec <mem>
     *)
    |"IMUL" (*
        imul <reg32>,<reg32>
@@ -103,20 +98,14 @@ let is_mnemonic = function
     (*
        and/or/xor <reg>,<reg>
        and/or/xor <reg>,<mem>
-       and/or/xor <mem>,<reg>
        and/or/xor <reg>,<con>
-       and/or/xor <mem>,<con>
     *)
    |"NOT" | "NEG" (*
        not/neg <reg>
-       not/neg <mem>
     *)
    |"SHL" | "SHR"
   (*
      shl/shr <reg>,<con8>
-     shl/shr <mem>,<con8>
-     shl/shr <reg>,<cl>
-     shl/shr <mem>,<cl>
   *)
   (* --- Control Flow --- *)
    |"JMP" (*
@@ -130,7 +119,6 @@ let is_mnemonic = function
     (*
        cmp <reg>,<reg>
        cmp <reg>,<mem>
-       cmp <mem>,<reg>
        cmp <reg>,<con>
     *)
    |"CALL" (*
@@ -151,8 +139,6 @@ let is_mnemonic = function
        movups <regSSE>,<regSSE>
        movups <regSSE>,<mem>
        movups <regSSE>,<con>
-       movups <mem>,<regSSE>
-       movups <mem>,<con>
     *)
    |"ADDSS" | "MULSS" | "SUBSS" | "SHUFPS" ->
       true
