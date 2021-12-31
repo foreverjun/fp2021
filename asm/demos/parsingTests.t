@@ -36,14 +36,14 @@ answer is correct
   (Directive
      [(Section ("DATA", []));
        (Section ("DATA",
-          [(EquDir ((Id "@messae2"), (Const -17578)));
+          [(EquDir ((Id "@messae2"), (Const -17578L)));
             (InDir (None,
-               (Instruction ((Mnemonic "MOV"), [(Reg "RAX"); (Const 1)]))))
+               (Instruction ((Mnemonic "MOV"), [(Reg "RAX"); (Const 1L)]))))
             ]
           ));
        (Section ("TEXT",
           [(InDir ((Some (Id "_")),
-              (Instruction ((Mnemonic "MOV"), [(Reg "RAX"); (Const 1)]))));
+              (Instruction ((Mnemonic "MOV"), [(Reg "RAX"); (Const 1L)]))));
             (InDir (None,
                (Instruction ((Mnemonic "MOV"), [(Reg "RDI"); (Reg "RAX")]))));
             (InDir (None,
@@ -51,14 +51,14 @@ answer is correct
                   ))
                ));
             (InDir (None,
-               (Instruction ((Mnemonic "MOV"), [(Reg "RDX"); (Const 14)]))))
+               (Instruction ((Mnemonic "MOV"), [(Reg "RDX"); (Const 14L)]))))
             ]
           ));
        (Section ("DATA",
           [(InDir ((Some (Id "message")),
               (DataDecl ("DB",
-                 [(Dup ((Add ((Const 6), (Const 1))), "2")); (Str "r");
-                   (Expr (Const 10))]
+                 [(Dup ((Add ((Const 6L), (Const 1L))), "2")); (Str "r");
+                   (Expr (Const 10L))]
                  ))
               ))
             ]
@@ -66,7 +66,7 @@ answer is correct
        (Section ("TEXT",
           [(InDir (None, (Instruction ((Mnemonic "SYSCALL"), []))));
             (InDir (None,
-               (Instruction ((Mnemonic "MOV"), [(Reg "RAX"); (Const 60)]))));
+               (Instruction ((Mnemonic "MOV"), [(Reg "RAX"); (Const 60L)]))));
             (InDir (None,
                (Instruction ((Mnemonic "XOR"), [(Reg "RDI"); (Reg "RDI")]))));
             (InDir (None, (Instruction ((Mnemonic "SYSCALL"), []))))]

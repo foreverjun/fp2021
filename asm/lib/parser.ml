@@ -90,12 +90,9 @@ let is_mnemonic = function
        inc/dec <reg>
        inc/dec <mem>
     *)
-   |"IMUL"
-    (*
+   |"IMUL" (*
        imul <reg32>,<reg32>
        imul <reg32>,<mem>
-       imul <reg32>,<reg32>,<con>
-       imul <reg32>,<mem>,<con>
     *)
    |"IDIV" (*
        idiv <reg32>
@@ -167,9 +164,7 @@ let is_section = function
   | _ -> false
 
 (** [is_data_decl] accepts string and returns whether it's assembler data type. *)
-let is_data_decl = function
-  | "DB" | "DW" | "DD" | "DF" | "DQ" | "DT" -> true
-  | _ -> false
+let is_data_decl = function "DB" | "DW" | "DD" | "DQ" -> true | _ -> false
 
 (** [take_id] accepts input returns [string] if it is assembler label otherwise fails. *)
 let take_id =
@@ -182,7 +177,8 @@ let take_id =
   take_while check_inner <* string ":" <|> take_while check_inner
   >>= fun inner ->
   let s = Char.escaped fst ^ inner in
-  if is_register s || is_mnemonic s then fail "Invalid label" else return s
+  if is_register s || is_mnemonic s || is_data_decl s then fail "Invalid label"
+  else return s
 
 (** [expr_p] parses [Ast.Add], [Ast.Sub], [Ast.Mul], [Ast.Div], [Ast.Mod], [Ast.Shl], [Ast.Shr], [Ast.Reg], [Ast.Label] and [Ast.Const]. *)
 let expr_p =
@@ -199,11 +195,11 @@ let expr_p =
                  | 'A' .. 'F' -> true
                  | 'a' .. 'f' -> true
                  | _ -> false ) )
-          >>| fun s -> int_of_string (sign ^ "0x" ^ s) in
+          >>| fun s -> Int64.of_string (sign ^ "0x" ^ s) in
         let decNumber =
           option "" (string "+" <|> string "-")
           >>= fun sign ->
-          spaces *> take_while1 is_digit >>| fun s -> int_of_string (sign ^ s)
+          spaces *> take_while1 is_digit >>| fun s -> Int64.of_string (sign ^ s)
         in
         hexNumber <|> decNumber >>| fun x -> Const x in
       let label =
@@ -338,28 +334,28 @@ let parse_test_fail pp p s =
 let expr_test_suc = parse_test_suc pp_expr expr_p
 let expr_test_fail = parse_test_fail pp_expr expr_p
 
-let%test _ = expr_test_suc "10" (Const 10)
-let%test _ = expr_test_suc "10 + 20" (Add (Const 10, Const 20))
+let%test _ = expr_test_suc "10" (Const 10L)
+let%test _ = expr_test_suc "10 + 20" (Add (Const 10L, Const 20L))
 
 let%test _ =
-  expr_test_suc "10 + 10 * 19" (Add (Const 10, Mul (Const 10, Const 19)))
+  expr_test_suc "10 + 10 * 19" (Add (Const 10L, Mul (Const 10L, Const 19L)))
 
 let%test _ =
-  expr_test_suc "10 * 10 - 19" (Sub (Mul (Const 10, Const 10), Const 19))
+  expr_test_suc "10 * 10 - 19" (Sub (Mul (Const 10L, Const 10L), Const 19L))
 
 let%test _ =
-  expr_test_suc "1 * ( 0x10 << 19 )" (Mul (Const 1, Shl (Const 16, Const 19)))
+  expr_test_suc "1 * ( 0x10 << 19 )" (Mul (Const 1L, Shl (Const 16L, Const 19L)))
 
 let%test _ =
-  expr_test_suc "1 *  0x10 >> 19 " (Shr (Mul (Const 1, Const 16), Const 19))
+  expr_test_suc "1 *  0x10 >> 19 " (Shr (Mul (Const 1L, Const 16L), Const 19L))
 
 let%test _ =
-  expr_test_suc "1 <<  0x10 >> 19 " (Shr (Shl (Const 1, Const 16), Const 19))
+  expr_test_suc "1 <<  0x10 >> 19 " (Shr (Shl (Const 1L, Const 16L), Const 19L))
 
 let%test _ =
-  expr_test_suc "1 >>   0x10 << 19 " (Shl (Shr (Const 1, Const 16), Const 19))
+  expr_test_suc "1 >>   0x10 << 19 " (Shl (Shr (Const 1L, Const 16L), Const 19L))
 
-let%test _ = expr_test_suc "(( 0x) ) " (Const 0)
+let%test _ = expr_test_suc "(( 0x) ) " (Const 0L)
 let%test _ = expr_test_suc "(( RaX ) ) " (Reg "RAX")
 let%test _ = expr_test_suc "(( RaX2 ) ) " (Label "RaX2")
 let%test _ = expr_test_suc "( RaX2  ) " (Label "RaX2")
@@ -368,32 +364,35 @@ let%test _ = expr_test_fail "( RaX2 + - ) "
 let init_value_test_suc = parse_test_suc pp_init_value init_value_p
 let init_value_test_fail = parse_test_fail pp_init_value init_value_p
 
-let%test _ = init_value_test_suc "10" (Expr (Const 10))
-let%test _ = init_value_test_suc "  10 + 20  " (Expr (Add (Const 10, Const 20)))
+let%test _ = init_value_test_suc "10" (Expr (Const 10L))
+
+let%test _ =
+  init_value_test_suc "  10 + 20  " (Expr (Add (Const 10L, Const 20L)))
 
 let%test _ =
   init_value_test_suc "10 + 10 * 19"
-    (Expr (Add (Const 10, Mul (Const 10, Const 19))))
+    (Expr (Add (Const 10L, Mul (Const 10L, Const 19L))))
 
 let%test _ =
   init_value_test_suc "10 * 10 - 19"
-    (Expr (Sub (Mul (Const 10, Const 10), Const 19)))
+    (Expr (Sub (Mul (Const 10L, Const 10L), Const 19L)))
 
 let%test _ =
   init_value_test_suc "1 * ( 0x10 << 19 )"
-    (Expr (Mul (Const 1, Shl (Const 16, Const 19))))
+    (Expr (Mul (Const 1L, Shl (Const 16L, Const 19L))))
 
-let%test _ = init_value_test_suc "(( 0x) ) " (Expr (Const 0))
+let%test _ = init_value_test_suc "(( 0x) ) " (Expr (Const 0L))
 let%test _ = init_value_test_suc "(( RaX ) ) " (Expr (Reg "RAX"))
 let%test _ = init_value_test_suc "(( RaX2 ) ) " (Expr (Label "RaX2"))
 let%test _ = init_value_test_suc "( RaX2  ) " (Expr (Label "RaX2"))
 let%test _ = init_value_test_suc "'0x'" (Str "0x")
 let%test _ = init_value_test_suc "\"RaX\"" (Str "RaX")
 let%test _ = init_value_test_fail "\'RaX\""
-let%test _ = init_value_test_suc "6 DuP \'5\'" (Dup (Const 6, "5"))
+let%test _ = init_value_test_suc "6 DuP \'5\'" (Dup (Const 6L, "5"))
 
 let%test _ =
-  init_value_test_suc "  6 + 1 DUP \'5\'    " (Dup (Add (Const 6, Const 1), "5"))
+  init_value_test_suc "  6 + 1 DUP \'5\'    "
+    (Dup (Add (Const 6L, Const 1L), "5"))
 
 let in_segment_dir_test_suc = parse_test_suc pp_in_segment_dir in_segment_dir_p
 
@@ -411,7 +410,7 @@ let%test _ =
 
 let%test _ =
   in_segment_dir_test_suc "MOv rax,      5"
-    (Instruction (Mnemonic "MOV", [Reg "RAX"; Const 5]))
+    (Instruction (Mnemonic "MOV", [Reg "RAX"; Const 5L]))
 
 let in_sec_dir_test_suc = parse_test_suc pp_in_sec_dir in_sec_dir_p
 let in_sec_dir_test_fail = parse_test_fail pp_in_sec_dir in_sec_dir_p
@@ -424,7 +423,7 @@ let%test _ =
   in_sec_dir_test_suc "add" (InDir (None, Instruction (Mnemonic "ADD", [])))
 
 let%test _ =
-  in_sec_dir_test_suc "l:   = 1+1 " (EqualDir (Id "l", Add (Const 1, Const 1)))
+  in_sec_dir_test_suc "l:   = 1+1 " (EqualDir (Id "l", Add (Const 1L, Const 1L)))
 
 let%test _ = in_sec_dir_test_fail "addr addr"
 
@@ -454,5 +453,5 @@ let%test _ =
     (Directive
        [ Section
            ( "TEXT"
-           , [InDir (None, Instruction (Mnemonic "MOV", [Reg "RAX"; Const 1]))]
+           , [InDir (None, Instruction (Mnemonic "MOV", [Reg "RAX"; Const 1L]))]
            ) ] )

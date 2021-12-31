@@ -36,7 +36,7 @@ and expr =
   | Shr of expr * expr
   | Reg of string
   | Label of string
-  | Const of int
+  | Const of int64
 [@@deriving show {with_path= false}]
 
 (** [mnemonic] contains the name of the commands. *)
@@ -44,3 +44,11 @@ and mnemonic = Mnemonic of string [@@deriving show {with_path= false}]
 
 (** [id] contains an assembler label. *)
 and id = Id of string [@@deriving show {with_path= false}]
+
+type simpl_dir = command list [@@deriving show {with_path= false}]
+
+and command =
+  | Arg0 of id option * mnemonic
+  | Arg1 of id option * mnemonic * expr
+  | Arg2 of id option * mnemonic * expr * expr
+[@@deriving show {with_path= false}]
