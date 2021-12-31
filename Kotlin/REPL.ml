@@ -5,7 +5,7 @@ open Kotlin_lib.Interpreter.Interpret (Result)
 open Kotlin_lib.Parser
 open Kotlin_lib.Parser.Statement
 
-exception End_of_input
+exception End_of_input of string
 
 let help =
   {|
@@ -24,29 +24,22 @@ let interpert_repl_command ctx = function
   | str -> printf "No command found [%s]\n" str
 ;;
 
-let buffered_lines : string list ref = ref []
-
-let rec repl ctx =
+let rec repl buffered_lines ctx =
   try
-    while true do
-      printf ">> ";
-      Out_channel.flush stdout;
-      let line = Option.value_exn (In_channel.input_line In_channel.stdin) in
-      if String.is_prefix line ~prefix:"@"
-      then interpert_repl_command ctx line
-      else if String.is_suffix line ~suffix:";;"
-      then (
-        let filtered_line = String.slice line 0 (String.length line - 2) in
-        buffered_lines := filtered_line :: !buffered_lines;
-        raise End_of_input)
-      else buffered_lines := line :: !buffered_lines
-    done
+    printf ">> ";
+    Out_channel.flush stdout;
+    let line = Option.value_exn (In_channel.input_line In_channel.stdin) in
+    if String.is_prefix line ~prefix:"@"
+    then interpert_repl_command ctx line
+    else if String.is_suffix line ~suffix:";;"
+    then (
+      let filtered_line = String.slice line 0 (String.length line - 2) in
+      raise (End_of_input filtered_line))
+    else repl (line :: buffered_lines) ctx
   with
-  | End_of_input ->
-    let acc_input =
-      List.fold !buffered_lines ~init:"" ~f:(fun acc line -> line ^ "\n" ^ acc)
-    in
-    buffered_lines := [];
+  | End_of_input last_line ->
+    let program = last_line :: buffered_lines in
+    let acc_input = List.fold program ~init:"" ~f:(fun acc line -> line ^ "\n" ^ acc) in
     let print_as_repl_answer str = printf "Kotlin REPL # %s\n" str in
     let parsed_input = apply_parser statement acc_input in
     let new_ctx =
@@ -80,10 +73,10 @@ let rec repl ctx =
             print_as_repl_answer "<REPL empty answer>";
             eval_ctx))
     in
-    repl new_ctx
+    repl [] new_ctx
   | _ ->
     print_endline "";
-    repl ctx
+    repl buffered_lines ctx
 ;;
 
 let () = print_endline "Kotlin REPL"
@@ -99,5 +92,5 @@ let start_repl =
     ; scope = Initialize
     }
   in
-  repl (Option.value_exn (Base.Result.ok (load_standard_classes ctx)))
+  repl [] (Option.value_exn (Base.Result.ok (load_standard_classes ctx)))
 ;;
