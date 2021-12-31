@@ -21,14 +21,14 @@ the answer is correct.
         (Pipeline
            (false,
             (SimpleCommand (
-               (Assignt ((SimpleAssignt (("VAR", "0"), (Word "100"))), [])), 
+               (Assignt [(SimpleAssignt (("VAR", "0"), (Word "100")))]), 
                [])),
             []))),
      (Script (
         (Func
            ("some_f",
             (SimpleCommand (
-               (Command ([], (Word "echo"), [(Word "something")])),
+               (Command ([], [(Word "echo"); (Word "something")])),
                [(AppendOtp (1, (Word "output.txt")))])))),
         (Script (
            (Pipelines
@@ -39,11 +39,11 @@ the answer is correct.
                       (Pipeline
                          (false,
                           (SimpleCommand (
-                             (Command ([], (Word "echo"), [(Word "i")])), 
+                             (Command ([], [(Word "echo"); (Word "i")])), 
                              [])),
                           []))),
                      [])),
-                  [(SimpleCommand ((Command ([], (Word "grep"), [(Word "2")])),
+                  [(SimpleCommand ((Command ([], [(Word "grep"); (Word "2")])),
                       []))
                     ]))),
            (Script (
@@ -51,18 +51,18 @@ the answer is correct.
                  (PipelineAndList (
                     (false,
                      (SimpleCommand (
-                        (Command ([], (Word "echo"), [(Word "1")])), [])),
+                        (Command ([], [(Word "echo"); (Word "1")])), [])),
                      []),
                     (PipelineOrList (
                        (false,
                         (SimpleCommand (
-                           (Command ([], (Word "echo"), [(Word "2")])), 
+                           (Command ([], [(Word "echo"); (Word "2")])), 
                            [])),
                         []),
                        (Pipeline
                           (false,
                            (SimpleCommand (
-                              (Command ([], (Word "echo"), [(Word "3")])), 
+                              (Command ([], [(Word "echo"); (Word "3")])), 
                               [])),
                            []))
                        ))

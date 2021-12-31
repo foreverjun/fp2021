@@ -88,15 +88,13 @@ module Eval (M : MonadFail) = struct
   (** Container for functions *)
   type fun_t = compound [@@deriving show { with_path = false }]
 
-  type variables = var_t SMap.t [@@deriving show { with_path = false }]
-  type functions = fun_t SMap.t [@@deriving show { with_path = false }]
-  type channels = string IMap.t [@@deriving show { with_path = false }]
-
   (** Complete environment *)
   type environment =
-    { vars : variables (** Variables available in the current scope *)
-    ; funs : functions (** Functions available in the current scope *)
-    ; chs : channels (** Current contents of channels (i.e. stdin, stdout, stderr) *)
+    { vars : var_t SMap.t (** Variables available in the current scope *)
+    ; funs : fun_t SMap.t (** Functions available in the current scope *)
+    ; stdin : string (** Current stdin contents *)
+    ; stdout : string (** Current stdout contents *)
+    ; stderr : string (** Current stderr contents *)
     ; retcode : int (** Return code of the last operation *)
     }
   [@@deriving show { with_path = false }]
@@ -124,7 +122,7 @@ module Eval (M : MonadFail) = struct
     | Some (AssocArray vs) -> return (find SMap.find_opt vs index)
   ;;
 
-  (** Evaluate arithmetic *)
+  (** Evaluate arithmetic expression *)
   let ev_arithm envs =
     let rec ev_ari ?(c = fun _ _ -> true) ?(e = "") op l r =
       ev l >>= fun l -> ev r >>= fun r -> if c l r then return (op l r) else fail e
@@ -140,7 +138,7 @@ module Eval (M : MonadFail) = struct
       | Plus (l, r) -> ev_ari ( + ) l r
       | Minus (l, r) -> ev_ari ( - ) l r
       | Mul (l, r) -> ev_ari ( * ) l r
-      | Div (l, r) -> ev_ari ~c:(fun _ r -> r != 0) ~e:"Division by 0" ( / ) l r
+      | Div (l, r) -> ev_ari ~c:(fun _ r -> r <> 0) ~e:"Division by 0" ( / ) l r
       | Less (l, r) -> ev_log ( < ) l r
       | Greater (l, r) -> ev_log ( > ) l r
       | LessEq (l, r) -> ev_log ( <= ) l r
@@ -231,24 +229,43 @@ module Eval (M : MonadFail) = struct
   ;;
 
   (** Evaluate word *)
-  let rec ev_word (env : environment) : word -> string list t = function
-    | BraceExp ws -> flat_mapm (ev_word env) ws
-    | ParamExp p -> ev_param_exp env p >>| fun s -> [ s ]
-    | CmdSubst _ -> fail "Not implemented"
-    | ArithmExp a -> ev_arithm env a >>| fun n -> [ string_of_int n ]
-    | FilenameExp s -> ev_filename_exp env s
-    | Word s -> return [ s ]
-  ;;
+  let rec ev_word env = function
+    | BraceExp ws -> ev_words env ws
+    | ParamExp p -> ev_param_exp env p >>| fun s -> env, [ s ]
+    | CmdSubst c ->
+      ev_cmd { env with stdin = "" } c
+      >>= fun { stdout; stderr; retcode } ->
+      (match Parser.split_words stdout with
+      | Ok ss -> return ({ env with stderr = env.stderr ^ stderr; retcode }, ss)
+      | Error e -> fail e)
+    | ArithmExp a -> ev_arithm env a >>| fun n -> env, [ string_of_int n ]
+    | FilenameExp s -> ev_filename_exp env s >>| fun ss -> env, ss
+    | Word s -> return (env, [ s ])
+
+  (** Evaluate word list *)
+  and ev_words env ?(c = fun _ -> true) ?(e = "Evaluated words condition mismatch") ws =
+    let ( @+ ) old_env { stdout; stderr; retcode } =
+      { old_env with stdout = env.stdout ^ stdout; stderr = env.stderr ^ stderr; retcode }
+    in
+    List.fold_left
+      (fun acc w ->
+        acc
+        >>= fun (env, l) ->
+        ev_word env w
+        >>= fun (n_env, ss) -> if c ss then return (env @+ n_env, ss :: l) else fail e)
+      (return (env, []))
+      ws
+    >>| fun (env, l) -> env, List.(l |> rev |> flatten)
 
   (** Evaluate assignment *)
-  let ev_assignt env =
+  and ev_assignt env =
     let open struct
       type 'a container =
         | Simple of string * 'a (** Simple assignment of key and value *)
         | Ind of 'a list (** Indexed array assignment of values *)
         | Assoc of (string * 'a) list (** Associative array assignment of pairs *)
     end in
-    let env_set name =
+    let env_set env name =
       let env_with x = { env with vars = set_var name x env } in
       function
       | Simple (k, v) ->
@@ -266,24 +283,108 @@ module Eval (M : MonadFail) = struct
     | SimpleAssignt ((name, i), w) ->
       ev_word env w
       >>= (function
-      | [ s ] -> return (env_set name (Simple (i, s)))
+      | new_env, [ s ] -> return (env_set new_env name (Simple (i, s)))
       | _ -> fail "Illegal expansion in simple assignment")
-    | IndArrAssignt (name, vs) ->
-      flat_mapm (ev_word env) vs >>| fun ss -> env_set name (Ind ss)
+    | IndArrAssignt (name, ws) ->
+      ev_words env ws >>| fun (new_env, ss) -> env_set new_env name (Ind ss)
     | AssocArrAssignt (name, ps) ->
-      mapm
-        (fun (k, w) ->
-          ev_word env w
-          >>= function
-          | [ v ] -> return (k, v)
-          | _ -> fail "Illegal expansion in associative array assignment")
-        ps
-      >>| fun ps -> env_set name (Assoc ps)
-  ;;
+      ev_words
+        env
+        ~c:(function
+          | [ _ ] -> true
+          | _ -> false)
+        ~e:"Illegal expansion in associative array assignment"
+        (List.map (fun (_, w) -> w) ps)
+      >>| fun (new_env, ss) ->
+      env_set new_env name (Assoc (List.map2 (fun (k, _) v -> k, v) ps ss))
+
+  (** Evaluate command *)
+  and ev_cmd env =
+    let env_with assignts =
+      List.fold_left
+        (fun acc a -> acc >>= fun env -> ev_assignt env a)
+        (return env)
+        assignts
+    in
+    let expand env ws =
+      ev_words env ws
+      >>= function
+      | new_env, cmd :: tl -> return (new_env, cmd, tl)
+      | _, [] -> fail "Simple command expanded to nothing"
+    in
+    let try_read =
+      let read_from s =
+        if Sys.file_exists s
+        then (
+          let ch = open_in s in
+          try Some (really_input_string ch (in_channel_length ch)) with
+          | End_of_file -> None)
+        else None
+      in
+      function
+      | s when Filename.dirname s = "." -> read_from (Filename.basename s)
+      | s when Filename.dirname s = "" -> read_from s
+      | _ -> None
+    in
+    function
+    | Assignt assignts -> env_with assignts
+    | Command (assignts, ws) ->
+      env_with assignts
+      >>= fun new_env ->
+      expand new_env ws
+      >>= fun (new_env, cmd, args) ->
+      (match get_fun cmd new_env, Builtins.find cmd, try_read cmd with
+      | Some _, _, _ -> ev_compound new_env
+      | None, Some f, _ ->
+        (match f args new_env.stdin with
+        | stdin, stdout, stderr, retcode ->
+          return
+            { new_env with
+              stdin
+            ; stdout = new_env.stdout ^ stdout
+            ; stderr = new_env.stderr ^ stderr
+            ; retcode
+            })
+      | None, None, Some s ->
+        (match Parser.parse s with
+        | Ok script -> ev_script new_env script
+        | Error e -> fail (Printf.sprintf "%s: syntax error %s" cmd e))
+      | None, None, None -> fail (cmd ^ ": command not found"))
+
+  (** Evaluate redirection *)
+  and ev_redir (_ : environment) = fail "Not implemented"
+
+  (** Evaluate pipeline list *)
+  and ev_pipeline_list (_ : environment) : environment t = fail "Not implemented"
+
+  (** Evaluate pipeline *)
+  and ev_pipeline (_ : environment) : environment t = fail "Not implemented"
+
+  (** Evaluate compound *)
+  and ev_compound (_ : environment) : environment t = fail "Not implemented"
+
+  (** Evaluate while loop *)
+  and ev_while_loop (_ : environment) : environment t = fail "Not implemented"
+
+  (** Evaluate for loop (list form) *)
+  and ev_for_list_loop (_ : environment) : environment t = fail "Not implemented"
+
+  (** Evaluate for loop (expression form) *)
+  and ev_for_expr_loop (_ : environment) : environment t = fail "Not implemented"
+
+  (** Evaluate if statement *)
+  and ev_if_stmt (_ : environment) : environment t = fail "Not implemented"
+
+  (** Evaluate case statement *)
+  and ev_case_stmt (_ : environment) : environment t = fail "Not implemented"
+
+  (** Evaluate script element *)
+  and ev_script_elem (_ : environment) : environment t = fail "Not implemented"
 
   (** Evaluate Bash script *)
-  let ev_script = function
-    | _ -> fail "Not implemented"
+  and ev_script env : script -> environment t = function
+    | Empty -> return env
+    | Script _ -> fail "TODO: evaluate script element"
   ;;
 end
 
@@ -305,7 +406,9 @@ open Eval (Result)
 let empty_env =
   { vars = SMap.empty
   ; funs = SMap.empty
-  ; chs = IMap.of_list [ 0, ""; 1, ""; 2, "" ]
+  ; stdin = ""
+  ; stdout = ""
+  ; stderr = ""
   ; retcode = 0
   }
 ;;
@@ -820,7 +923,9 @@ let succ_ev_word ?(env = empty_env) =
   succ_ev
     ~env
     pp_word
-    (Format.pp_print_list ~pp_sep:Format.pp_print_newline Format.pp_print_string)
+    (fun fmt (env, ss) ->
+      pp_environment fmt env;
+      Format.pp_print_list ~pp_sep:Format.pp_print_newline Format.pp_print_string fmt ss)
     ev_word
 ;;
 
@@ -828,27 +933,35 @@ let fail_ev_word ?(env = empty_env) =
   fail_ev
     ~env
     pp_word
-    (Format.pp_print_list ~pp_sep:Format.pp_print_newline Format.pp_print_string)
+    (fun fmt (env, ss) ->
+      pp_environment fmt env;
+      Format.pp_print_list ~pp_sep:Format.pp_print_newline Format.pp_print_string fmt ss)
     ev_word
 ;;
 
-let%test _ = succ_ev_word (BraceExp [ ParamExp (Param ("X", "0")); Word "y" ]) [ ""; "y" ]
-
 let%test _ =
   succ_ev_word
-    ~env:{ empty_env with vars = SMap.singleton "M" (IndArray (IMap.singleton 0 "meow")) }
-    (ParamExp (Param ("M", "0")))
-    [ "meow" ]
+    (BraceExp [ ParamExp (Param ("X", "0")); Word "y" ])
+    (empty_env, [ ""; "y" ])
 ;;
 
-let%test _ = succ_ev_word (ArithmExp (Num 5)) [ "5" ]
+let%test _ =
+  let env =
+    { empty_env with vars = SMap.singleton "M" (IndArray (IMap.singleton 0 "meow")) }
+  in
+  succ_ev_word ~env (ParamExp (Param ("M", "0"))) (env, [ "meow" ])
+;;
+
+let%test _ = succ_ev_word (ArithmExp (Num 5)) (empty_env, [ "5" ])
 let%test _ = fail_ev_word (ArithmExp (Div (Num 5, Num 0))) "Division by 0"
 
 let%test _ =
-  succ_ev_word (FilenameExp "*.*") (cwd_satisfy (fun f -> String.contains f '.'))
+  succ_ev_word
+    (FilenameExp "*.*")
+    (empty_env, cwd_satisfy (fun f -> String.contains f '.'))
 ;;
 
-let%test _ = succ_ev_word (Word "hey") [ "hey" ]
+let%test _ = succ_ev_word (Word "hey") (empty_env, [ "hey" ])
 
 (* -------------------- Assignment -------------------- *)
 
@@ -1014,4 +1127,29 @@ let%test _ =
     ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
     (AssocArrAssignt ("X", [ "x", Word "y" ]))
     { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "x" "y")) }
+;;
+
+(* -------------------- Simple command -------------------- *)
+
+let succ_ev_cmd ?(env = empty_env) = succ_ev ~env pp_cmd pp_environment ev_cmd
+let fail_ev_cmd ?(env = empty_env) = fail_ev ~env pp_cmd pp_environment ev_cmd
+
+(* TODO: add tests for user-defined functions and sourced scripts *)
+
+let%test _ =
+  succ_ev_cmd
+    (Assignt [ SimpleAssignt (("X", "0"), Word "a") ])
+    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "a")) }
+;;
+
+let%test _ =
+  succ_ev_cmd
+    (Command ([], [ Word "echo"; Word "123" ]))
+    { empty_env with stdout = "123" }
+;;
+
+let%test _ =
+  succ_ev_cmd
+    (Command ([], [ Word "echo"; Word "1"; BraceExp [ ArithmExp (Num 2); Word "3" ] ]))
+    { empty_env with stdout = "1 2 3" }
 ;;

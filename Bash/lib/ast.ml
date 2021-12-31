@@ -56,8 +56,8 @@ type word =
 
 (** Simple command *)
 and cmd =
-  | Assignt of assignt * assignt list (** [assignment \[ other_assignments \]] *)
-  | Command of assignt list * word * word list
+  | Assignt of assignt list (** [name1=val1 name1=val2 ...] *)
+  | Command of assignt list * word list
       (** [\[ assignments \] command \[ parameters \]] *)
 [@@deriving show { with_path = false }]
 
