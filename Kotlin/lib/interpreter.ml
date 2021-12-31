@@ -731,7 +731,7 @@ module Interpret (M : MONAD_FAIL) = struct
           >>= fun ctx_with_eval_dereference ->
           M.return { ctx_with_eval_dereference with scope = ctx.scope }
         | _ -> M.fail DereferenceError)
-      | NullValue ->
+      | NullValue | Unitialized ->
         (match expr with
         | ElvisDereference _ -> M.return { ctx with last_eval_expression = NullValue }
         | _ -> M.fail ExpectedObjectToDereference)
