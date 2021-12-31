@@ -3,12 +3,9 @@ open Ast
 
 type error =
   | EmptyProgram
-  | InitStatementNotInClass
   | ExpectedReturnInFunction of string
   | ThisExpressionError
   | UnsupportedOperandTypes of expression
-  | IllegalKindOfStatementInsideClass of statement
-  | NotAllowedStatementInInitializeBlock of statement
   | NullUnsafeAccessError
   | DereferenceError
   | FunctionReturnTypeMismatch of string * typename * value
