@@ -66,14 +66,18 @@ module Eval (M : MonadError) = struct
     if result >= 0L then result else add result y
 
   let string_to_int64 s =
-    let rec helper acc = function
+    let rec helper acc n = function
       | "" -> acc
-      | "\x80" -> neg acc
+      | s when String.length s = 1 ->
+          let c = of_int (Char.code s.[0]) in
+          let res = add acc (shift_left (logand 0x7FL c) n) in
+          if logand 0x80L c = 0L then res else neg res
       | s ->
           helper
-            (add (of_int (Char.code s.[0])) acc)
+            (add (shift_left (of_int (Char.code s.[0])) n) acc)
+            (n + 8)
             (String.sub s 1 (String.length s - 1)) in
-    helper 0L s
+    helper 0L 0 s
 
   let int64_to_string i =
     let rec helper acc = function
@@ -81,7 +85,7 @@ module Eval (M : MonadError) = struct
       | k when k = -1L -> acc ^ "\x80"
       | k ->
           let c = acc ^ String.make 1 (Char.chr (to_int (modulo k 256L))) in
-          helper c (shift_right k 8) in
+          helper c (shift_right_logical k 8) in
     helper "" i
 
   let rec ev e f = function
@@ -108,7 +112,8 @@ module Eval (M : MonadError) = struct
         ev e f r
         >>= fun r ->
         if r < 0L then error "shift by a negative value"
-        else ev e f l >>= fun l -> return (shift_right l (to_int r mod 64))
+        else
+          ev e f l >>= fun l -> return (shift_right_logical l (to_int r mod 64))
     | rl -> f rl
 
   let prepr env =
@@ -230,42 +235,138 @@ module Eval (M : MonadError) = struct
     ; ("XMM3", RSSE "\x00"); ("XMM4", RSSE "\x00"); ("XMM5", RSSE "\x00")
     ; ("XMM6", RSSE "\x00"); ("XMM7", RSSE "\x00") ]
 
+  let reg8 = function
+    | "AH" | "AL" | "BH" | "BL" | "CH" | "CL" | "DH" | "DL" -> true
+    | _ -> false
+
+  let reg8L = function "AL" | "BL" | "CL" | "DL" -> true | _ -> false
+  let reg16 = function "AX" | "BX" | "CX" | "DX" -> true | _ -> false
+
+  let reg32 = function
+    | "EAX" | "EBX" | "ECX" | "EDX" | "ESI" | "EDI" | "ESP" | "EBP" -> true
+    | _ -> false
+
+  let reg64 = function
+    | "RAX" | "RBX" | "RCX" | "RDX" | "RSP" | "RBP" | "RSI" | "RDI" -> true
+    | _ -> false
+
+  let regSSE = function
+    | "XMM0" | "XMM1" | "XMM2" | "XMM3" | "XMM4" | "XMM5" | "XMM6" | "XMM7" ->
+        true
+    | _ -> false
+
   let interpret (env, list) =
     let f e = function
-      | Reg _ -> error "expression is not simple or relocatable"
+      | Reg r -> return (string_to_int64 r)
       | Label l -> (
         match MapString.find_opt l e with
         | Some (Ls s) -> return (string_to_int64 s)
         | Some Er -> error "byte data exceeds bounds"
-        | _ -> error "relocation truncated to fit: R_X86_64_8 against `.data\'"
-        )
+        | _ -> error ("symbol `" ^ l ^ "\' not defined") )
       | _ -> error "fatal error" in
-    let change_reg env3 e foo =
-      match e with
-      | Reg r -> return (MapString.add r (foo (MapString.find r env3)) env3)
+    let find_reg env3 r =
+      return (MapString.find r env3)
+      >>= function R64 i -> return i | _ -> error "falal error" in
+    let change_reg64 env3 reg foo =
+      let do_offset ot nt offs len =
+        let os =
+          let h = int64_to_string ot in
+          h ^ String.make (8 - String.length h) '\x00' in
+        let ns =
+          let h = int64_to_string nt in
+          h ^ String.make (8 - String.length h) '\x00' in
+        String.sub os 0 offs ^ String.sub ns 0 len
+        ^ String.sub os (offs + len) (8 - offs - len) in
+      let helper env4 foo offset len s =
+        find_reg env3 s
+        >>= fun i ->
+        return
+          (MapString.add s
+             (R64 (string_to_int64 (do_offset i (foo i) offset len)))
+             env4 ) in
+      match reg with
+      | Reg r -> (
+        match r with
+        | s when reg8 s -> (
+          match s with
+          | s when reg8L s -> helper env3 foo 0 1 ("R" ^ String.sub s 1 1 ^ "X")
+          | s -> helper env3 foo 1 1 ("R" ^ String.sub s 1 1 ^ "X") )
+        | s when reg16 s -> helper env3 foo 0 2 ("R" ^ s)
+        | s when reg32 s -> helper env3 foo 0 4 ("R" ^ String.sub s 1 2)
+        | s when reg64 s -> helper env3 foo 0 8 s
+        | _ -> error "invalid combination of opcode and operands" )
       | _ -> error "invalid combination of opcode and operands" in
     let inter_arg0 env2 st = function
       | "RET" -> error "TODO"
-      | "SYSCALL" -> error "TODO"
+      | "SYSCALL" -> (
+          find_reg env2 "RAX"
+          >>= function
+          | 1L -> (
+              find_reg env2 "RDI"
+              >>= function
+              | 0L | 1L | 2L ->
+                  find_reg env2 "RDI"
+                  >>= fun mes ->
+                  find_reg env2 "RDX"
+                  >>= fun len ->
+                  print_string
+                    (String.sub (int64_to_string mes) 0
+                       (min (String.length (int64_to_string mes)) (to_int len)) );
+                  return (env2, st)
+              | _ -> return (env2, st) )
+          | 60L ->
+              find_reg env2 "RDI"
+              >>= fun code ->
+              return (MapString.add "0retcode" (R64 (rem code 256L)) env2, st)
+          | i when i < 336L ->
+              error ("syscall " ^ to_string i ^ " is not implemented")
+          | _ -> return (env2, st) )
       | _ -> error "fatal error" in
     let inter_arg1 env2 st e = function
       | "INC" ->
-          change_reg env2 e (fun i -> add i 1L) >>= fun env3 -> return (env3, st)
-      | "DEC" ->
-          change_reg env2 e (fun i -> sub i 1L) >>= fun env3 -> return (env3, st)
-      | "NOT" ->
-          change_reg env2 e (fun i -> neg i) >>= fun env3 -> return (env3, st)
-      | "NEG" ->
-          change_reg env2 e (fun i -> add (neg i) 1L)
+          change_reg64 env2 e (fun i -> add i 1L)
           >>= fun env3 -> return (env3, st)
-      | "PUSH" | "POP" | "IDIV" | "JMP" | "JE" | "JNE" | "JZ" | "JG" | "JGE"
-       |"JL" | "JLE" | "CALL" ->
+      | "DEC" ->
+          change_reg64 env2 e (fun i -> sub i 1L)
+          >>= fun env3 -> return (env3, st)
+      | "NOT" ->
+          change_reg64 env2 e (fun i -> neg i) >>= fun env3 -> return (env3, st)
+      | "NEG" ->
+          change_reg64 env2 e (fun i -> add (neg i) 1L)
+          >>= fun env3 -> return (env3, st)
+      | "PUSH" -> (
+        match e with
+        | Label l -> return (env2, [l] @ st)
+        | _ -> error "byte data exceeds bounds" )
+      | "POP" -> (
+        match e with
+        | Reg r ->
+            return
+              ( MapString.add r (R64 (string_to_int64 (List.hd st))) env2
+              , List.tl st )
+        | _ -> error "byte data exceeds bounds" )
+      | "CALL" -> error "TODO"
+      | "JMP" | "JE" | "JNE" | "JZ" | "JG" | "JGE" | "JL" | "JLE" ->
           error "TODO"
       | _ -> error "fatal error" in
-    let inter_arg2 env2 e1 e2 = function
-      | "MOV" | "LEA" | "INC" | "DEC" | "IDIV" | "ADD" | "SUB" | "IMUL"
-       |"AND" | "OR" | "XOR" | "SHL" | "SHR" | "CMP" | "MOVUPS" | "MOVSS"
-       |"MOVLPS" | "MOVHPS" | "ADDSS" | "MULSS" | "SUBSS" | "SHUFPS" ->
+    let inter_arg2 env2 e1 e2 =
+      let helper foo =
+        ev env2 (f env2) e2 >>= fun i -> change_reg64 env2 e1 (foo i) in
+      function
+      | "MOV" -> helper (fun i _ -> i)
+      | "ADD" -> helper (fun i s -> add s i)
+      | "SUB" -> helper (fun i s -> sub s i)
+      | "AND" -> helper (fun i s -> logand s i)
+      | "OR" -> helper (fun i s -> logand s i)
+      | "XOR" -> helper (fun i s -> logxor s i)
+      | "IMUL" ->
+          helper (fun i s ->
+              mul (if s >= 0L then s else neg s) (if i >= 0L then i else neg i) )
+      | "SHR" -> helper (fun i s -> shift_right_logical s (to_int i))
+      | "SHL" -> helper (fun i s -> shift_left s (to_int i))
+      | "CMP" -> error "TODO"
+      | "MOVUPS" | "MOVSS" | "MOVLPS" | "MOVHPS" | "ADDSS" | "MULSS" | "SUBSS"
+       |"SHUFPS" ->
           error "TODO"
       | _ -> error "fatal error" in
     let inter_cmd env1 st = function
@@ -274,10 +375,15 @@ module Eval (M : MonadError) = struct
       | Arg2 (_, Mnemonic mn, e1, e2) ->
           inter_arg2 env1 e1 e2 mn >>= fun env2 -> return (env2, st) in
     let rec helper env0 st = function
-      | [] -> return ()
-      | hd :: tl ->
-          inter_cmd env0 st hd >>= fun (env2, st1) -> helper env2 st1 tl in
-    return Stack.create >>= fun st -> helper env st list
+      | [] -> return env0
+      | hd :: tl -> (
+          inter_cmd env0 st hd
+          >>= fun (env2, st1) ->
+          match MapString.find_opt "0retcode" env2 with
+          | Some (R64 0L) -> return env2
+          | Some (R64 i) -> error ("Error " ^ to_string i)
+          | _ -> helper env2 st1 tl ) in
+    helper env [] list
 
   let asm directive = prepr (MapString.of_list reg_list) directive >>= interpret
 end

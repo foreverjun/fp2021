@@ -57,89 +57,82 @@ let is_mnemonic = function
   (* --- Movement --- *)
   | "MOV"
   (*
-     mov <reg>,<reg>
-     mov <reg>,<mem>
-     mov <reg>,<con>
+      mov <reg>,<reg>
+      mov <reg>,<mem>
+      mov <reg>,<con>
   *)
    |"PUSH"
   (*
-     push <reg32>
-     push <mem>
-     push <con32> *)
-   |"POP" (*
-       pop <reg32>
-       pop <mem>
-    *)
-   |"LEA"
+      push <label> 
+  *)
+   |"POP"
   (*
-     lea <reg32>,<mem>
+      pop <reg32>
   *)
   (* --- Arithmetic and Logic --- *)
-   |"ADD"
-   |"SUB"
-    (*
-       add/sub <reg>,<reg>
-       add/sub <reg>,<mem>
-       add/sub <reg>,<con>
-    *)
-   |"INC" | "DEC" (*
-       inc/dec <reg>
-    *)
-   |"IMUL" (*
-       imul <reg32>,<reg32>
-       imul <reg32>,<mem>
-    *)
-   |"IDIV" (*
-       idiv <reg32>
-       idiv <mem>
-    *)
-   |"AND" | "OR"
-   |"XOR"
-    (*
-       and/or/xor <reg>,<reg>
-       and/or/xor <reg>,<mem>
-       and/or/xor <reg>,<con>
-    *)
-   |"NOT" | "NEG" (*
-       not/neg <reg>
-    *)
+   |"ADD" | "SUB"
+  (*
+      add/sub <reg>,<reg>
+      add/sub <reg>,<mem>
+      add/sub <reg>,<con>
+  *)
+   |"INC" | "DEC"
+  (*
+      inc/dec <reg>
+  *)
+   |"IMUL"
+  (*
+      imul <reg32>,<reg32>
+      imul <reg32>,<mem>
+  *)
+   |"AND" | "OR" | "XOR"
+  (*
+      and/or/xor <reg>,<reg>
+      and/or/xor <reg>,<mem>
+      and/or/xor <reg>,<con>
+  *)
+   |"NOT" | "NEG"
+  (*
+      not/neg <reg>
+  *)
    |"SHL" | "SHR"
   (*
-     shl/shr <reg>,<con8>
+      shl/shr <reg>,<con8>
   *)
   (* --- Control Flow --- *)
-   |"JMP" (*
-       jmp <label>
-    *)
-   |"JE" | "JNE" | "JZ" | "JG" | "JGE" | "JL"
-   |"JLE" (*
-       j* <label>
-    *)
+   |"JMP"
+  (*
+      jmp <label>
+  *)
+   |"JE" | "JNE" | "JZ" | "JG" | "JGE" | "JL" | "JLE"
+  (*
+      j* <label>
+  *)
    |"CMP"
-    (*
-       cmp <reg>,<reg>
-       cmp <reg>,<mem>
-       cmp <reg>,<con>
-    *)
-   |"CALL" (*
-       call <label>
-    *)
+  (*
+      cmp <reg>,<reg>
+      cmp <reg>,<mem>
+      cmp <reg>,<con>
+  *)
+   |"CALL"
+  (*
+      call <label>
+  *)
    |"RET"
   (*
-     ret
+      ret
   *)
    |"SYSCALL"
   (*
-     syscall
+      syscall
   *)
   (* --- SSE --- *)
-   |"MOVUPS" | "MOVSS" | "MOVLPS"
-   |"MOVHPS"
-    (*
+   |"MOVUPS" | "MOVSS" | "MOVLPS" | "MOVHPS"
+  (*
        movups <regSSE>,<regSSE>
        movups <regSSE>,<mem>
        movups <regSSE>,<con>
-    *)
+  *)
    |"ADDSS" | "MULSS" | "SUBSS" | "SHUFPS" ->
       true
   | _ -> false
