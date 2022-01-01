@@ -119,7 +119,7 @@ and if_stmt = pipeline_list * pipeline_list * pipeline_list option
 and case_stmt = word * case_item list [@@deriving show { with_path = false }]
 
 (** An element of a case statement in the form of [\[(\] pattern \[ | pattern \] ... ) list ;;] *)
-and case_item = word * word list * pipeline_list [@@deriving show { with_path = false }]
+and case_item = word list * pipeline_list [@@deriving show { with_path = false }]
 
 (** Function in the form of [function name \[()\] compound] or [name () compound] *)
 type func = string * compound [@@deriving show { with_path = false }]

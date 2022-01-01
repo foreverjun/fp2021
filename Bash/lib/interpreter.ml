@@ -100,9 +100,9 @@ module Eval (M : MonadFail) = struct
   [@@deriving show { with_path = false }]
 
   let get_var name env = SMap.find_opt name env.vars
-  let set_var name v env = SMap.add name v env.vars
+  let set_var name v env = { env with vars = SMap.add name v env.vars }
   let get_fun name env = SMap.find_opt name env.funs
-  let set_fun name v env = SMap.add name v env.funs
+  let set_fun name v env = { env with funs = SMap.add name v env.funs }
 
   (* -------------------- Evaluation -------------------- *)
 
@@ -266,7 +266,7 @@ module Eval (M : MonadFail) = struct
         | Assoc of (string * 'a) list (** Associative array assignment of pairs *)
     end in
     let env_set env name =
-      let env_with x = { env with vars = set_var name x env } in
+      let env_with x = set_var name x env in
       function
       | Simple (k, v) ->
         env_with
@@ -355,7 +355,8 @@ module Eval (M : MonadFail) = struct
   and ev_redir (_ : environment) = fail "Not implemented"
 
   (** Evaluate pipeline list *)
-  and ev_pipeline_list (_ : environment) : environment t = fail "Not implemented"
+  and ev_pipeline_list (_ : environment) : pipeline_list -> environment t =
+    failwith "Not implemented"
 
   (** Evaluate pipeline *)
   and ev_pipeline (_ : environment) : environment t = fail "Not implemented"
@@ -364,19 +365,67 @@ module Eval (M : MonadFail) = struct
   and ev_compound (_ : environment) : environment t = fail "Not implemented"
 
   (** Evaluate while loop *)
-  and ev_while_loop (_ : environment) : environment t = fail "Not implemented"
+  and ev_while_loop env ((cnd, body) : while_loop) =
+    (* Return code is passed so that if body was executed 0 times the return code of the
+      loop is 0, but condition receives the real environment with the real return code *)
+    let rec helper env retcode =
+      ev_pipeline_list env cnd
+      >>= fun cnd_env ->
+      if cnd_env.retcode = 0
+      then ev_pipeline_list cnd_env body >>= fun new_env -> helper new_env new_env.retcode
+      else return { cnd_env with retcode }
+    in
+    helper env 0
 
   (** Evaluate for loop (list form) *)
-  and ev_for_list_loop (_ : environment) : environment t = fail "Not implemented"
+  and ev_for_list_loop env ((name, ws, body) : for_list_loop) =
+    ev_words env ws
+    >>= fun (env, ss) ->
+    (* Return code is passed so that if body was executed 0 times the return code of the
+      loop is 0, but body receives the real environment with the real return code *)
+    let rec helper env retcode = function
+      | hd :: tl ->
+        ev_pipeline_list (set_var name (IndArray (IMap.singleton 0 hd)) env) body
+        >>= fun new_env -> helper new_env new_env.retcode tl
+      | [] -> return { env with retcode }
+    in
+    helper env 0 ss
 
   (** Evaluate for loop (expression form) *)
-  and ev_for_expr_loop (_ : environment) : environment t = fail "Not implemented"
+  and ev_for_expr_loop (env : environment) ((a1, a2, a3, body) : for_expr_loop)
+      : environment t
+    =
+    (* TODO: add assignments to arithmetic expressions *)
+    fail "Not implemented"
 
   (** Evaluate if statement *)
-  and ev_if_stmt (_ : environment) : environment t = fail "Not implemented"
+  and ev_if_stmt env ((cnd, cns, alt) : if_stmt) =
+    ev_pipeline_list env cnd
+    >>= fun cnd_env ->
+    if cnd_env.retcode = 0
+    then ev_pipeline_list cnd_env cns
+    else (
+      match alt with
+      | Some alt -> ev_pipeline_list cnd_env alt
+      | None -> return { cnd_env with retcode = 0 })
 
   (** Evaluate case statement *)
-  and ev_case_stmt (_ : environment) : environment t = fail "Not implemented"
+  and ev_case_stmt env ((w, cs) : case_stmt) =
+    ev_word env w
+    >>= fun (env, ss) ->
+    match ss with
+    | [ s ] ->
+      let rec helper env = function
+        | (ws, item) :: tl ->
+          ev_words env ws
+          >>= fun (env, ptrns) ->
+          (match List.filter (fun p -> Re.(execp (compile (Glob.glob p)) s)) ptrns with
+          | [] -> helper env tl
+          | _ -> ev_pipeline_list env item)
+        | [] -> return { env with retcode = 0 }
+      in
+      helper env cs
+    | _ -> fail "Illegal expansion in case statement"
 
   (** Evaluate script element *)
   and ev_script_elem (_ : environment) : environment t = fail "Not implemented"

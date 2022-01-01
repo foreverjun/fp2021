@@ -424,13 +424,7 @@ and inn_case_item_p () =
   let word = word_p ~brc:false ~fln:false in
   option ' ' (char '(') *> sep_by1 (char '|') (trim (word ()))
   <* char ')'
-  >>= fun ptrns ->
-  trim (inn_pipeline_list_p ())
-  <* string ";;"
-  >>= fun act ->
-  match ptrns with
-  | hd :: tl -> return (hd, tl, act)
-  | _ -> fail "sep_by1 cannot return an empty list"
+  >>= fun ptrns -> trim (inn_pipeline_list_p ()) <* string ";;" >>| fun act -> ptrns, act
 ;;
 
 (** Pipeline list parser *)
@@ -1228,11 +1222,9 @@ let%test _ =
   succ_case_stmt_p
     "case abc in ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac"
     ( Word "abc"
-    , [ ( Word "*.txt"
-        , [ Word "abc" ]
+    , [ ( [ Word "*.txt"; Word "abc" ]
         , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
-      ; ( Word "*.ml"
-        , []
+      ; ( [ Word "*.ml" ]
         , Pipeline (false, SimpleCommand (Command ([], [ Word "woof" ]), []), []) )
       ] )
 ;;
@@ -1241,11 +1233,9 @@ let%test _ =
   succ_case_stmt_p
     "case abc in\n\n( *.txt | abc ) meow ;;\n( *.ml ) woof ;;\nesac"
     ( Word "abc"
-    , [ ( Word "*.txt"
-        , [ Word "abc" ]
+    , [ ( [ Word "*.txt"; Word "abc" ]
         , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
-      ; ( Word "*.ml"
-        , []
+      ; ( [ Word "*.ml" ]
         , Pipeline (false, SimpleCommand (Command ([], [ Word "woof" ]), []), []) )
       ] )
 ;;
@@ -1270,24 +1260,21 @@ let fail_case_item_p = fail_p pp_case_item case_item_p
 let%test _ =
   succ_case_item_p
     "( *.txt | abc ) meow ;;"
-    ( Word "*.txt"
-    , [ Word "abc" ]
+    ( [ Word "*.txt"; Word "abc" ]
     , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
 ;;
 
 let%test _ =
   succ_case_item_p
     "*.txt|abc)meow;;"
-    ( Word "*.txt"
-    , [ Word "abc" ]
+    ( [ Word "*.txt"; Word "abc" ]
     , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
 ;;
 
 let%test _ =
   succ_case_item_p
     "*.txt)echo 1;;"
-    ( Word "*.txt"
-    , []
+    ( [ Word "*.txt" ]
     , Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), []) )
 ;;
 
