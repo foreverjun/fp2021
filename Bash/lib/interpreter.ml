@@ -373,7 +373,51 @@ module Eval (M : MonadFail) = struct
       | None, None, None -> fail (cmd ^ ": command not found"))
 
   (** Evaluate redirection *)
-  and ev_redir (_ : environment) = fail "Not implemented"
+  and ev_redir env =
+    let to_str env w =
+      ev_word env w
+      >>= fun (env, ss) ->
+      match ss with
+      | [ s ] -> return (env, s)
+      | _ -> fail "Illegal expansion in redirection"
+    in
+    let env_with_fd env n fd =
+      match n with
+      | 0 -> return { env with stdin = fd }
+      | 1 -> return { env with stdout = fd }
+      | 2 -> return { env with stderr = fd }
+      | _ -> fail (Printf.sprintf "%i: Unsupported file descriptor" n)
+    in
+    (* Permissions: rw for user, r for group, none for others *)
+    let perm = 0o640 in
+    function
+    | RedirInp (n, w) ->
+      to_str env w
+      >>= fun (env, f) ->
+      if Sys.file_exists f
+      then env_with_fd env n Unix.(openfile f [ O_RDONLY ] perm)
+      else fail (Printf.sprintf "%s: No such file or directory" f)
+    | RedirOtp (n, w) ->
+      to_str env w
+      >>= fun (env, f) -> env_with_fd env n Unix.(openfile f [ O_CREAT; O_WRONLY ] perm)
+    | AppendOtp (n, w) ->
+      to_str env w
+      >>= fun (env, f) -> env_with_fd env n Unix.(openfile f [ O_CREAT; O_APPEND ] perm)
+    | DuplInp (n, w) ->
+      to_str env w
+      >>= fun (env, s) ->
+      (match int_of_string_opt s with
+      | Some 0 -> env_with_fd env n env.stdin
+      | Some fd -> fail (Printf.sprintf "%i: Bad file descriptor" fd)
+      | None -> fail (Printf.sprintf "%s: ambiguous redirect" s))
+    | DuplOtp (n, w) ->
+      to_str env w
+      >>= fun (env, s) ->
+      (match int_of_string_opt s with
+      | Some 1 -> env_with_fd env n env.stdout
+      | Some 2 -> env_with_fd env n env.stderr
+      | Some fd -> fail (Printf.sprintf "%i: Bad file descriptor" fd)
+      | None -> fail (Printf.sprintf "%s: ambiguous redirect" s))
 
   (** Evaluate pipeline list *)
   and ev_pipeline_list (_ : environment) : pipeline_list -> environment t =
