@@ -1,6 +1,10 @@
-type t = string list -> string -> string * string * string * int
+type t = string list -> Unix.file_descr -> Unix.file_descr -> Unix.file_descr -> int
 
-let echo (args : string list) (stdin : string) = stdin, String.concat " " args, "", 0
+let echo args _ stdout _ =
+  let otp = String.concat " " args in
+  let len = String.length otp in
+  if Unix.write_substring stdout otp 0 len <> len then 1 else 0
+;;
 
 let find : string -> t option = function
   | "echo" -> Some echo

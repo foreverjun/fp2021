@@ -77,6 +77,24 @@ module Eval (M : MonadFail) = struct
   list if all applications succeed and failing otherwise *)
   let flat_mapm f l = mapm f l >>| List.concat
 
+  (** [read_all fd] read all contents of the file descriptor [fd] until EOF is reached and
+  close it *)
+  let read_all fd =
+    let ic = Unix.in_channel_of_descr fd in
+    let try_read () =
+      try Some (input_line ic) with
+      | End_of_file -> None
+    in
+    let rec helper acc =
+      match try_read () with
+      | Some s -> helper (s :: acc)
+      | None ->
+        close_in ic;
+        List.rev acc
+    in
+    String.concat "" (helper [])
+  ;;
+
   (* -------------------- Environment -------------------- *)
 
   (** Container for values of variables *)
@@ -92,9 +110,12 @@ module Eval (M : MonadFail) = struct
   type environment =
     { vars : var_t SMap.t (** Variables available in the current scope *)
     ; funs : fun_t SMap.t (** Functions available in the current scope *)
-    ; stdin : string (** Current stdin contents *)
-    ; stdout : string (** Current stdout contents *)
-    ; stderr : string (** Current stderr contents *)
+    ; stdin : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "???"]
+          (** Stdin file descriptor *)
+    ; stdout : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "???"]
+          (** Stdout file descriptor *)
+    ; stderr : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "???"]
+          (** Stderr file descriptor *)
     ; retcode : int (** Return code of the last operation *)
     }
   [@@deriving show { with_path = false }]
@@ -148,10 +169,12 @@ module Eval (M : MonadFail) = struct
     | BraceExp ws -> ev_words env ws
     | ParamExp p -> ev_param_exp env p >>| fun (env, s) -> env, [ s ]
     | CmdSubst c ->
-      ev_cmd { env with stdin = "" } c
-      >>= fun { stdout; stderr; retcode } ->
-      (match Parser.split_words stdout with
-      | Ok ss -> return ({ env with stderr = env.stderr ^ stderr; retcode }, ss)
+      let rd, wr = Unix.pipe () in
+      ev_cmd { env with stdout = wr } c
+      >>= fun { retcode } ->
+      Unix.close wr;
+      (match Parser.split_words (read_all rd) with
+      | Ok ss -> return ({ env with retcode }, ss)
       | Error e -> fail e)
     | ArithmExp a -> ev_arithm env a >>| fun (env, n) -> env, [ string_of_int n ]
     | FilenameExp s -> ev_filename_exp env s >>| fun ss -> env, ss
@@ -160,7 +183,7 @@ module Eval (M : MonadFail) = struct
   (** Evaluate word list *)
   and ev_words env ?(c = fun _ -> true) ?(e = "Evaluated words condition mismatch") ws =
     let ( @+ ) old_env { stdout; stderr; retcode } =
-      { old_env with stdout = env.stdout ^ stdout; stderr = env.stderr ^ stderr; retcode }
+      { old_env with stdout; stderr; retcode }
     in
     List.fold_left
       (fun acc w ->
@@ -341,15 +364,8 @@ module Eval (M : MonadFail) = struct
       (match get_fun cmd env, Builtins.find cmd, try_read cmd with
       | Some _, _, _ -> ev_compound env
       | None, Some f, _ ->
-        (match f args env.stdin with
-        | stdin, stdout, stderr, retcode ->
-          return
-            { env with
-              stdin
-            ; stdout = env.stdout ^ stdout
-            ; stderr = env.stderr ^ stderr
-            ; retcode
-            })
+        let retcode = f args env.stdin env.stdout env.stderr in
+        return { env with retcode }
       | None, None, Some s ->
         (match Parser.parse s with
         | Ok script -> ev_script env script
@@ -466,33 +482,91 @@ open Eval (Result)
 
 (* -------------------- Helper functions -------------------- *)
 
+type test_environment =
+  { env : environment
+  ; wr_stdin : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "???"]
+  ; rd_stdout : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "???"]
+  ; rd_stderr : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "???"]
+  }
+[@@deriving show { with_path = false }]
+
 let empty_env =
   { vars = SMap.empty
   ; funs = SMap.empty
-  ; stdin = ""
-  ; stdout = ""
-  ; stderr = ""
+  ; stdin = Unix.stdin
+  ; stdout = Unix.stdout
+  ; stderr = Unix.stderr
   ; retcode = 0
   }
 ;;
 
-let succ_ev ?(env = empty_env) pp_giv pp_res ev giv exp =
-  match ev env giv with
+let cmp_envs
+    { vars = vs1; funs = fs1; retcode = rc1 }
+    { vars = vs2; funs = fs2; retcode = rc2 }
+  =
+  (vs1, fs1, rc1) = (vs2, fs2, rc2)
+;;
+
+let cmp_env_pairs
+    ({ vars = vs1; funs = fs1; retcode = rc1 }, r1)
+    ({ vars = vs2; funs = fs2; retcode = rc2 }, r2)
+  =
+  (vs1, fs1, rc1, r1) = (vs2, fs2, rc2, r2)
+;;
+
+let make_test_env ?(tmpl = empty_env) () =
+  let stdin, wr_stdin = Unix.pipe () in
+  let rd_stdout, stdout = Unix.pipe () in
+  let rd_stderr, stderr = Unix.pipe () in
+  { env = { tmpl with stdin; stdout; stderr }; wr_stdin; rd_stdout; rd_stderr }
+;;
+
+let with_test_env f test_env =
+  let open Unix in
+  close test_env.env.stdin;
+  let res = f in
+  close test_env.env.stdout;
+  close test_env.env.stderr;
+  close test_env.wr_stdin;
+  let act_stdout = read_all test_env.rd_stdout in
+  let act_stderr = read_all test_env.rd_stderr in
+  res, act_stdout, act_stderr
+;;
+
+let succ_ev
+    pp_giv
+    pp_res
+    ev
+    ?(cmp = ( = ))
+    ?(tmpl = empty_env)
+    ?(giv_stdin = "")
+    giv
+    ?(exp_stdout = "")
+    ?(exp_stderr = "")
+    exp
+  =
+  let test_env = make_test_env ~tmpl () in
+  ignore
+    (Unix.write_substring test_env.wr_stdin giv_stdin 0 (String.length giv_stdin) : int);
+  let res, act_stdout, act_stderr = with_test_env (ev test_env.env giv) test_env in
+  match res with
   | Error e ->
     Printf.printf "Error: %s\n" e;
     false
-  | Ok res when exp = res -> true
+  | Ok res when cmp res exp && act_stdout = exp_stdout && act_stderr = exp_stderr -> true
   | Ok res ->
     print_string "\n-------------------- Input --------------------\n";
     pp_giv Format.std_formatter giv;
     Format.pp_print_flush Format.std_formatter ();
     print_string "\n----------------- Environment -----------------\n";
-    pp_environment Format.std_formatter env;
+    pp_test_environment Format.std_formatter test_env;
     Format.pp_print_flush Format.std_formatter ();
     print_string "\n------------------- Expected ------------------\n";
+    Printf.printf "Stdout: \"%s\"\nStderr: \"%s\"\n" exp_stdout exp_stderr;
     pp_res Format.std_formatter exp;
     Format.pp_print_flush Format.std_formatter ();
     print_string "\n-------------------- Actual -------------------\n";
+    Printf.printf "Stdout: \"%s\"\nStderr: \"%s\"\n" act_stdout act_stderr;
     pp_res Format.std_formatter res;
     Format.pp_print_flush Format.std_formatter ();
     print_string "\n-----------------------------------------------\n";
@@ -500,15 +574,19 @@ let succ_ev ?(env = empty_env) pp_giv pp_res ev giv exp =
     false
 ;;
 
-let fail_ev ?(env = empty_env) pp_giv pp_res ev giv exp =
-  match ev env giv with
-  | Error e when exp = e -> true
+let fail_ev pp_giv pp_res ev ?(tmpl = empty_env) ?(giv_stdin = "") giv exp =
+  let test_env = make_test_env ~tmpl () in
+  ignore
+    (Unix.write_substring test_env.wr_stdin giv_stdin 0 (String.length giv_stdin) : int);
+  let res, act_stdout, act_stderr = with_test_env (ev test_env.env giv) test_env in
+  match res with
+  | Error e when e = exp -> true
   | Error e ->
     print_string "\n-------------------- Input --------------------\n";
     pp_giv Format.std_formatter giv;
     Format.pp_print_flush Format.std_formatter ();
     print_string "\n----------------- Environment -----------------\n";
-    pp_environment Format.std_formatter env;
+    pp_test_environment Format.std_formatter test_env;
     Format.pp_print_flush Format.std_formatter ();
     print_string "\n--------------- Unexpected error --------------\n";
     print_string e;
@@ -520,9 +598,10 @@ let fail_ev ?(env = empty_env) pp_giv pp_res ev giv exp =
     pp_giv Format.std_formatter giv;
     Format.pp_print_flush Format.std_formatter ();
     print_string "\n----------------- Environment -----------------\n";
-    pp_environment Format.std_formatter env;
+    pp_test_environment Format.std_formatter test_env;
     Format.pp_print_flush Format.std_formatter ();
     print_string "\n-------------------- Actual -------------------\n";
+    Printf.printf "Stdout: \"%s\"\nStderr: \"%s\"\n" act_stdout act_stderr;
     pp_res Format.std_formatter res;
     Format.pp_print_flush Format.std_formatter ();
     print_string "\n-----------------------------------------------\n";
@@ -532,21 +611,21 @@ let fail_ev ?(env = empty_env) pp_giv pp_res ev giv exp =
 
 (* -------------------- Variable -------------------- *)
 
-let succ_ev_var ?(env = empty_env) = succ_ev ~env pp_var Format.pp_print_string ev_var
+let succ_ev_var = succ_ev pp_var Format.pp_print_string ev_var
 
 let%test _ = succ_ev_var ("ABC", "0") ""
 let%test _ = succ_ev_var ("ABC", "0") ""
 
 let%test _ =
   succ_ev_var
-    ~env:{ empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "2")) }
+    ~tmpl:{ empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "2")) }
     ("ABC", "0")
     "2"
 ;;
 
 let%test _ =
   succ_ev_var
-    ~env:
+    ~tmpl:
       { empty_env with
         vars = SMap.singleton "ABC" (IndArray (IMap.of_list [ 0, "a"; 1, "b"; 2, "c" ]))
       }
@@ -556,7 +635,7 @@ let%test _ =
 
 let%test _ =
   succ_ev_var
-    ~env:
+    ~tmpl:
       { empty_env with
         vars = SMap.singleton "ABC" (IndArray (IMap.of_list [ 0, "a"; 1, "b"; 2, "c" ]))
       }
@@ -566,7 +645,7 @@ let%test _ =
 
 let%test _ =
   succ_ev_var
-    ~env:
+    ~tmpl:
       { empty_env with
         vars = SMap.singleton "ABC" (IndArray (IMap.of_list [ 0, "a"; 1, "b"; 2, "c" ]))
       }
@@ -576,7 +655,7 @@ let%test _ =
 
 let%test _ =
   succ_ev_var
-    ~env:
+    ~tmpl:
       { empty_env with
         vars =
           SMap.singleton
@@ -589,7 +668,7 @@ let%test _ =
 
 let%test _ =
   succ_ev_var
-    ~env:
+    ~tmpl:
       { empty_env with
         vars =
           SMap.singleton
@@ -602,7 +681,7 @@ let%test _ =
 
 let%test _ =
   succ_ev_var
-    ~env:
+    ~tmpl:
       { empty_env with
         vars =
           SMap.singleton
@@ -615,22 +694,23 @@ let%test _ =
 
 (* -------------------- Arithmetic -------------------- *)
 
-let succ_ev_arithm ?(env = empty_env) =
+let succ_ev_arithm =
   succ_ev
-    ~env
     pp_arithm
     (fun fmt (env, n) ->
       pp_environment fmt env;
+      Format.pp_print_newline fmt ();
       Format.pp_print_int fmt n)
     ev_arithm
+    ~cmp:cmp_env_pairs
 ;;
 
-let fail_ev_arithm ?(env = empty_env) =
+let fail_ev_arithm =
   fail_ev
-    ~env
     pp_arithm
     (fun fmt (env, n) ->
       pp_environment fmt env;
+      Format.pp_print_newline fmt ();
       Format.pp_print_int fmt n)
     ev_arithm
 ;;
@@ -653,19 +733,18 @@ let%test _ = fail_ev_arithm (Div (Num 1, Num 0)) "Division by 0"
 
 (* -------------------- Parameter expansion -------------------- *)
 
-let succ_ev_param_exp ?(env = empty_env) =
+let succ_ev_param_exp =
   succ_ev
-    ~env
     pp_param_exp
     (fun fmt (env, s) ->
       pp_environment fmt env;
       Format.pp_print_string fmt s)
     ev_param_exp
+    ~cmp:cmp_env_pairs
 ;;
 
-let fail_ev_param_exp ?(env = empty_env) =
+let fail_ev_param_exp =
   fail_ev
-    ~env
     pp_param_exp
     (fun fmt (env, s) ->
       pp_environment fmt env;
@@ -674,122 +753,122 @@ let fail_ev_param_exp ?(env = empty_env) =
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "abc")) }
   in
-  succ_ev_param_exp ~env (Param ("ABC", "0")) (env, "abc")
+  succ_ev_param_exp ~tmpl (Param ("ABC", "0")) (tmpl, "abc")
 ;;
 
 let%test _ = succ_ev_param_exp (Param ("ABC", "0")) (empty_env, "")
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "3" (IndArray (IMap.singleton 0 "123")) }
   in
-  succ_ev_param_exp ~env (Param ("3", "0")) (env, "123")
+  succ_ev_param_exp ~tmpl (Param ("3", "0")) (tmpl, "123")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "12345")) }
   in
-  succ_ev_param_exp ~env (Length ("ABC", "0")) (env, "5")
+  succ_ev_param_exp ~tmpl (Length ("ABC", "0")) (tmpl, "5")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "")) }
   in
-  succ_ev_param_exp ~env (Length ("ABC", "0")) (env, "0")
+  succ_ev_param_exp ~tmpl (Length ("ABC", "0")) (tmpl, "0")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (Substring (("ABC", "0"), Num 0, Some (Num 3))) (env, "012")
+  succ_ev_param_exp ~tmpl (Substring (("ABC", "0"), Num 0, Some (Num 3))) (tmpl, "012")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (Substring (("ABC", "0"), Num 0, Some (Num 5))) (env, "01234")
+  succ_ev_param_exp ~tmpl (Substring (("ABC", "0"), Num 0, Some (Num 5))) (tmpl, "01234")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (Substring (("ABC", "0"), Num 0, Some (Num 7))) (env, "01234")
+  succ_ev_param_exp ~tmpl (Substring (("ABC", "0"), Num 0, Some (Num 7))) (tmpl, "01234")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (Substring (("ABC", "0"), Num 2, Some (Num 2))) (env, "23")
+  succ_ev_param_exp ~tmpl (Substring (("ABC", "0"), Num 2, Some (Num 2))) (tmpl, "23")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (Substring (("ABC", "0"), Num 2, Some (Num 0))) (env, "")
+  succ_ev_param_exp ~tmpl (Substring (("ABC", "0"), Num 2, Some (Num 0))) (tmpl, "")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (Substring (("ABC", "0"), Num 2, None)) (env, "234")
+  succ_ev_param_exp ~tmpl (Substring (("ABC", "0"), Num 2, None)) (tmpl, "234")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (Substring (("ABC", "0"), Num (-3), Some (Num 2))) (env, "23")
+  succ_ev_param_exp ~tmpl (Substring (("ABC", "0"), Num (-3), Some (Num 2))) (tmpl, "23")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (Substring (("ABC", "0"), Num (-1), Some (Num 2))) (env, "4")
+  succ_ev_param_exp ~tmpl (Substring (("ABC", "0"), Num (-1), Some (Num 2))) (tmpl, "4")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (Substring (("ABC", "0"), Num (-6), Some (Num 3))) (env, "")
+  succ_ev_param_exp ~tmpl (Substring (("ABC", "0"), Num (-6), Some (Num 3))) (tmpl, "")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (Substring (("ABC", "0"), Num (-3), Some (Num (-2)))) (env, "2")
+  succ_ev_param_exp ~tmpl (Substring (("ABC", "0"), Num (-3), Some (Num (-2)))) (tmpl, "2")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (Substring (("ABC", "0"), Num (-3), Some (Num (-3)))) (env, "")
+  succ_ev_param_exp ~tmpl (Substring (("ABC", "0"), Num (-3), Some (Num (-3)))) (tmpl, "")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (Substring (("ABC", "0"), Num 0, Some (Num (-5)))) (env, "")
+  succ_ev_param_exp ~tmpl (Substring (("ABC", "0"), Num 0, Some (Num (-5)))) (tmpl, "")
 ;;
 
 let%test _ =
   fail_ev_param_exp
-    ~env:
+    ~tmpl:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
     (Substring (("ABC", "0"), Num 4, Some (Num (-3))))
     "substring expression < 0"
@@ -797,7 +876,7 @@ let%test _ =
 
 let%test _ =
   fail_ev_param_exp
-    ~env:
+    ~tmpl:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
     (Substring (("ABC", "0"), Num 0, Some (Num (-6))))
     "substring expression < 0"
@@ -805,157 +884,156 @@ let%test _ =
 
 let%test _ =
   fail_ev_param_exp
-    ~env:
+    ~tmpl:
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
     (Substring (("ABC", "0"), Div (Num 1, Num 0), None))
     "Division by 0"
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (CutMinBeg (("ABC", "0"), "*")) (env, "01234")
+  succ_ev_param_exp ~tmpl (CutMinBeg (("ABC", "0"), "*")) (tmpl, "01234")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (CutMinBeg (("ABC", "0"), "?")) (env, "1234")
+  succ_ev_param_exp ~tmpl (CutMinBeg (("ABC", "0"), "?")) (tmpl, "1234")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (CutMinBeg (("ABC", "0"), "[0-9][0-9]")) (env, "234")
+  succ_ev_param_exp ~tmpl (CutMinBeg (("ABC", "0"), "[0-9][0-9]")) (tmpl, "234")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (CutMinBeg (("ABC", "0"), "23")) (env, "01234")
+  succ_ev_param_exp ~tmpl (CutMinBeg (("ABC", "0"), "23")) (tmpl, "01234")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (CutMinBeg (("ABC", "0"), "01")) (env, "234")
+  succ_ev_param_exp ~tmpl (CutMinBeg (("ABC", "0"), "01")) (tmpl, "234")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (CutMaxBeg (("ABC", "0"), "*")) (env, "")
+  succ_ev_param_exp ~tmpl (CutMaxBeg (("ABC", "0"), "*")) (tmpl, "")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (CutMinEnd (("ABC", "0"), "?")) (env, "0123")
+  succ_ev_param_exp ~tmpl (CutMinEnd (("ABC", "0"), "?")) (tmpl, "0123")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (CutMinEnd (("ABC", "0"), "*")) (env, "01234")
+  succ_ev_param_exp ~tmpl (CutMinEnd (("ABC", "0"), "*")) (tmpl, "01234")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (CutMaxEnd (("ABC", "0"), "?")) (env, "0123")
+  succ_ev_param_exp ~tmpl (CutMaxEnd (("ABC", "0"), "?")) (tmpl, "0123")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (CutMaxEnd (("ABC", "0"), "*")) (env, "")
+  succ_ev_param_exp ~tmpl (CutMaxEnd (("ABC", "0"), "*")) (tmpl, "")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (SubstOne (("ABC", "0"), "?", "a")) (env, "a1234")
+  succ_ev_param_exp ~tmpl (SubstOne (("ABC", "0"), "?", "a")) (tmpl, "a1234")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (SubstOne (("ABC", "0"), "*", "a")) (env, "a")
+  succ_ev_param_exp ~tmpl (SubstOne (("ABC", "0"), "*", "a")) (tmpl, "a")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "")) }
   in
-  succ_ev_param_exp ~env (SubstOne (("ABC", "0"), "*", "a")) (env, "a")
+  succ_ev_param_exp ~tmpl (SubstOne (("ABC", "0"), "*", "a")) (tmpl, "a")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (SubstAll (("ABC", "0"), "?", "a")) (env, "aaaaa")
+  succ_ev_param_exp ~tmpl (SubstAll (("ABC", "0"), "?", "a")) (tmpl, "aaaaa")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (SubstAll (("ABC", "0"), "*", "a")) (env, "a")
+  succ_ev_param_exp ~tmpl (SubstAll (("ABC", "0"), "*", "a")) (tmpl, "a")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "abacab")) }
   in
-  succ_ev_param_exp ~env (SubstAll (("ABC", "0"), "a", "heh")) (env, "hehbhehchehb")
+  succ_ev_param_exp ~tmpl (SubstAll (("ABC", "0"), "a", "heh")) (tmpl, "hehbhehchehb")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (SubstBeg (("ABC", "0"), "*", "a")) (env, "a")
+  succ_ev_param_exp ~tmpl (SubstBeg (("ABC", "0"), "*", "a")) (tmpl, "a")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "abcabab")) }
   in
-  succ_ev_param_exp ~env (SubstBeg (("ABC", "0"), "ab", "!")) (env, "!cabab")
+  succ_ev_param_exp ~tmpl (SubstBeg (("ABC", "0"), "ab", "!")) (tmpl, "!cabab")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "01234")) }
   in
-  succ_ev_param_exp ~env (SubstEnd (("ABC", "0"), "*", "a")) (env, "a")
+  succ_ev_param_exp ~tmpl (SubstEnd (("ABC", "0"), "*", "a")) (tmpl, "a")
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "abcabab")) }
   in
-  succ_ev_param_exp ~env (SubstEnd (("ABC", "0"), "ab", "!")) (env, "abcab!")
+  succ_ev_param_exp ~tmpl (SubstEnd (("ABC", "0"), "ab", "!")) (tmpl, "abcab!")
 ;;
 
 (* -------------------- Filename expansion -------------------- *)
 
-let succ_ev_filename_exp ?(env = empty_env) =
+let succ_ev_filename_exp =
   succ_ev
-    ~env
     Format.pp_print_string
     (Format.pp_print_list ~pp_sep:Format.pp_print_newline Format.pp_print_string)
     ev_filename_exp
@@ -977,19 +1055,18 @@ let%test _ =
 
 (* -------------------- Word -------------------- *)
 
-let succ_ev_word ?(env = empty_env) =
+let succ_ev_word =
   succ_ev
-    ~env
     pp_word
     (fun fmt (env, ss) ->
       pp_environment fmt env;
       Format.pp_print_list ~pp_sep:Format.pp_print_newline Format.pp_print_string fmt ss)
     ev_word
+    ~cmp:cmp_env_pairs
 ;;
 
-let fail_ev_word ?(env = empty_env) =
+let fail_ev_word =
   fail_ev
-    ~env
     pp_word
     (fun fmt (env, ss) ->
       pp_environment fmt env;
@@ -1004,10 +1081,10 @@ let%test _ =
 ;;
 
 let%test _ =
-  let env =
+  let tmpl =
     { empty_env with vars = SMap.singleton "M" (IndArray (IMap.singleton 0 "meow")) }
   in
-  succ_ev_word ~env (ParamExp (Param ("M", "0"))) (env, [ "meow" ])
+  succ_ev_word ~tmpl (ParamExp (Param ("M", "0"))) (tmpl, [ "meow" ])
 ;;
 
 let%test _ = succ_ev_word (ArithmExp (Num 5)) (empty_env, [ "5" ])
@@ -1023,8 +1100,8 @@ let%test _ = succ_ev_word (Word "hey") (empty_env, [ "hey" ])
 
 (* -------------------- Assignment -------------------- *)
 
-let succ_ev_assignt ?(env = empty_env) = succ_ev ~env pp_assignt pp_environment ev_assignt
-let fail_ev_assignt ?(env = empty_env) = fail_ev ~env pp_assignt pp_environment ev_assignt
+let succ_ev_assignt = succ_ev pp_assignt pp_environment ev_assignt ~cmp:cmp_envs
+let fail_ev_assignt = fail_ev pp_assignt pp_environment ev_assignt
 
 let%test _ =
   succ_ev_assignt
@@ -1084,21 +1161,21 @@ let%test _ =
 
 let%test _ =
   succ_ev_assignt
-    ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
+    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
     (SimpleAssignt (("X", "0"), Word "y"))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "y")) }
 ;;
 
 let%test _ =
   succ_ev_assignt
-    ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
+    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
     (SimpleAssignt (("X", "0"), Word "y"))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "y")) }
 ;;
 
 let%test _ =
   succ_ev_assignt
-    ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 1 "x")) }
+    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 1 "x")) }
     (SimpleAssignt (("X", "0"), Word "y"))
     { empty_env with
       vars = SMap.singleton "X" (IndArray (IMap.of_list [ 1, "x"; 0, "y" ]))
@@ -1107,7 +1184,7 @@ let%test _ =
 
 let%test _ =
   succ_ev_assignt
-    ~env:
+    ~tmpl:
       { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "0" "x")) }
     (SimpleAssignt (("X", "0"), Word "y"))
     { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "0" "y")) }
@@ -1115,7 +1192,7 @@ let%test _ =
 
 let%test _ =
   succ_ev_assignt
-    ~env:
+    ~tmpl:
       { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "a" "x")) }
     (SimpleAssignt (("X", "0"), Word "y"))
     { empty_env with
@@ -1125,7 +1202,7 @@ let%test _ =
 
 let%test _ =
   succ_ev_assignt
-    ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
+    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
     (SimpleAssignt (("X", "1"), Word "y"))
     { empty_env with
       vars = SMap.singleton "X" (IndArray (IMap.of_list [ 0, "x"; 1, "y" ]))
@@ -1134,14 +1211,14 @@ let%test _ =
 
 let%test _ =
   succ_ev_assignt
-    ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 1 "x")) }
+    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 1 "x")) }
     (SimpleAssignt (("X", "1"), Word "y"))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 1 "y")) }
 ;;
 
 let%test _ =
   succ_ev_assignt
-    ~env:
+    ~tmpl:
       { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "1" "x")) }
     (SimpleAssignt (("X", "1"), Word "y"))
     { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "1" "y")) }
@@ -1149,14 +1226,14 @@ let%test _ =
 
 let%test _ =
   succ_ev_assignt
-    ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
+    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
     (SimpleAssignt (("X", "a"), Word "y"))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "y")) }
 ;;
 
 let%test _ =
   succ_ev_assignt
-    ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 1 "x")) }
+    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 1 "x")) }
     (SimpleAssignt (("X", "a"), Word "y"))
     { empty_env with
       vars = SMap.singleton "X" (IndArray (IMap.of_list [ 1, "x"; 0, "y" ]))
@@ -1165,7 +1242,7 @@ let%test _ =
 
 let%test _ =
   succ_ev_assignt
-    ~env:
+    ~tmpl:
       { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "1" "x")) }
     (SimpleAssignt (("X", "a"), Word "y"))
     { empty_env with
@@ -1175,22 +1252,22 @@ let%test _ =
 
 let%test _ =
   succ_ev_assignt
-    ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
+    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
     (IndArrAssignt ("X", [ Word "x" ]))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
 ;;
 
 let%test _ =
   succ_ev_assignt
-    ~env:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
+    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
     (AssocArrAssignt ("X", [ "x", Word "y" ]))
     { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "x" "y")) }
 ;;
 
 (* -------------------- Simple command -------------------- *)
 
-let succ_ev_cmd ?(env = empty_env) = succ_ev ~env pp_cmd pp_environment ev_cmd
-let fail_ev_cmd ?(env = empty_env) = fail_ev ~env pp_cmd pp_environment ev_cmd
+let succ_ev_cmd = succ_ev pp_cmd pp_environment ev_cmd ~cmp:cmp_envs
+let fail_ev_cmd = fail_ev pp_cmd pp_environment ev_cmd
 
 (* TODO: add tests for user-defined functions and sourced scripts *)
 
@@ -1201,13 +1278,12 @@ let%test _ =
 ;;
 
 let%test _ =
-  succ_ev_cmd
-    (Command ([], [ Word "echo"; Word "123" ]))
-    { empty_env with stdout = "123" }
+  succ_ev_cmd (Command ([], [ Word "echo"; Word "123" ])) empty_env ~exp_stdout:"123"
 ;;
 
 let%test _ =
   succ_ev_cmd
     (Command ([], [ Word "echo"; Word "1"; BraceExp [ ArithmExp (Num 2); Word "3" ] ]))
-    { empty_env with stdout = "1 2 3" }
+    empty_env
+    ~exp_stdout:"1 2 3"
 ;;
