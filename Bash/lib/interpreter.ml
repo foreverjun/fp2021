@@ -303,7 +303,7 @@ module Eval (M : MonadFail) = struct
     | SubstBeg (v, p, r) -> subst Re.longest ~all:false ~beg:(Some true) v p r
     | SubstEnd (v, p, r) -> subst Re.longest ~all:false ~beg:(Some false) v p r
 
-  (** Evaluate command *)
+  (** Evaluate simple command *)
   and ev_cmd env =
     let env_with assignts =
       List.fold_left
@@ -373,14 +373,14 @@ module Eval (M : MonadFail) = struct
   and ev_while_loop env ((cnd, body) : while_loop) =
     (* Return code is passed so that if body was executed 0 times the return code of the
       loop is 0, but condition receives the real environment with the real return code *)
-    let rec helper env retcode =
+    let rec loop env retcode =
       ev_pipeline_list env cnd
       >>= fun cnd_env ->
       if cnd_env.retcode = 0
-      then ev_pipeline_list cnd_env body >>= fun env -> helper env env.retcode
+      then ev_pipeline_list cnd_env body >>= fun env -> loop env env.retcode
       else return { cnd_env with retcode }
     in
-    helper env 0
+    loop env 0
 
   (** Evaluate for loop (list form) *)
   and ev_for_list_loop env ((name, ws, body) : for_list_loop) =
@@ -388,20 +388,29 @@ module Eval (M : MonadFail) = struct
     >>= fun (env, ss) ->
     (* Return code is passed so that if body was executed 0 times the return code of the
       loop is 0, but body receives the real environment with the real return code *)
-    let rec helper env retcode = function
+    let rec loop env retcode = function
       | hd :: tl ->
         ev_pipeline_list (set_var name (IndArray (IMap.singleton 0 hd)) env) body
-        >>= fun env -> helper env env.retcode tl
+        >>= fun env -> loop env env.retcode tl
       | [] -> return { env with retcode }
     in
-    helper env 0 ss
+    loop env 0 ss
 
   (** Evaluate for loop (expression form) *)
-  and ev_for_expr_loop (env : environment) ((a1, a2, a3, body) : for_expr_loop)
-      : environment t
-    =
-    (* TODO: add assignments to arithmetic expressions *)
-    fail "Not implemented"
+  and ev_for_expr_loop env ((a1, a2, a3, body) : for_expr_loop) =
+    ev_arithm env a1
+    >>= fun (env, _) ->
+    (* Return code is passed to save the return code of the last body's execution *)
+    let rec loop env retcode =
+      ev_arithm env a2
+      >>= fun (env, v) ->
+      if v = 0
+      then
+        ev_pipeline_list env body
+        >>= fun env -> ev_arithm env a3 >>= fun (new_env, _) -> loop new_env env.retcode
+      else return { env with retcode }
+    in
+    loop env 0
 
   (** Evaluate if statement *)
   and ev_if_stmt env ((cnd, cns, alt) : if_stmt) =
