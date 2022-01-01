@@ -110,12 +110,16 @@ let nequal = string "!=" *> return (fun x y -> NEqual (x, y))
 let arithm_p =
   let num = int_p >>| fun n -> Num n in
   let var = var_p >>| fun v -> Var v in
-  fix (fun arithm_p ->
-      let factor = parens arithm_p <|> num <|> var in
-      let term = chainl1 factor (trim (mul <|> div)) in
+  fix (fun arithm ->
+      let fctr = parens arithm <|> num <|> var in
+      let term = chainl1 fctr (trim (mul <|> div)) in
       let expr = chainl1 term (trim (plus <|> minus)) in
       let comp = chainl1 expr (trim (lesseq <|> greatereq <|> less <|> greater)) in
-      chainl1 comp (trim (equal <|> nequal)))
+      let equl = chainl1 comp (trim (equal <|> nequal)) in
+      let asnt =
+        var_p >>= fun x -> trim (char '=') *> equl >>| fun v -> ArithmAssignt (x, v)
+      in
+      asnt <|> equl)
 ;;
 
 (* -------------------- Word, expansions and simple command -------------------- *)
@@ -583,6 +587,12 @@ let%test _ =
   succ_arithm_p "x + y + 1" (Plus (Plus (Var ("x", "0"), Var ("y", "0")), Num 1))
 ;;
 
+let%test _ = succ_arithm_p "x = 1 + 2" (ArithmAssignt (("x", "0"), Plus (Num 1, Num 2)))
+
+let%test _ =
+  succ_arithm_p "( x=1 == 2)" (ArithmAssignt (("x", "0"), Equal (Num 1, Num 2)))
+;;
+
 let%test _ = fail_arithm_p " 100"
 let%test _ = fail_arithm_p "100 "
 let%test _ = fail_arithm_p " 100 "
@@ -591,6 +601,8 @@ let%test _ = fail_arithm_p "(()"
 let%test _ = fail_arithm_p "+ -"
 let%test _ = fail_arithm_p "123ab"
 let%test _ = fail_arithm_p "2 + 2 == 4))"
+let%test _ = fail_arithm_p "2=2"
+let%test _ = fail_arithm_p "1 + x = 2"
 
 (* -------------------- Brace expansion -------------------- *)
 

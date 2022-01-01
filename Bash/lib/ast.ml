@@ -7,6 +7,7 @@ type var = string * string [@@deriving show { with_path = false }]
 type arithm =
   | Num of int
   | Var of var
+  | ArithmAssignt of var * arithm
   | Plus of arithm * arithm
   | Minus of arithm * arithm
   | Mul of arithm * arithm
