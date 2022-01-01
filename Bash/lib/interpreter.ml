@@ -271,7 +271,6 @@ module Eval (M : MonadFail) = struct
     in
     function
     | Param v -> ev_var env v >>| fun s -> env, s
-    | PosParam i -> ev_var env (string_of_int i, "0") >>| fun s -> env, s
     | Length v -> ev_var env v >>| fun s -> env, string_of_int (String.length s)
     | Substring (v, pos, len) ->
       ev_var env v
@@ -678,7 +677,7 @@ let%test _ =
   let env =
     { empty_env with vars = SMap.singleton "3" (IndArray (IMap.singleton 0 "123")) }
   in
-  succ_ev_param_exp ~env (PosParam 3) (env, "123")
+  succ_ev_param_exp ~env (Param ("3", "0")) (env, "123")
 ;;
 
 let%test _ =

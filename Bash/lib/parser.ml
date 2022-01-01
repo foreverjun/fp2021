@@ -206,7 +206,9 @@ and param_exp_p =
   let pos_param =
     int_p
     >>= fun x ->
-    if x >= 0 then return (PosParam x) else fail "Illegal positional parameter"
+    if x >= 0
+    then return (Param (string_of_int x, "0"))
+    else fail "Illegal positional parameter"
   in
   let length = char '#' *> var_p >>| fun v -> Length v in
   let substring =
@@ -661,9 +663,9 @@ let succ_param_exp = succ_p pp_param_exp param_exp_p
 let fail_param_exp = fail_p pp_param_exp param_exp_p
 
 let%test _ = succ_param_exp "$ABC" (Param ("ABC", "0"))
-let%test _ = succ_param_exp "$1" (PosParam 1)
+let%test _ = succ_param_exp "$1" (Param ("1", "0"))
 let%test _ = succ_param_exp "${ABC}" (Param ("ABC", "0"))
-let%test _ = succ_param_exp "${1}" (PosParam 1)
+let%test _ = succ_param_exp "${1}" (Param ("1", "0"))
 let%test _ = succ_param_exp "${#ABC}" (Length ("ABC", "0"))
 let%test _ = succ_param_exp "${ABC:-20}" (Substring (("ABC", "0"), Num (-20), None))
 
@@ -686,6 +688,7 @@ let%test _ = succ_param_exp "${ABC/#a/b}" (SubstBeg (("ABC", "0"), "a", "b"))
 let%test _ = succ_param_exp "${ABC/%a}" (SubstEnd (("ABC", "0"), "a", ""))
 let%test _ = succ_param_exp "${ABC/%a/b}" (SubstEnd (("ABC", "0"), "a", "b"))
 let%test _ = fail_param_exp "$-1"
+let%test _ = fail_param_exp "${1[0]}"
 let%test _ = fail_param_exp " $ABC"
 let%test _ = fail_param_exp "$ABC "
 let%test _ = fail_param_exp " $ABC "
