@@ -424,32 +424,40 @@ module Eval (M : MonadFail) = struct
     List.fold_left (fun acc r -> acc >>= fun env -> ev_redir env r) (return env) rs
 
   (** Evaluate pipeline list *)
-  and ev_pipeline_list (_ : environment) : pipeline_list -> environment t =
-    failwith "Not implemented"
+  and ev_pipeline_list (env : environment) : pipeline_list -> environment t = function
+    | Pipeline p -> ev_pipeline env p
+    | PipelineAndList (hd, tl) ->
+      ev_pipeline env hd
+      >>= fun env -> if env.retcode = 0 then ev_pipeline_list env tl else return env
+    | PipelineOrList (hd, tl) ->
+      ev_pipeline env hd
+      >>= fun env -> if env.retcode <> 0 then ev_pipeline_list env tl else return env
 
   (** Evaluate pipeline *)
-  and ev_pipeline env (neg, c, cs) =
+  and ev_pipeline env =
+    let get_retcode neg rc = if neg then if rc = 0 then 1 else 0 else rc in
     let rec helper env cl c = function
       | hd :: tl ->
         let rd, wr = Unix.pipe () in
         ev_compound { env with chs = IMap.add 1 wr env.chs } c
         >>= fun _ ->
-        (* Close pipe's output *)
         if cl then Unix.close (IMap.find 0 env.chs);
-        (* Close pipe's input *)
         Unix.close wr;
         helper { env with chs = IMap.add 0 rd env.chs } true hd tl
       | [] ->
         ev_compound env c
         >>| fun { retcode } ->
-        (* Close pipe's output *)
         if cl then Unix.close (IMap.find 0 env.chs);
         retcode
     in
-    helper env false c cs
-    >>| fun retcode ->
-    let retcode = if neg then if retcode = 0 then 1 else 0 else retcode in
-    { env with retcode }
+    function
+    | neg, c, [] ->
+      (* A single compound should affect the environment *)
+      ev_compound env c >>| fun env -> { env with retcode = get_retcode neg env.retcode }
+    | neg, c, cs ->
+      (* A pipeline should only affect the return code *)
+      helper env false c cs
+      >>| fun retcode -> { env with retcode = get_retcode neg retcode }
 
   (** Evaluate compound *)
   and ev_compound (env : environment) : compound -> environment t =
