@@ -476,10 +476,23 @@ module Eval (M : MonadError) = struct
           | Reg _ -> ev env2 (f env2) (Sub (e1, e2))
           | _ -> error "invalid combination of opcode and operands" )
           >>= fun i -> return (MapString.add "0cond" (R64 i) env2)
-      | "ADDPD" -> helper_sse (fun s i -> add s i)
-      | "SUBPD" -> helper_sse (fun s i -> sub s i)
-      | "MULPD" -> helper_sse (fun s i -> mul s i)
-      | "MOVAPD" -> helper_sse (fun _ i -> i)
+      | "ADDPD" -> helper_sse (fun i s -> add s i)
+      | "SUBPD" -> helper_sse (fun i s -> sub s i)
+      | "MULPD" -> helper_sse (fun i s -> mul s i)
+      | "MOVAPD" -> (
+        match e1 with
+        | Reg r when regSSE r -> (
+          match e2 with
+          | Label s -> (
+            match MapString.find s env2 with
+            | Ls i | RSSE i -> return (MapString.add r (RSSE i) env2)
+            | _ -> error "fatal error" )
+          | Reg s when regSSE s -> (
+            match MapString.find s env2 with
+            | Ls i | RSSE i -> return (MapString.add r (RSSE i) env2)
+            | _ -> error "fatal error" )
+          | _ -> error "invalid combination of opcode and operands" )
+        | _ -> error "invalid combination of opcode and operands" )
       | _ -> error "fatal error" in
     let inter_cmd env1 st = function
       | Arg0 (_, Mnemonic mn) -> inter_arg0 env1 st mn
@@ -525,10 +538,7 @@ module Eval (M : MonadError) = struct
             | _ -> error "fatal error" ) ) in
     helper env [] list
 
-  let asm directive =
-    prepr (MapString.of_list reg_list) directive
-    >>= interpret
-    >>= fun _ -> return ()
+  let asm directive = prepr (MapString.of_list reg_list) directive >>= interpret
 end
 
 (** / **)
@@ -735,3 +745,14 @@ let%test _ =
     (MapString.of_list
        ( succ_env_list
        @ [("XMM2", RSSE "Oh hi"); ("XMM3", RSSE "Oh hi, Mark!    ")] ) )
+
+let%test _ =
+  succ_inter
+    (MapString.of_list (reg_list @ [("XMM2", RSSE "b"); ("XMM3", RSSE "a")]))
+    ([Arg2 (None, Mnemonic "SUBPD", Reg "XMM2", Reg "XMM3")] @ succ_simpl_dir)
+    (MapString.of_list
+       ( succ_env_list
+       @ [ ( "XMM2"
+           , RSSE
+               "\001\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
+           ); ("XMM3", RSSE "a") ] ) )

@@ -4,5 +4,11 @@
  (public_name demoParse)
  (libraries asm_lib stdio))
 
+(executable
+ (name demoAsm)
+ (modules demoAsm)
+ (public_name demoAsm)
+ (libraries asm_lib stdio))
+
 (cram
- (deps ./demoParse.exe))
+ (deps ./demoParse.exe ./demoAsm.exe))
