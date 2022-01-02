@@ -276,15 +276,6 @@ module Interpret (M : MONAD_FAIL) = struct
     | InitializeBlock statements ->
       List.fold statements ~init:(M.return ctx) ~f:(fun monadic_ctx stat ->
           monadic_ctx >>= fun checked_ctx -> interpret_statement checked_ctx stat)
-    | AnonymousFunctionDeclarationStatement (arguments, statement) ->
-      let func =
-        { identity_code = get_unique_identity_code ()
-        ; fun_typename = Dynamic
-        ; arguments
-        ; statement
-        }
-      in
-      M.return { ctx with last_eval_expression = AnonymousFunction func }
     | Return expression ->
       interpret_expression ctx expression
       >>= fun ret_ctx ->
@@ -429,7 +420,15 @@ module Interpret (M : MONAD_FAIL) = struct
       | Object obj -> Stdlib.Printf.printf "%s@%x\n" obj.classname obj.identity_code
       | _ -> failwith "Unsupported argument for println");
       M.return { ctx with last_eval_expression = NullValue }
-    | AnonymousFunctionDeclaration stat -> interpret_statement ctx stat
+    | AnonymousFunctionDeclaration (arguments, statement) ->
+      let func =
+        { identity_code = get_unique_identity_code ()
+        ; fun_typename = Dynamic
+        ; arguments
+        ; statement
+        }
+      in
+      M.return { ctx with last_eval_expression = AnonymousFunction func }
     | FunctionCall (identifier, arg_expressions) ->
       let define_args define_ctx args exprs =
         let args_ctx =

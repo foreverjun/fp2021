@@ -147,10 +147,7 @@ let%test _ =
 
 let%test _ =
   apply_parser expression {| { 1 } |}
-  = Some
-      (AnonymousFunctionDeclaration
-         (AnonymousFunctionDeclarationStatement
-            ([], Block [ Expression (Const (IntValue 1)) ])))
+  = Some (AnonymousFunctionDeclaration ([], Block [ Expression (Const (IntValue 1)) ]))
 ;;
 
 let%test _ = apply_parser expression {| { -> 1 } |} = None
@@ -159,9 +156,8 @@ let%test _ =
   apply_parser expression {| { x: Int, y: Int -> x + y } |}
   = Some
       (AnonymousFunctionDeclaration
-         (AnonymousFunctionDeclarationStatement
-            ( [ "x", Int; "y", Int ]
-            , Block [ Expression (Add (VarIdentifier "x", VarIdentifier "y")) ] )))
+         ( [ "x", Int; "y", Int ]
+         , Block [ Expression (Add (VarIdentifier "x", VarIdentifier "y")) ] ))
 ;;
 
 let%test _ = apply_parser expression {| baz() |} = Some (FunctionCall ("baz", []))

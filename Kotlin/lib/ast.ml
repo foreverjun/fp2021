@@ -94,8 +94,8 @@ and expression =
   | VarIdentifier of string
       (** Строки string, не заключенные в кавычки, преставляются как VarIdentifier ("string") *)
   | This (** Специальное выражение для вызова this внутри объекта *)
-  | AnonymousFunctionDeclaration of statement
-      (** Данное выражение обязательно содержит в себе statement = AnonymousFunctionDeclarationStatement *)
+  | AnonymousFunctionDeclaration of (string * typename) list * statement
+      (** { (string * typename) list -> statement }. Например: {elem: Int -> elem * elem} *)
   | FunctionCall of string * expression list
       (** Например: foo(bar) <=> FunctionCall ("foo", [VarIdentifier "bar"])*)
   | Println of expression (** println(expression) *)
@@ -126,6 +126,4 @@ and statement =
       (** Вырожденный случай Block. Нужен только для функции parse_and_run, и по сути является Block без фигурных скобок вокруг *)
   | InitInClass of statement
       (** init { ... }, причем данная конструкция должна встречаться только внутри классов *)
-  | AnonymousFunctionDeclarationStatement of (string * typename) list * statement
-      (** { (string * typename) list -> statement }. Например: {elem: Int -> elem * elem} *)
 [@@deriving show { with_path = false }]

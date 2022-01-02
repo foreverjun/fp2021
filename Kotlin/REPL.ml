@@ -29,6 +29,7 @@ let rec repl buffered_lines ctx =
   try
     printf ">> ";
     Out_channel.flush stdout;
+    (* В случае, если внутри In_channel.stdin напечатать только EOF (ctrl + d), вылетит исключение и обработается в with блоке *)
     let line = Option.value_exn (In_channel.input_line In_channel.stdin) in
     if String.is_prefix line ~prefix:"@"
     then interpert_repl_command ctx line
@@ -64,7 +65,7 @@ let rec repl buffered_lines ctx =
           | InitInClass _ ->
             print_as_repl_answer "Init expressions are not supported in REPL";
             ctx
-          | Expression _ | Assign _ | AnonymousFunctionDeclarationStatement _ ->
+          | Expression _ | Assign _ ->
             print_as_repl_answer (show_value eval_ctx.last_eval_expression);
             eval_ctx
           | If _ | While _

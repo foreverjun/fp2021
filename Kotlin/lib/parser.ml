@@ -279,8 +279,22 @@ end = struct
   and unar_expression input = (choice [ not_expression; function_call_expression ]) input
 
   and anonymous_function_expression input =
-    (Statement.anonymous_function_statement
-    >>= fun stat -> return (AnonymousFunctionDeclaration stat))
+    (braces
+       (option
+          []
+          (sep_by
+             (parse_identifier
+             >>= fun parse_var_identifier ->
+             token ":"
+             >> parse_typename
+             >>= fun var_typename -> return (parse_var_identifier, var_typename))
+             (token ","))
+       >>= fun args ->
+       (if List.length args > 0 then token "->" else token "")
+       >> sep_by Statement.statement (skip_many (exactly ' ') >> newline)
+       >>= fun statements -> return (args, statements))
+    >>= fun (args, statements) ->
+    return (AnonymousFunctionDeclaration (args, Block statements)))
       input
   ;;
 end
@@ -312,10 +326,6 @@ and Statement : sig
   val while_statement : char Opal.input -> (Ast.statement * char Opal.input) option
   val return_statement : char Opal.input -> (Ast.statement * char Opal.input) option
   val init_statement : char Opal.input -> (Ast.statement * char Opal.input) option
-
-  val anonymous_function_statement
-    :  char Opal.input
-    -> (Ast.statement * char Opal.input) option
 end = struct
   open Expression
   open Ast
@@ -327,7 +337,6 @@ end = struct
     (choice
        [ block_statement
        ; init_statement
-       ; anonymous_function_statement
        ; fun_declaration_statement
        ; class_declaration_statement
        ; var_declaration_statement
@@ -492,25 +501,6 @@ end = struct
 
   and return_statement input =
     (token "return" >> expression >>= fun expr -> return (Return expr)) input
-
-  and anonymous_function_statement input =
-    (braces
-       (option
-          []
-          (sep_by
-             (parse_identifier
-             >>= fun parse_var_identifier ->
-             token ":"
-             >> parse_typename
-             >>= fun var_typename -> return (parse_var_identifier, var_typename))
-             (token ","))
-       >>= fun args ->
-       (if List.length args > 0 then token "->" else token "")
-       >> sep_by statement (skip_many (exactly ' ') >> newline)
-       >>= fun statements -> return (args, statements))
-    >>= fun (args, statements) ->
-    return (AnonymousFunctionDeclarationStatement (args, Block statements)))
-      input
 
   and init_statement input =
     (token "init" >> block_statement >>= fun block -> return (InitInClass block)) input
