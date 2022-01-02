@@ -4,5 +4,5 @@
  (modules Demos Std Ast Interpreter Parser utils Tests)
  (libraries base stdio opal ppx_show.runtime)
  (preprocess
-  (pps ppx_expect ppx_show))
+  (pps ppx_expect ppx_show ppx_let))
  (inline_tests))

@@ -19,8 +19,11 @@ module Interpret (M : MONAD_FAIL) = struct
   and context =
     { environment : record_t list
     ; last_eval_expression : value
+          (** Данная переменная используется для сохранения значения последленного исполненого Ast.expression (по умолчанию Unitialized) *)
     ; last_return_value : value
+          (** Данная переменная используется для сохранения значения последнего исполненого return (по умолчанию Unitialized) *)
     ; last_derefered_variable : record_t option
+          (** Данная переменная используется для сохранения последней переменной, к которой обратились через VarIdentifier (по умолчанию None) *)
     ; scope : scope_type
     }
 
@@ -147,49 +150,41 @@ module Interpret (M : MONAD_FAIL) = struct
   ;;
 
   let rec get_field_from_object (this_flag : bool) obj name =
+    let open Option.Let_syntax in
     match
       List.find_map obj.fields ~f:(fun r ->
           if String.equal r.name name then Some r else None)
     with
-    | Some r ->
-      if (check_record_is_private r && not this_flag)
-         || (check_record_is_protected r && not this_flag)
+    | Some field ->
+      if (check_record_is_private field || check_record_is_protected field)
+         && not this_flag
       then None
-      else Some r
+      else Some field
     | None ->
-      (match obj.super with
-      | None -> None
-      | Some super ->
-        (match get_field_from_object true super name with
-        | None -> None
-        | Some r_super ->
-          if check_record_is_private r_super
-             || (check_record_is_protected r_super && not this_flag)
-          then None
-          else Some r_super))
+      let%bind super = obj.super in
+      let%bind field = get_field_from_object true super name in
+      if check_record_is_private field
+         || (check_record_is_protected field && not this_flag)
+      then None
+      else Some field
   ;;
 
   let rec get_method_from_object this_flag obj name =
+    let open Option.Let_syntax in
     match
       List.find_map obj.methods ~f:(fun r ->
           if String.equal r.name name then Some r else None)
     with
-    | Some r ->
-      if (check_record_is_private r && not this_flag)
-         || (check_record_is_protected r && not this_flag)
+    | Some meth ->
+      if (check_record_is_private meth || check_record_is_protected meth) && not this_flag
       then None
-      else Some r
+      else Some meth
     | None ->
-      (match obj.super with
-      | None -> None
-      | Some super ->
-        (match get_method_from_object true super name with
-        | None -> None
-        | Some r_super ->
-          if check_record_is_private r_super
-             || (check_record_is_protected r_super && not this_flag)
-          then None
-          else Some r_super))
+      let%bind super = obj.super in
+      let%bind meth = get_method_from_object true super name in
+      if check_record_is_private meth || (check_record_is_protected meth && not this_flag)
+      then None
+      else Some meth
   ;;
 
   let define_in_object obj rc =
