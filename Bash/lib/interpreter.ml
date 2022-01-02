@@ -656,6 +656,7 @@ end) =
 struct
   let succ_ev
       ?(tmpl = empty_env)
+      ?(cnd = fun _ -> true)
       ?(giv_stdin = "")
       giv
       ?(exp_stdout = "")
@@ -670,8 +671,7 @@ struct
     | Error e ->
       Printf.printf "Error: %s\n" e;
       false
-    | Ok res when T.cmp res exp && act_stdout = exp_stdout && act_stderr = exp_stderr ->
-      true
+    | Ok res when act_stdout = exp_stdout && act_stderr = exp_stderr && cnd res -> true
     | Ok res ->
       print_string "\n-------------------- Input --------------------\n";
       T.pp_giv Format.std_formatter giv;
@@ -1664,3 +1664,91 @@ let%test _ =
 ;;
 
 let%test _ = fail_ev (Div (Num 5, Num 0)) "Division by 0"
+
+(* -------------------- Redirection -------------------- *)
+
+open TestMake (struct
+  type giv_t = redir
+  type exp_t = environment
+
+  let pp_giv = pp_redir
+  let pp_res = pp_environment
+  let ev = ev_redir
+  let cmp = cmp_envs
+end)
+
+let test_file = "INTEPRETER_TEST_FILE"
+
+(*
+Important moments in these tests:
+1) Call to open_out is required to keep the fd open while comparing environments
+2) It is pointless to change file descriptors 0-2 in the template environment as they are
+rewritten later in testing
+*)
+let with_test_file f =
+  let oc = open_out test_file in
+  Fun.protect
+    ~finally:(fun () ->
+      close_out oc;
+      Sys.remove test_file)
+    (fun () -> f (Unix.descr_of_out_channel oc))
+;;
+
+let%test _ =
+  with_test_file (fun _ ->
+      succ_ev
+        (RedirInp (0, Word test_file))
+        empty_env
+        ~cnd:(fun env -> Unix.fstat (IMap.find 0 env.chs) = Unix.stat test_file))
+;;
+
+let%test _ =
+  with_test_file (fun _ ->
+      succ_ev
+        (RedirOtp (1, Word test_file))
+        empty_env
+        ~cnd:(fun env -> Unix.fstat (IMap.find 1 env.chs) = Unix.stat test_file))
+;;
+
+let%test _ =
+  with_test_file (fun _ ->
+      succ_ev
+        (AppendOtp (1, Word test_file))
+        empty_env
+        ~cnd:(fun env -> Unix.fstat (IMap.find 1 env.chs) = Unix.stat test_file))
+;;
+
+let%test _ =
+  with_test_file (fun fd ->
+      let tmpl = { empty_env with chs = IMap.add 4 fd empty_env.chs } in
+      succ_ev
+        ~tmpl
+        (DuplInp (0, Word "4"))
+        tmpl
+        ~cnd:(fun env -> Unix.fstat (IMap.find 0 env.chs) = Unix.fstat fd))
+;;
+
+let%test _ =
+  with_test_file (fun fd ->
+      let tmpl = { empty_env with chs = IMap.add 4 fd empty_env.chs } in
+      succ_ev
+        ~tmpl
+        (DuplOtp (1, Word "4"))
+        tmpl
+        ~cnd:(fun env -> Unix.fstat (IMap.find 1 env.chs) = Unix.fstat fd))
+;;
+
+let%test _ =
+  fail_ev
+    (RedirInp (0, BraceExp [ Word "a"; Word "b" ]))
+    "Illegal expansion in redirection"
+;;
+
+let%test _ =
+  fail_ev
+    (RedirInp (0, Word test_file))
+    (Printf.sprintf "%s: No such file or directory" test_file)
+;;
+
+let%test _ = fail_ev (DuplInp (0, Word "4")) (Printf.sprintf "%i: Bad file descriptor" 4)
+let%test _ = fail_ev (DuplInp (0, Word "a")) (Printf.sprintf "%s: ambiguous redirect" "a")
