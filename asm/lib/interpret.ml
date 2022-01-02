@@ -261,7 +261,11 @@ module Eval (M : MonadError) = struct
 
   let interpret (env, list) =
     let f e = function
-      | Reg r -> return (string_to_int64 r)
+      | Reg r -> (
+        match MapString.find r e with
+        | R64 i -> return i
+        | RSSE _ -> error "invalid combination of opcode and operands"
+        | _ -> error "fatal error" )
       | Label l -> (
         match MapString.find_opt l e with
         | Some (Ls s) -> return (string_to_int64 s)
@@ -331,6 +335,7 @@ module Eval (M : MonadError) = struct
                   print_string
                     (String.sub (int64_to_string mes) 0
                        (min (String.length (int64_to_string mes)) (to_int len)) );
+                  flush stdout;
                   return (env2, st)
               | _ -> return (env2, st) )
           | 60L ->
@@ -461,7 +466,18 @@ module Eval (M : MonadError) = struct
               if id = l then return (hd :: tl) else find_label l tl
           | _ -> find_label l tl ) in
       function
-      | [] -> return env0
+      | [] -> (
+        match MapString.find_opt "0retcode" env0 with
+        | Some (R64 0L) -> return env0
+        | Some (R64 i) -> error ("Error " ^ to_string i)
+        | _ -> (
+          match MapString.find "0jump" env0 with
+          | Ls "" -> error "Segmentation fault (core dumped)"
+          | Ls s ->
+              find_label s list
+              >>= fun list2 ->
+              helper (MapString.add "0jump" (Ls "") env0) st list2
+          | _ -> error "fatal error" ) )
       | hd :: tl -> (
           inter_cmd env0 st hd
           >>= fun (env2, st1) ->
@@ -476,9 +492,12 @@ module Eval (M : MonadError) = struct
                 >>= fun list2 ->
                 helper (MapString.add "0jump" (Ls "") env2) st1 list2
             | _ -> error "fatal error" ) ) in
-    helper env [] list >>= fun _ -> return ()
+    helper env [] list
 
-  let asm directive = prepr (MapString.of_list reg_list) directive >>= interpret
+  let asm directive =
+    prepr (MapString.of_list reg_list) directive
+    >>= interpret
+    >>= fun _ -> return ()
 end
 
 (** / **)
@@ -579,3 +598,98 @@ let%test _ =
     (Directive [Section ("TEXT", [EquDir (Id "l", Add (Label "fgf", Const 1L))])]
     )
     "relocation truncated to fit: R_X86_64_8 against `.data'"
+
+(* ------------------- Intrepretation -------------------- *)
+
+let input_env = MapString.of_list reg_list
+
+let succ_env_list =
+  reg_list @ [("RAX", R64 60L); ("RDI", R64 0L); ("0retcode", R64 0L)]
+
+let succ_env = MapString.of_list succ_env_list
+
+let succ_simpl_dir =
+  [ Arg2 (None, Mnemonic "MOV", Reg "RDI", Const 0L)
+  ; Arg2 (None, Mnemonic "MOV", Reg "RAX", Const 60L)
+  ; Arg0 (None, Mnemonic "SYSCALL") ]
+
+(* ------------------------ Helper ----------------------- *)
+
+(* (var_t MapString.t *)
+let succ_inter env giv exp_env =
+  match interpret (env, giv) with
+  | Error e ->
+      Printf.printf "Error: %s\n" e;
+      false
+  | Ok res when exp_env = res -> true
+  | Ok res ->
+      print_string "\n-------------------- Input --------------------\n";
+      pp_simpl_dir Format.std_formatter giv;
+      Format.pp_print_flush Format.std_formatter ();
+      print_string "\n------------- Actual Environment --------------\n";
+      pp_env Format.std_formatter res;
+      Format.pp_print_flush Format.std_formatter ();
+      print_string "\n------------- Expected Environment ------------\n";
+      pp_env Format.std_formatter exp_env;
+      Format.pp_print_flush Format.std_formatter ();
+      print_string "\n-----------------------------------------------\n";
+      flush stdout;
+      false
+
+let fail_inter ?(env = MapString.of_list reg_list) giv exp_res =
+  match interpret (env, giv) with
+  | Error e when exp_res = e -> true
+  | Error e ->
+      print_string "\n-------------------- Input --------------------\n";
+      pp_simpl_dir Format.std_formatter giv;
+      Format.pp_print_flush Format.std_formatter ();
+      print_string "\n--------------- Unexpected error --------------\n";
+      print_string e;
+      print_string "\n-----------------------------------------------\n";
+      flush stdout;
+      false
+  | Ok env1 ->
+      print_string "\n-------------------- Input --------------------\n";
+      pp_simpl_dir Format.std_formatter giv;
+      Format.pp_print_flush Format.std_formatter ();
+      print_string "\n------------- Actual Environment --------------\n";
+      pp_env Format.std_formatter env1;
+      Format.pp_print_flush Format.std_formatter ();
+      print_string "\n-----------------------------------------------\n";
+      flush stdout;
+      false
+
+let%test _ = fail_inter [] "Segmentation fault (core dumped)"
+
+let%test _ =
+  succ_inter input_env
+    [ Arg2 (None, Mnemonic "MOV", Reg "RDI", Const 256L)
+    ; Arg2 (None, Mnemonic "MOV", Reg "RAX", Const 60L)
+    ; Arg0 (None, Mnemonic "SYSCALL") ]
+    (MapString.add "RDI" (R64 256L) succ_env)
+
+let%test _ =
+  succ_inter
+    (MapString.add "message" (Ls "Hello!") input_env)
+    ( [ Arg2 (None, Mnemonic "MOV", Reg "RDX", Const 12L)
+      ; Arg2 (None, Mnemonic "MOV", Reg "RSI", Label "message")
+      ; Arg2 (None, Mnemonic "MOV", Reg "RDI", Const 1L)
+      ; Arg2 (None, Mnemonic "MOV", Reg "RAX", Const 1L) ]
+    @ succ_simpl_dir )
+    (MapString.of_list
+       ( succ_env_list
+       @ [ ("RDX", R64 12L); ("RSI", R64 36762444129608L)
+         ; ("message", Ls "Hello!") ] ) )
+
+let%test _ =
+  succ_inter input_env
+    ([Arg2 (None, Mnemonic "XOR", Reg "RBX", Reg "RBX")] @ succ_simpl_dir)
+    succ_env
+
+let%test _ =
+  succ_inter input_env
+    ( [ Arg1 (Some (Id "j"), Mnemonic "INC", Reg "RBX")
+      ; Arg2 (None, Mnemonic "CMP", Reg "RBX", Const 8L)
+      ; Arg1 (None, Mnemonic "JNE", Label "j") ]
+    @ succ_simpl_dir )
+    (MapString.add "RBX" (R64 8L) succ_env)
