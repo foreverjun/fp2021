@@ -85,14 +85,5 @@ let () = print_endline "Kotlin REPL"
 let () = print_endline "Type @help for getting further information"
 
 let start_repl =
-  let ctx =
-    { environment = []
-    ; checked_not_null_values = []
-    ; last_eval_expression = Unitialized
-    ; last_return_value = Unitialized
-    ; last_derefered_variable = None
-    ; scope = Initialize
-    }
-  in
-  repl [] (Option.value_exn (Base.Result.ok (load_standard_classes ctx)))
+  repl [] (Option.value_exn (Base.Result.ok (load_standard_classes empty_ctx)))
 ;;

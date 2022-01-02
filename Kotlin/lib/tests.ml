@@ -321,20 +321,8 @@ open Utils
 open Interpreter
 open Interpreter.Interpret (Base.Result)
 
-let empty_ctx =
-  let ctx =
-    { environment = []
-    ; checked_not_null_values = []
-    ; last_eval_expression = Unitialized
-    ; last_return_value = Unitialized
-    ; last_derefered_variable = None
-    ; scope = Initialize
-    }
-  in
-  let ctx_with_standard_classes =
-    Base.Option.value_exn (Base.Result.ok (load_standard_classes ctx))
-  in
-  ctx_with_standard_classes
+let ctx_with_standard_classes =
+  Base.Option.value_exn (Base.Result.ok (load_standard_classes empty_ctx))
 ;;
 
 let%test _ =
@@ -349,7 +337,9 @@ let%test _ =
 
 let%test _ =
   let ctx =
-    interpret_expression empty_ctx (Add (Const (IntValue 1), Const (IntValue 2)))
+    interpret_expression
+      ctx_with_standard_classes
+      (Add (Const (IntValue 1), Const (IntValue 2)))
   in
   match ctx with
   | Error _ -> raise Test_failed
@@ -359,7 +349,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (Add (Const (StringValue "foo"), Const (StringValue "bar")))
   in
   match ctx with
@@ -370,7 +360,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (Add (Const (BooleanValue false), Const (StringValue "bar")))
   in
   match ctx with
@@ -383,7 +373,9 @@ let%test _ =
 
 let%test _ =
   let ctx =
-    interpret_expression empty_ctx (Sub (Const (IntValue 1), Const (IntValue 2)))
+    interpret_expression
+      ctx_with_standard_classes
+      (Sub (Const (IntValue 1), Const (IntValue 2)))
   in
   match ctx with
   | Error _ -> raise Test_failed
@@ -393,7 +385,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (Sub (Const (StringValue "foo"), Const (StringValue "bar")))
   in
   match ctx with
@@ -406,7 +398,9 @@ let%test _ =
 
 let%test _ =
   let ctx =
-    interpret_expression empty_ctx (Mul (Const (IntValue 1), Const (IntValue 2)))
+    interpret_expression
+      ctx_with_standard_classes
+      (Mul (Const (IntValue 1), Const (IntValue 2)))
   in
   match ctx with
   | Error _ -> raise Test_failed
@@ -416,7 +410,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (Mul (Const (StringValue "foo"), Const (StringValue "bar")))
   in
   match ctx with
@@ -429,34 +423,9 @@ let%test _ =
 
 let%test _ =
   let ctx =
-    interpret_expression empty_ctx (Div (Const (IntValue 2), Const (IntValue 2)))
-  in
-  match ctx with
-  | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
-;;
-
-let%test _ =
-  let ctx =
-    interpret_expression empty_ctx (Div (Const (IntValue 3), Const (IntValue 2)))
-  in
-  match ctx with
-  | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
-;;
-
-let%test _ =
-  let ctx =
-    interpret_expression empty_ctx (Mod (Const (IntValue 2), Const (IntValue 2)))
-  in
-  match ctx with
-  | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 0
-;;
-
-let%test _ =
-  let ctx =
-    interpret_expression empty_ctx (Mod (Const (IntValue 3), Const (IntValue 2)))
+    interpret_expression
+      ctx_with_standard_classes
+      (Div (Const (IntValue 2), Const (IntValue 2)))
   in
   match ctx with
   | Error _ -> raise Test_failed
@@ -466,7 +435,40 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
+      (Div (Const (IntValue 3), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Mod (Const (IntValue 2), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 0
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Mod (Const (IntValue 3), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
       (Div (Const (StringValue "foo"), Const (StringValue "bar")))
   in
   match ctx with
@@ -480,7 +482,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (Mod (Const (StringValue "foo"), Const (StringValue "bar")))
   in
   match ctx with
@@ -494,7 +496,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (And (Const (BooleanValue true), Const (BooleanValue false)))
   in
   match ctx with
@@ -505,7 +507,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (And (Const (BooleanValue false), Const (BooleanValue false)))
   in
   match ctx with
@@ -516,7 +518,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (And (Const (BooleanValue true), Const (BooleanValue true)))
   in
   match ctx with
@@ -527,7 +529,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (And (Const (StringValue "foo"), Const (StringValue "bar")))
   in
   match ctx with
@@ -541,7 +543,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (Or (Const (BooleanValue true), Const (BooleanValue false)))
   in
   match ctx with
@@ -552,7 +554,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (Or (Const (BooleanValue false), Const (BooleanValue false)))
   in
   match ctx with
@@ -563,7 +565,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (Or (Const (BooleanValue true), Const (BooleanValue true)))
   in
   match ctx with
@@ -574,7 +576,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (Or (Const (StringValue "foo"), Const (StringValue "bar")))
   in
   match ctx with
@@ -586,21 +588,27 @@ let%test _ =
 ;;
 
 let%test _ =
-  let ctx = interpret_expression empty_ctx (Not (Const (BooleanValue false))) in
+  let ctx =
+    interpret_expression ctx_with_standard_classes (Not (Const (BooleanValue false)))
+  in
   match ctx with
   | Error _ -> raise Test_failed
   | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
-  let ctx = interpret_expression empty_ctx (Not (Const (BooleanValue true))) in
+  let ctx =
+    interpret_expression ctx_with_standard_classes (Not (Const (BooleanValue true)))
+  in
   match ctx with
   | Error _ -> raise Test_failed
   | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
-  let ctx = interpret_expression empty_ctx (Not (Const (StringValue "foo"))) in
+  let ctx =
+    interpret_expression ctx_with_standard_classes (Not (Const (StringValue "foo")))
+  in
   match ctx with
   | Error err ->
     (match err with
@@ -611,7 +619,9 @@ let%test _ =
 
 let%test _ =
   let ctx =
-    interpret_expression empty_ctx (Equal (Const (IntValue 1), Const (IntValue 1)))
+    interpret_expression
+      ctx_with_standard_classes
+      (Equal (Const (IntValue 1), Const (IntValue 1)))
   in
   match ctx with
   | Error _ -> raise Test_failed
@@ -620,7 +630,9 @@ let%test _ =
 
 let%test _ =
   let ctx =
-    interpret_expression empty_ctx (Equal (Const (IntValue 42), Const (IntValue 1)))
+    interpret_expression
+      ctx_with_standard_classes
+      (Equal (Const (IntValue 42), Const (IntValue 1)))
   in
   match ctx with
   | Error _ -> raise Test_failed
@@ -630,7 +642,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (Equal (Const (StringValue "foo"), Const (StringValue "foo")))
   in
   match ctx with
@@ -641,7 +653,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (Equal (Const (StringValue "foo"), Const (StringValue "bar")))
   in
   match ctx with
@@ -652,7 +664,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (Equal (Const (StringValue "foo"), Const (StringValue "foo")))
   in
   match ctx with
@@ -663,7 +675,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (Equal (Const (BooleanValue false), Const (BooleanValue true)))
   in
   match ctx with
@@ -674,7 +686,7 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
       (Equal (Const (BooleanValue true), Const (BooleanValue true)))
   in
   match ctx with
@@ -683,14 +695,11 @@ let%test _ =
 ;;
 
 let%test _ =
-  let ctx = interpret_expression empty_ctx (Equal (Const NullValue, Const NullValue)) in
-  match ctx with
-  | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
-;;
-
-let%test _ =
-  let ctx = interpret_expression empty_ctx (Equal (Const Unitialized, Const NullValue)) in
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Equal (Const NullValue, Const NullValue))
+  in
   match ctx with
   | Error _ -> raise Test_failed
   | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
@@ -699,7 +708,18 @@ let%test _ =
 let%test _ =
   let ctx =
     interpret_expression
-      empty_ctx
+      ctx_with_standard_classes
+      (Equal (Const Unitialized, Const NullValue))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
+;;
+
+let%test _ =
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
       (Equal
          ( Const
              (AnonymousFunction
@@ -725,7 +745,7 @@ let%test _ =
 let ctx =
   let obj_class = { constructor_args = []; super_call = None; statements = [] } in
   interpret_expression
-    empty_ctx
+    ctx_with_standard_classes
     (Equal
        ( Const
            (Object
@@ -752,7 +772,9 @@ match ctx with
 
 let%test _ =
   let ctx =
-    interpret_expression empty_ctx (Less (Const (IntValue 1), Const (IntValue 42)))
+    interpret_expression
+      ctx_with_standard_classes
+      (Less (Const (IntValue 1), Const (IntValue 42)))
   in
   match ctx with
   | Error _ -> raise Test_failed
@@ -761,7 +783,9 @@ let%test _ =
 
 let%test _ =
   let ctx =
-    interpret_expression empty_ctx (Less (Const (IntValue 42), Const (IntValue 1)))
+    interpret_expression
+      ctx_with_standard_classes
+      (Less (Const (IntValue 42), Const (IntValue 1)))
   in
   match ctx with
   | Error _ -> raise Test_failed
@@ -770,7 +794,9 @@ let%test _ =
 
 let%test _ =
   let ctx =
-    interpret_expression empty_ctx (Less (Const (BooleanValue false), Const (IntValue 1)))
+    interpret_expression
+      ctx_with_standard_classes
+      (Less (Const (BooleanValue false), Const (IntValue 1)))
   in
   match ctx with
   | Error err ->
@@ -781,28 +807,28 @@ let%test _ =
 ;;
 
 let%test _ =
-  let ctx = interpret_expression empty_ctx (Const (IntValue 1)) in
+  let ctx = interpret_expression ctx_with_standard_classes (Const (IntValue 1)) in
   match ctx with
   | Error _ -> raise Test_failed
   | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
-  let ctx = interpret_expression empty_ctx (Const (IntValue 1)) in
+  let ctx = interpret_expression ctx_with_standard_classes (Const (IntValue 1)) in
   match ctx with
   | Error _ -> raise Test_failed
   | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
-  let ctx = interpret_expression empty_ctx (Const (StringValue "foo")) in
+  let ctx = interpret_expression ctx_with_standard_classes (Const (StringValue "foo")) in
   match ctx with
   | Error _ -> raise Test_failed
   | Ok eval_ctx -> eval_ctx.last_eval_expression = StringValue "foo"
 ;;
 
 let%test _ =
-  let ctx = interpret_expression empty_ctx (Const NullValue) in
+  let ctx = interpret_expression ctx_with_standard_classes (Const NullValue) in
   match ctx with
   | Error _ -> raise Test_failed
   | Ok eval_ctx -> eval_ctx.last_eval_expression = NullValue
@@ -818,7 +844,7 @@ let%test _ =
         Variable { var_typename = Int; mutable_status = false; value = ref (IntValue 1) }
     }
   in
-  let ctx_with_variable = { empty_ctx with environment = [ rc ] } in
+  let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
   let ctx = interpret_expression ctx_with_variable (VarIdentifier "foo") in
   match ctx with
   | Error _ -> raise Test_failed
@@ -828,7 +854,7 @@ let%test _ =
 ;;
 
 let%test _ =
-  let ctx = interpret_expression empty_ctx (VarIdentifier "foo") in
+  let ctx = interpret_expression ctx_with_standard_classes (VarIdentifier "foo") in
   match ctx with
   | Error err ->
     (match err with
@@ -852,7 +878,7 @@ let%test _ =
           }
     }
   in
-  let ctx_with_function = { empty_ctx with environment = [ rc ] } in
+  let ctx_with_function = { ctx_with_standard_classes with environment = [ rc ] } in
   let ctx = interpret_expression ctx_with_function (FunctionCall ("foo", [])) in
   match ctx with
   | Error _ -> raise Test_failed
@@ -860,7 +886,7 @@ let%test _ =
 ;;
 
 let%test _ =
-  let ctx = interpret_expression empty_ctx (FunctionCall ("foo", [])) in
+  let ctx = interpret_expression ctx_with_standard_classes (FunctionCall ("foo", [])) in
   match ctx with
   | Error err ->
     (match err with
@@ -905,7 +931,7 @@ let%test _ =
           }
     }
   in
-  let ctx_with_object = { empty_ctx with environment = [ rc ] } in
+  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ] } in
   let ctx =
     interpret_expression
       ctx_with_object
@@ -926,7 +952,7 @@ let%test _ =
         Variable { var_typename = Int; mutable_status = false; value = ref NullValue }
     }
   in
-  let ctx_with_object = { empty_ctx with environment = [ rc ] } in
+  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ] } in
   let ctx =
     interpret_expression
       ctx_with_object

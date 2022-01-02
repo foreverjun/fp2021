@@ -18,12 +18,20 @@ module Interpret (M : MONAD_FAIL) = struct
 
   and context =
     { environment : record_t list
-    ; checked_not_null_values : record_t list
     ; last_eval_expression : value
     ; last_return_value : value
     ; last_derefered_variable : record_t option
     ; scope : scope_type
     }
+
+  let empty_ctx =
+    { environment = []
+    ; last_eval_expression = Unitialized
+    ; last_return_value = Unitialized
+    ; last_derefered_variable = None
+    ; scope = Initialize
+    }
+  ;;
 
   let check_typename_value_correspondance = function
     | Dynamic, _ -> true
@@ -840,17 +848,8 @@ end
 let parse_and_run input =
   let open Statement in
   let open Interpret (Result) in
-  let ctx =
-    { environment = []
-    ; checked_not_null_values = []
-    ; last_eval_expression = Unitialized
-    ; last_return_value = Unitialized
-    ; last_derefered_variable = None
-    ; scope = Initialize
-    }
-  in
   let ctx_with_standard_classes =
-    Base.Option.value_exn (Base.Result.ok (load_standard_classes ctx))
+    Base.Option.value_exn (Base.Result.ok (load_standard_classes empty_ctx))
   in
   match apply_parser initialize_block_statement input with
   | None -> Error EmptyProgram
