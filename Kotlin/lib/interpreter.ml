@@ -10,10 +10,10 @@ module Interpret (M : MONAD_FAIL) = struct
     | Initialize
     | Function
     | ObjectInitialization of object_t ref
-    | DereferencedObject of object_t ref * context
-    | ThisDereferencedObject of object_t ref * context
-    | Method of object_t ref
-    | AnonymousFunction of object_t ref option
+    | DereferencedObject of object_t * context
+    | ThisDereferencedObject of object_t * context
+    | Method of object_t
+    | AnonymousFunction of object_t option
   [@@deriving show]
 
   and context =
@@ -52,7 +52,7 @@ module Interpret (M : MONAD_FAIL) = struct
   let check_record_contains_modifier rc modifier =
     Option.is_some
       (List.find rc.modifiers ~f:(function
-          | found_modifier when Base.phys_equal found_modifier modifier -> true
+          | found_modifier when Poly.( = ) found_modifier modifier -> true
           | _ -> false))
   ;;
 
@@ -235,7 +235,8 @@ module Interpret (M : MONAD_FAIL) = struct
 
   let rec get_enclosing_object ctx =
     match ctx.scope with
-    | Method obj | ObjectInitialization obj | AnonymousFunction (Some obj) -> Some obj
+    | Method obj | ObjectInitialization { contents = obj } | AnonymousFunction (Some obj)
+      -> Some obj
     | DereferencedObject (_, outer_ctx) | ThisDereferencedObject (_, outer_ctx) ->
       get_enclosing_object outer_ctx
     | _ -> None
@@ -347,7 +348,7 @@ module Interpret (M : MONAD_FAIL) = struct
            ; content =
                Variable
                  { var_typename
-                 ; mutable_status = Base.phys_equal var_modifier Var
+                 ; mutable_status = Poly.( = ) var_modifier Var
                  ; value = ref value
                  }
            }
@@ -483,8 +484,8 @@ module Interpret (M : MONAD_FAIL) = struct
           if check_typename_value_correspondance
                (func.fun_typename, func_eval_ctx.last_return_value)
           then
-            if (not (Base.phys_equal func.fun_typename Unit))
-               && Base.phys_equal func_eval_ctx.last_return_value Unitialized
+            if (not (Poly.( = ) func.fun_typename Unit))
+               && Poly.( = ) func_eval_ctx.last_return_value Unitialized
             then M.fail (ExpectedReturnInFunction identifier)
             else
               M.return
@@ -506,10 +507,10 @@ module Interpret (M : MONAD_FAIL) = struct
           | ThisDereferencedObject _ -> true
           | _ -> failwith "should not reach here"
         in
-        (match get_method_from_object this_flag !obj identifier with
+        (match get_method_from_object this_flag obj identifier with
         | None ->
-          (match get_field_from_object this_flag !obj identifier with
-          | None -> M.fail (UnknownMethod (!obj.classname, identifier))
+          (match get_field_from_object this_flag obj identifier with
+          | None -> M.fail (UnknownMethod (obj.classname, identifier))
           | Some rc ->
             (match rc.content with
             | Variable content ->
@@ -623,7 +624,7 @@ module Interpret (M : MONAD_FAIL) = struct
                          ; content =
                              Variable
                                { var_typename
-                               ; mutable_status = Base.phys_equal var_modifier Var
+                               ; mutable_status = Poly.( = ) var_modifier Var
                                ; value = ref value
                                }
                          }
@@ -676,8 +677,8 @@ module Interpret (M : MONAD_FAIL) = struct
           | ThisDereferencedObject _ -> true
           | _ -> failwith "should not reach here"
         in
-        (match get_field_from_object this_flag !obj identifier with
-        | None -> M.fail (UnknownField (!obj.classname, identifier))
+        (match get_field_from_object this_flag obj identifier with
+        | None -> M.fail (UnknownField (obj.classname, identifier))
         | Some rc ->
           let field_content =
             match rc.content with
@@ -706,8 +707,10 @@ module Interpret (M : MONAD_FAIL) = struct
       (match obj_expression with
       | This ->
         (match ctx.scope with
-        | Method obj | ObjectInitialization obj | AnonymousFunction (Some obj) ->
-          M.return ({ ctx with last_eval_expression = Object !obj }, true)
+        | Method obj
+        | ObjectInitialization { contents = obj }
+        | AnonymousFunction (Some obj) ->
+          M.return ({ ctx with last_eval_expression = Object obj }, true)
         | _ -> M.fail ThisExpressionError)
       | _ ->
         interpret_expression ctx obj_expression
@@ -719,12 +722,12 @@ module Interpret (M : MONAD_FAIL) = struct
           match ctx.scope with
           | DereferencedObject (_, outer_ctx) | ThisDereferencedObject (_, outer_ctx) ->
             if this_flag
-            then ThisDereferencedObject (ref obj, outer_ctx)
-            else DereferencedObject (ref obj, outer_ctx)
+            then ThisDereferencedObject (obj, outer_ctx)
+            else DereferencedObject (obj, outer_ctx)
           | _ ->
             if this_flag
-            then ThisDereferencedObject (ref obj, ctx)
-            else DereferencedObject (ref obj, ctx)
+            then ThisDereferencedObject (obj, ctx)
+            else DereferencedObject (obj, ctx)
         in
         let obj_ctx = { ctx with scope } in
         (match der_expression with

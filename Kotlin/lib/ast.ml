@@ -46,7 +46,7 @@ and record_t =
   { name : string
   ; modifiers : modifier list
   ; clojure : (record_t list ref[@opaque])
-  ; enclosing_object : (object_t ref option[@opaque])
+  ; enclosing_object : (object_t option[@opaque])
   ; content : record_content
   }
 
