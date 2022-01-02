@@ -249,7 +249,7 @@ module Eval (M : MonadFail) = struct
       >>| fun (env, ss) ->
       env_set env name (Assoc (List.map2 (fun (k, _) v -> k, v) ps ss))
 
-  (** Evaluate arithmetic expression *)
+  (** Evaluate bare arithmetic *)
   and ev_arithm env : arithm -> (environment * int) t =
     let rec ev_ari ?(c = fun _ _ -> true) ?(e = "") env op l r =
       ev env l
@@ -374,16 +374,15 @@ module Eval (M : MonadFail) = struct
       >>= fun env ->
       expand env ws
       >>= fun (env, cmd, args) ->
+      (* Probably not very efficient to match like this, but it is more readable *)
       (match get_fun cmd env, Builtins.find cmd, try_read cmd with
-      | Some _, _, _ -> ev_compound env
-      | None, Some f, _ ->
-        let retcode = f args env.chs in
-        return { env with retcode }
+      | Some b, _, _ -> ev_compound env b
+      | None, Some f, _ -> return { env with retcode = f args env.chs }
       | None, None, Some s ->
         (match Parser.parse s with
         | Ok script -> ev_script env script
         | Error e -> fail (Printf.sprintf "%s: syntax error %s" cmd e))
-      | None, None, None -> fail (cmd ^ ": command not found"))
+      | None, None, None -> fail (Printf.sprintf "%s: command not found" cmd))
 
   (** Evaluate redirection (when duplicationg, no checks are performed for r-w access) *)
   and ev_redir env =
@@ -421,6 +420,9 @@ module Eval (M : MonadFail) = struct
     | DuplInp (n, w) -> to_str env w >>= fun (env, s) -> env_dup_fd env n s
     | DuplOtp (n, w) -> to_str env w >>= fun (env, s) -> env_dup_fd env n s
 
+  and ev_redirs env rs =
+    List.fold_left (fun acc r -> acc >>= fun env -> ev_redir env r) (return env) rs
+
   (** Evaluate pipeline list *)
   and ev_pipeline_list (_ : environment) : pipeline_list -> environment t =
     failwith "Not implemented"
@@ -429,7 +431,19 @@ module Eval (M : MonadFail) = struct
   and ev_pipeline (_ : environment) : environment t = fail "Not implemented"
 
   (** Evaluate compound *)
-  and ev_compound (_ : environment) : environment t = fail "Not implemented"
+  and ev_compound (env : environment) : compound -> environment t =
+    let ev evaluator c rs =
+      ev_redirs env rs
+      >>= fun n_env -> evaluator n_env c >>| fun { retcode } -> { env with retcode }
+    in
+    function
+    | While (c, rs) -> ev ev_while_loop c rs
+    | ForList (c, rs) -> ev ev_for_list_loop c rs
+    | ForExpr (c, rs) -> ev ev_for_expr_loop c rs
+    | If (c, rs) -> ev ev_if_stmt c rs
+    | Case (c, rs) -> ev ev_case_stmt c rs
+    | ArithmExpr (c, rs) -> ev ev_arithm_expr c rs
+    | SimpleCommand (c, rs) -> ev ev_cmd c rs
 
   (** Evaluate while loop *)
   and ev_while_loop env ((cnd, body) : while_loop) =
@@ -502,6 +516,12 @@ module Eval (M : MonadFail) = struct
       in
       helper env cs
     | _ -> fail "Illegal expansion in case statement"
+
+  (** Evaluate arithmetic expression *)
+  and ev_arithm_expr env (a : arithm) =
+    ev_arithm env a
+    >>| fun (env, n) ->
+    if n <> 0 then { env with retcode = 0 } else { env with retcode = 1 }
 
   (** Evaluate script element *)
   and ev_script_elem (_ : environment) : environment t = fail "Not implemented"
