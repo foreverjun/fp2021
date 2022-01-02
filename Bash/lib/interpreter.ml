@@ -34,6 +34,7 @@ module TMap (T : PpOrderedType) = struct
   include Map.Make (T)
 
   let of_list l = of_seq (List.to_seq l)
+  let add_list l = add_seq (List.to_seq l)
 
   let pp pp_v ppf m =
     Format.fprintf ppf "@[[@[";
@@ -56,6 +57,36 @@ module IMap = TMap (struct
   let pp_t = Format.pp_print_int
 end)
 
+(* -------------------- Builtins library -------------------- *)
+
+(** Built-in functions *)
+module Builtins : sig
+  (** BuiltIn functions in the form of [cla -> chs -> retcode] *)
+  type t = string list -> Unix.file_descr IMap.t -> int
+
+  (** [find s] returns builtin with the name [s] if such builtin exists *)
+  val find : string -> t option
+end = struct
+  type t = string list -> Unix.file_descr IMap.t -> int
+
+  let try_wr fd s =
+    let len = String.length s in
+    try Unix.write_substring fd s 0 len = len with
+    | Unix.Unix_error (Unix.EBADF, "write", "") -> false
+  ;;
+
+  let echo args chs =
+    match IMap.find_opt 1 chs with
+    | Some stdout when try_wr stdout (String.concat " " args) -> 0
+    | _ -> 1
+  ;;
+
+  let find : string -> t option = function
+    | "echo" -> Some echo
+    | _ -> None
+  ;;
+end
+
 (* -------------------- Interpreter -------------------- *)
 
 (** Main interpreter module *)
@@ -63,19 +94,6 @@ module Eval (M : MonadFail) = struct
   open M
 
   (* -------------------- Helper functions -------------------- *)
-
-  (** [mapm f l] applies [f] to each element of [l] returning the resulting list if all
-  applications succeed and failing otherwise *)
-  let mapm f l =
-    List.fold_right
-      (fun e acc -> acc >>= fun tl -> f e >>| fun hd -> hd :: tl)
-      l
-      (return [])
-  ;;
-
-  (** [flat_mapm f l] applies [f] to each element of [l] returning the resulting flattened
-  list if all applications succeed and failing otherwise *)
-  let flat_mapm f l = mapm f l >>| List.concat
 
   (** [read_all fd] read all contents of the file descriptor [fd] until EOF is reached and
   close it *)
@@ -110,12 +128,9 @@ module Eval (M : MonadFail) = struct
   type environment =
     { vars : var_t SMap.t (** Variables available in the current scope *)
     ; funs : fun_t SMap.t (** Functions available in the current scope *)
-    ; stdin : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "???"]
-          (** Stdin file descriptor *)
-    ; stdout : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "???"]
-          (** Stdout file descriptor *)
-    ; stderr : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "???"]
-          (** Stderr file descriptor *)
+    ; chs : Unix.file_descr IMap.t
+          [@printer fun fmt m -> IMap.pp (fun fmt _ -> fprintf fmt "[...]") fmt m]
+          (** IO channels file descriptors *)
     ; retcode : int (** Return code of the last operation *)
     }
   [@@deriving show { with_path = false }]
@@ -170,7 +185,7 @@ module Eval (M : MonadFail) = struct
     | ParamExp p -> ev_param_exp env p >>| fun (env, s) -> env, [ s ]
     | CmdSubst c ->
       let rd, wr = Unix.pipe () in
-      ev_cmd { env with stdout = wr } c
+      ev_cmd { env with chs = IMap.add 1 wr env.chs } c
       >>= fun { retcode } ->
       Unix.close wr;
       (match Parser.split_words (read_all rd) with
@@ -182,9 +197,7 @@ module Eval (M : MonadFail) = struct
 
   (** Evaluate word list *)
   and ev_words env ?(c = fun _ -> true) ?(e = "Evaluated words condition mismatch") ws =
-    let ( @+ ) old_env { stdout; stderr; retcode } =
-      { old_env with stdout; stderr; retcode }
-    in
+    let ( @+ ) old_env { chs; retcode } = { old_env with chs; retcode } in
     List.fold_left
       (fun acc w ->
         acc
@@ -364,7 +377,7 @@ module Eval (M : MonadFail) = struct
       (match get_fun cmd env, Builtins.find cmd, try_read cmd with
       | Some _, _, _ -> ev_compound env
       | None, Some f, _ ->
-        let retcode = f args env.stdin env.stdout env.stderr in
+        let retcode = f args env.chs in
         return { env with retcode }
       | None, None, Some s ->
         (match Parser.parse s with
@@ -372,8 +385,10 @@ module Eval (M : MonadFail) = struct
         | Error e -> fail (Printf.sprintf "%s: syntax error %s" cmd e))
       | None, None, None -> fail (cmd ^ ": command not found"))
 
-  (** Evaluate redirection *)
+  (** Evaluate redirection (when duplicationg, no checks are performed for r-w access) *)
   and ev_redir env =
+    (* Permissions for new files: rw for user, r for group, none for others *)
+    let perm = 0o640 in
     let to_str env w =
       ev_word env w
       >>= fun (env, ss) ->
@@ -381,43 +396,30 @@ module Eval (M : MonadFail) = struct
       | [ s ] -> return (env, s)
       | _ -> fail "Illegal expansion in redirection"
     in
-    let env_with_fd env n fd =
-      match n with
-      | 0 -> return { env with stdin = fd }
-      | 1 -> return { env with stdout = fd }
-      | 2 -> return { env with stderr = fd }
-      | _ -> fail (Printf.sprintf "%i: Unsupported file descriptor" n)
+    let env_add_fd env n fd = return { env with chs = IMap.add n fd env.chs } in
+    let env_dup_fd env n s =
+      match int_of_string_opt s with
+      | Some i ->
+        (match IMap.find_opt i env.chs with
+        | Some fd -> env_add_fd env n fd
+        | None -> fail (Printf.sprintf "%i: Bad file descriptor" i))
+      | None -> fail (Printf.sprintf "%s: ambiguous redirect" s)
     in
-    (* Permissions: rw for user, r for group, none for others *)
-    let perm = 0o640 in
     function
     | RedirInp (n, w) ->
       to_str env w
       >>= fun (env, f) ->
       if Sys.file_exists f
-      then env_with_fd env n Unix.(openfile f [ O_RDONLY ] perm)
+      then env_add_fd env n Unix.(openfile f [ O_RDONLY ] perm)
       else fail (Printf.sprintf "%s: No such file or directory" f)
     | RedirOtp (n, w) ->
       to_str env w
-      >>= fun (env, f) -> env_with_fd env n Unix.(openfile f [ O_CREAT; O_WRONLY ] perm)
+      >>= fun (env, f) -> env_add_fd env n Unix.(openfile f [ O_CREAT; O_WRONLY ] perm)
     | AppendOtp (n, w) ->
       to_str env w
-      >>= fun (env, f) -> env_with_fd env n Unix.(openfile f [ O_CREAT; O_APPEND ] perm)
-    | DuplInp (n, w) ->
-      to_str env w
-      >>= fun (env, s) ->
-      (match int_of_string_opt s with
-      | Some 0 -> env_with_fd env n env.stdin
-      | Some fd -> fail (Printf.sprintf "%i: Bad file descriptor" fd)
-      | None -> fail (Printf.sprintf "%s: ambiguous redirect" s))
-    | DuplOtp (n, w) ->
-      to_str env w
-      >>= fun (env, s) ->
-      (match int_of_string_opt s with
-      | Some 1 -> env_with_fd env n env.stdout
-      | Some 2 -> env_with_fd env n env.stderr
-      | Some fd -> fail (Printf.sprintf "%i: Bad file descriptor" fd)
-      | None -> fail (Printf.sprintf "%s: ambiguous redirect" s))
+      >>= fun (env, f) -> env_add_fd env n Unix.(openfile f [ O_CREAT; O_APPEND ] perm)
+    | DuplInp (n, w) -> to_str env w >>= fun (env, s) -> env_dup_fd env n s
+    | DuplOtp (n, w) -> to_str env w >>= fun (env, s) -> env_dup_fd env n s
 
   (** Evaluate pipeline list *)
   and ev_pipeline_list (_ : environment) : pipeline_list -> environment t =
@@ -528,18 +530,16 @@ open Eval (Result)
 
 type test_environment =
   { env : environment
-  ; wr_stdin : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "???"]
-  ; rd_stdout : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "???"]
-  ; rd_stderr : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "???"]
+  ; wr_stdin : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "[...]"]
+  ; rd_stdout : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "[...]"]
+  ; rd_stderr : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "[...]"]
   }
 [@@deriving show { with_path = false }]
 
 let empty_env =
   { vars = SMap.empty
   ; funs = SMap.empty
-  ; stdin = Unix.stdin
-  ; stdout = Unix.stdout
-  ; stderr = Unix.stderr
+  ; chs = Unix.(IMap.of_list [ 0, stdin; 1, stdout; 2, stderr ])
   ; retcode = 0
   }
 ;;
@@ -562,15 +562,19 @@ let make_test_env ?(tmpl = empty_env) () =
   let stdin, wr_stdin = Unix.pipe () in
   let rd_stdout, stdout = Unix.pipe () in
   let rd_stderr, stderr = Unix.pipe () in
-  { env = { tmpl with stdin; stdout; stderr }; wr_stdin; rd_stdout; rd_stderr }
+  { env = { tmpl with chs = IMap.add_list [ 0, stdin; 1, stdout; 2, stderr ] tmpl.chs }
+  ; wr_stdin
+  ; rd_stdout
+  ; rd_stderr
+  }
 ;;
 
 let with_test_env f test_env =
   let open Unix in
-  close test_env.env.stdin;
+  close (IMap.find 0 test_env.env.chs);
   let res = f in
-  close test_env.env.stdout;
-  close test_env.env.stderr;
+  close (IMap.find 1 test_env.env.chs);
+  close (IMap.find 2 test_env.env.chs);
   close test_env.wr_stdin;
   let act_stdout = read_all test_env.rd_stdout in
   let act_stderr = read_all test_env.rd_stderr in
@@ -1129,6 +1133,13 @@ let%test _ =
     { empty_env with vars = SMap.singleton "M" (IndArray (IMap.singleton 0 "meow")) }
   in
   succ_ev_word ~tmpl (ParamExp (Param ("M", "0"))) (tmpl, [ "meow" ])
+;;
+
+let%test _ =
+  succ_ev_word
+    ~tmpl:empty_env
+    (CmdSubst (Command ([], [ Word "echo"; Word "123 45" ])))
+    (empty_env, [ "123"; "45" ])
 ;;
 
 let%test _ = succ_ev_word (ArithmExp (Num 5)) (empty_env, [ "5" ])
