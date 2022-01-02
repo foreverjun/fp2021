@@ -127,13 +127,14 @@ let is_mnemonic = function
       syscall
   *)
   (* --- SSE --- *)
-   |"MOVUPS" | "MOVSS" | "MOVLPS" | "MOVHPS"
-  (*
-       movups <regSSE>,<regSSE>
-       movups <regSSE>,<mem>
-       movups <regSSE>,<con>
+   |"ADDPD" | "SUBPD" | "MULPD"
+   |"MOVAPD"
+    (*
+       movapd <regSSE>,<regSSE>
+       movapd <regSSE>,<mem>
+       movapd <regSSE>,<con>
   *)
-   |"ADDSS" | "MULSS" | "SUBSS" | "SHUFPS" ->
+    ->
       true
   | _ -> false
 

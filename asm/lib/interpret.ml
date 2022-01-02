@@ -11,15 +11,14 @@ end
 let is_arg0 = function "RET" | "SYSCALL" -> true | _ -> false
 
 let is_arg1 = function
-  | "PUSH" | "POP" | "INC" | "DEC" | "IDIV" | "NOT" | "NEG" | "JMP" | "JE"
-   |"JNE" | "JZ" | "JG" | "JGE" | "JL" | "JLE" | "CALL" ->
+  | "PUSH" | "POP" | "INC" | "DEC" | "NOT" | "NEG" | "JMP" | "JE" | "JNE"
+   |"JG" | "JGE" | "JL" | "JLE" | "CALL" ->
       true
   | _ -> false
 
 let is_arg2 = function
-  | "MOV" | "LEA" | "ADD" | "SUB" | "IMUL" | "AND" | "OR" | "XOR" | "SHL"
-   |"SHR" | "CMP" | "MOVUPS" | "MOVSS" | "MOVLPS" | "MOVHPS" | "ADDSS"
-   |"MULSS" | "SUBSS" | "SHUFPS" ->
+  | "MOV" | "ADD" | "SUB" | "IMUL" | "AND" | "OR" | "XOR" | "SHL" | "SHR"
+   |"CMP" | "ADDPD" | "SUBPD" | "MULPD" | "MOVAPD" ->
       true
   | _ -> false
 
@@ -272,7 +271,7 @@ module Eval (M : MonadError) = struct
         | Some Er -> error "byte data exceeds bounds"
         | _ -> error (String.concat "" ["symbol `"; l; "\' not defined"]) )
       | _ -> error "fatal error" in
-    let find_reg env3 r =
+    let find_reg64 env3 r =
       return (MapString.find r env3)
       >>= function R64 i -> return i | _ -> error "falal error" in
     let change_reg64 env3 reg foo =
@@ -287,7 +286,7 @@ module Eval (M : MonadError) = struct
           [ String.sub os 0 offs; String.sub ns 0 len
           ; String.sub os (offs + len) (8 - offs - len) ] in
       let helper env4 foo offset len s =
-        find_reg env3 s
+        find_reg64 env3 s
         >>= fun i ->
         return
           (MapString.add s
@@ -309,6 +308,14 @@ module Eval (M : MonadError) = struct
         | s when reg64 s -> helper env3 foo 0 8 s
         | _ -> error "invalid combination of opcode and operands" )
       | _ -> error "invalid combination of opcode and operands" in
+    let find_regsse env3 r =
+      return (MapString.find r env3)
+      >>= function RSSE i -> return i | _ -> error "falal error" in
+    let change_regsse env3 reg foo =
+      match reg with
+      | Reg r when regSSE r ->
+          find_regsse env3 r >>= fun s -> return (MapString.add r (foo s) env3)
+      | _ -> error "invalid combination of opcode and operands" in
     let jump env2 st foo = function
       | Label l ->
           foo (MapString.find "0cond" env2)
@@ -322,15 +329,15 @@ module Eval (M : MonadError) = struct
             (function R64 _ -> return true | _ -> error "fatal error")
             (Label (List.hd st))
       | "SYSCALL" -> (
-          find_reg env2 "RAX"
+          find_reg64 env2 "RAX"
           >>= function
           | 1L -> (
-              find_reg env2 "RDI"
+              find_reg64 env2 "RDI"
               >>= function
               | 0L | 1L | 2L ->
-                  find_reg env2 "RDI"
+                  find_reg64 env2 "RDI"
                   >>= fun mes ->
-                  find_reg env2 "RDX"
+                  find_reg64 env2 "RDX"
                   >>= fun len ->
                   print_string
                     (String.sub (int64_to_string mes) 0
@@ -339,7 +346,7 @@ module Eval (M : MonadError) = struct
                   return (env2, st)
               | _ -> return (env2, st) )
           | 60L ->
-              find_reg env2 "RDI"
+              find_reg64 env2 "RDI"
               >>= fun code ->
               return (MapString.add "0retcode" (R64 (rem code 256L)) env2, st)
           | i when i < 336L ->
@@ -429,6 +436,29 @@ module Eval (M : MonadError) = struct
     let inter_arg2 env2 e1 e2 =
       let helper foo =
         ev env2 (f env2) e2 >>= fun i -> change_reg64 env2 e1 (foo i) in
+      let helper_sse foo =
+        let foo1 s1 s2 =
+          let news n s =
+            if String.length s > n then String.sub s 0 n
+            else s ^ String.make (n - String.length s) '\x00' in
+          let half n =
+            news 8
+              (int64_to_string
+                 (foo
+                    (string_to_int64 (String.sub (news 16 s1) n 8))
+                    (string_to_int64 (String.sub (news 16 s2) n 8)) ) ) in
+          RSSE (half 0 ^ half 8) in
+        ( match e2 with
+        | Label l -> (
+          match MapString.find l env2 with
+          | Ls s -> return s
+          | _ -> error "fatal error" )
+        | Reg r when regSSE r -> (
+          match MapString.find r env2 with
+          | RSSE s -> return s
+          | _ -> error "fatal error" )
+        | _ -> error "invalid combination of opcode and operands" )
+        >>= fun s -> change_regsse env2 e1 (foo1 s) in
       function
       | "MOV" -> helper (fun i _ -> i)
       | "ADD" -> helper (fun i s -> add s i)
@@ -446,9 +476,10 @@ module Eval (M : MonadError) = struct
           | Reg _ -> ev env2 (f env2) (Sub (e1, e2))
           | _ -> error "invalid combination of opcode and operands" )
           >>= fun i -> return (MapString.add "0cond" (R64 i) env2)
-      | "MOVUPS" | "MOVSS" | "MOVLPS" | "MOVHPS" | "ADDSS" | "MULSS" | "SUBSS"
-       |"SHUFPS" ->
-          error "TODO"
+      | "ADDPD" -> helper_sse (fun s i -> add s i)
+      | "SUBPD" -> helper_sse (fun s i -> sub s i)
+      | "MULPD" -> helper_sse (fun s i -> mul s i)
+      | "MOVAPD" -> helper_sse (fun _ i -> i)
       | _ -> error "fatal error" in
     let inter_cmd env1 st = function
       | Arg0 (_, Mnemonic mn) -> inter_arg0 env1 st mn
@@ -693,3 +724,14 @@ let%test _ =
       ; Arg1 (None, Mnemonic "JNE", Label "j") ]
     @ succ_simpl_dir )
     (MapString.add "RBX" (R64 8L) succ_env)
+
+let%test _ =
+  succ_inter
+    (MapString.of_list
+       ( reg_list
+       @ [ ("XMM2", RSSE "Oh hi")
+         ; ("XMM3", RSSE "\x00\x00\x00\x00\x00, Mark!    ") ] ) )
+    ([Arg2 (None, Mnemonic "ADDPD", Reg "XMM3", Reg "XMM2")] @ succ_simpl_dir)
+    (MapString.of_list
+       ( succ_env_list
+       @ [("XMM2", RSSE "Oh hi"); ("XMM3", RSSE "Oh hi, Mark!    ")] ) )
