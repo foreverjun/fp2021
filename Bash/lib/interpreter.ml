@@ -135,6 +135,14 @@ module Eval (M : MonadFail) = struct
     }
   [@@deriving show { with_path = false }]
 
+  let empty_env =
+    { vars = SMap.empty
+    ; funs = SMap.empty
+    ; chs = Unix.(IMap.of_list [ 0, stdin; 1, stdout; 2, stderr ])
+    ; retcode = 0
+    }
+  ;;
+
   let get_var name env = SMap.find_opt name env.vars
   let set_var name v env = { env with vars = SMap.add name v env.vars }
   let get_fun name env = SMap.find_opt name env.funs
@@ -380,7 +388,8 @@ module Eval (M : MonadFail) = struct
       | None, Some f, _ -> return { env with retcode = f args env.chs }
       | None, None, Some s ->
         (match Parser.parse s with
-        | Ok script -> ev_script env script
+        | Ok script ->
+          ev_script empty_env script >>| fun { retcode } -> { env with retcode }
         | Error e -> fail (Printf.sprintf "%s: syntax error %s" cmd e))
       | None, None, None -> fail (Printf.sprintf "%s: command not found" cmd))
 
@@ -553,21 +562,27 @@ module Eval (M : MonadFail) = struct
     >>| fun (env, n) ->
     if n <> 0 then { env with retcode = 0 } else { env with retcode = 1 }
 
+  (** Evaluate function *)
+  and ev_func env ((name, body) : func) = return (set_fun name body env)
+
   (** Evaluate script element *)
-  and ev_script_elem (_ : environment) : environment t = fail "Not implemented"
+  and ev_script_elem env = function
+    | Func f -> ev_func env f
+    | Pipelines ps -> ev_pipeline_list env ps
 
   (** Evaluate Bash script *)
-  and ev_script env : script -> environment t = function
+  and ev_script env = function
     | Empty -> return env
-    | Script _ -> fail "Not implemented"
+    | Script (hd, tl) -> ev_script_elem env hd >>= fun env -> ev_script env tl
   ;;
 end
 
 (** Interprets the given Bash script AST as a Bash script *)
 let interpret script =
   let open Eval (Result) in
-  match ev_script script with
-  | _ -> "Not implemented"
+  match ev_script empty_env script with
+  | Ok env -> Ok env.retcode
+  | Error e -> Error (Printf.sprintf "Interpretation failed: %s" e)
 ;;
 
 (* ----------------------------------------------- *)
@@ -585,14 +600,6 @@ type test_environment =
   ; rd_stderr : Unix.file_descr [@printer fun fmt _ -> fprintf fmt "[...]"]
   }
 [@@deriving show { with_path = false }]
-
-let empty_env =
-  { vars = SMap.empty
-  ; funs = SMap.empty
-  ; chs = Unix.(IMap.of_list [ 0, stdin; 1, stdout; 2, stderr ])
-  ; retcode = 0
-  }
-;;
 
 let cmp_envs
     { vars = vs1; funs = fs1; retcode = rc1 }
