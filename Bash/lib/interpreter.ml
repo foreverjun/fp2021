@@ -57,7 +57,25 @@ module IMap = TMap (struct
   let pp_t = Format.pp_print_int
 end)
 
-(* -------------------- Builtins library -------------------- *)
+(* -------------------- Helper functions -------------------- *)
+
+(** [read_all fd] read all contents of the file descriptor [fd] until EOF is reached and
+  close it *)
+let read_all fd =
+  let ic = Unix.in_channel_of_descr fd in
+  let try_read () =
+    try Some (input_line ic) with
+    | End_of_file -> None
+  in
+  let rec helper acc =
+    match try_read () with
+    | Some s -> helper (s :: acc)
+    | None -> List.rev acc
+  in
+  String.concat "" (helper [])
+;;
+
+(* -------------------- Standard library -------------------- *)
 
 (** Built-in functions *)
 module Builtins : sig
@@ -68,6 +86,11 @@ module Builtins : sig
   val find : string -> t option
 end = struct
   type t = string list -> Unix.file_descr IMap.t -> int
+
+  let try_read fd =
+    try read_all fd with
+    | Unix.Unix_error (Unix.EBADF, "read", "") -> ""
+  ;;
 
   let try_wr fd s =
     let len = String.length s in
@@ -81,8 +104,17 @@ end = struct
     | _ -> 1
   ;;
 
+  let cat args chs =
+    match args, IMap.find_opt 0 chs, IMap.find_opt 1 chs with
+    | _, None, _ | _, _, None -> 1
+    | _ :: _, _, _ -> 1 (* Not implemented *)
+    | [], Some stdin, Some stdout when try_wr stdout (try_read stdin) -> 0
+    | _ -> 1
+  ;;
+
   let find : string -> t option = function
     | "echo" -> Some echo
+    | "cat" -> Some cat
     | _ -> None
   ;;
 end
@@ -93,26 +125,6 @@ end
 module Eval (M : MonadFail) = struct
   open M
 
-  (* -------------------- Helper functions -------------------- *)
-
-  (** [read_all fd] read all contents of the file descriptor [fd] until EOF is reached and
-  close it *)
-  let read_all fd =
-    let ic = Unix.in_channel_of_descr fd in
-    let try_read () =
-      try Some (input_line ic) with
-      | End_of_file -> None
-    in
-    let rec helper acc =
-      match try_read () with
-      | Some s -> helper (s :: acc)
-      | None ->
-        close_in ic;
-        List.rev acc
-    in
-    String.concat "" (helper [])
-  ;;
-
   (* -------------------- Environment -------------------- *)
 
   (** Container for values of variables *)
@@ -121,13 +133,10 @@ module Eval (M : MonadFail) = struct
     | AssocArray of string SMap.t (** Associative array *)
   [@@deriving show { with_path = false }]
 
-  (** Container for functions *)
-  type fun_t = compound [@@deriving show { with_path = false }]
-
   (** Complete environment *)
   type environment =
     { vars : var_t SMap.t (** Variables available in the current scope *)
-    ; funs : fun_t SMap.t (** Functions available in the current scope *)
+    ; funs : compound SMap.t (** Functions available in the current scope *)
     ; chs : Unix.file_descr IMap.t
           [@printer fun fmt m -> IMap.pp (fun fmt _ -> fprintf fmt "[...]") fmt m]
           (** IO channels file descriptors *)
@@ -196,7 +205,9 @@ module Eval (M : MonadFail) = struct
       ev_cmd { env with chs = IMap.add 1 wr env.chs } c
       >>= fun { retcode } ->
       Unix.close wr;
-      (match Parser.split_words (read_all rd) with
+      let parsed = Parser.split_words (read_all rd) in
+      Unix.close rd;
+      (match parsed with
       | Ok ss -> return ({ env with retcode }, ss)
       | Error e -> fail e)
     | ArithmExp a -> ev_arithm env a >>| fun (env, n) -> env, [ string_of_int n ]
@@ -469,7 +480,7 @@ module Eval (M : MonadFail) = struct
       >>| fun retcode -> { env with retcode = get_retcode neg retcode }
 
   (** Evaluate compound *)
-  and ev_compound (env : environment) : compound -> environment t =
+  and ev_compound env =
     let ev evaluator c rs =
       ev_redirs env rs
       >>= fun n_env ->
@@ -641,6 +652,8 @@ let with_test_env f test_env =
   close test_env.wr_stdin;
   let act_stdout = read_all test_env.rd_stdout in
   let act_stderr = read_all test_env.rd_stderr in
+  close test_env.rd_stdout;
+  close test_env.rd_stderr;
   res, act_stdout, act_stderr
 ;;
 
@@ -1752,3 +1765,85 @@ let%test _ =
 
 let%test _ = fail_ev (DuplInp (0, Word "4")) (Printf.sprintf "%i: Bad file descriptor" 4)
 let%test _ = fail_ev (DuplInp (0, Word "a")) (Printf.sprintf "%s: ambiguous redirect" "a")
+
+(* -------------------- Compound -------------------- *)
+
+open TestMake (struct
+  type giv_t = compound
+  type exp_t = environment
+
+  let pp_giv = pp_compound
+  let pp_res = pp_environment
+  let ev = ev_compound
+  let cmp = cmp_envs
+end)
+
+let%test _ =
+  succ_ev
+    (SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), [ DuplOtp (1, Word "2") ]))
+    empty_env
+    ~exp_stderr:"meow"
+;;
+
+let%test _ =
+  succ_ev
+    (If
+       ( ( Pipeline (false, ArithmExpr (Num 1, []), [])
+         , Pipeline
+             (false, SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []), [])
+         , None )
+       , [ DuplOtp (1, Word "2") ] ))
+    empty_env
+    ~exp_stderr:"meow"
+;;
+
+(* -------------------- Pipeline -------------------- *)
+
+open TestMake (struct
+  type giv_t = pipeline
+  type exp_t = environment
+
+  let pp_giv = pp_pipeline
+  let pp_res = pp_environment
+  let ev = ev_pipeline
+  let cmp = cmp_envs
+end)
+
+let%test _ =
+  succ_ev
+    (false, SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "1") ], []), [])
+    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "1")) }
+;;
+
+let%test _ = succ_ev (false, ArithmExpr (Num 0, []), []) { empty_env with retcode = 1 }
+let%test _ = succ_ev (true, ArithmExpr (Num 0, []), []) empty_env
+let%test _ = succ_ev (true, ArithmExpr (Num 100, []), []) { empty_env with retcode = 1 }
+
+let%test _ =
+  succ_ev
+    ( false
+    , SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), [])
+    , [ SimpleCommand (Command ([], [ Word "cat" ]), [ DuplOtp (1, Word "2") ]) ] )
+    empty_env
+    ~exp_stderr:"meow"
+;;
+
+let%test _ =
+  succ_ev
+    ( false
+    , SimpleCommand
+        (Command ([], [ Word "echo"; Word "meow1" ]), [ DuplOtp (1, Word "2") ])
+    , [ SimpleCommand (Command ([], [ Word "echo"; Word "meow2" ]), []) ] )
+    empty_env
+    ~exp_stdout:"meow2"
+    ~exp_stderr:"meow1"
+;;
+
+let%test _ =
+  succ_ev
+    ( false
+    , SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "1") ], [])
+    , [ SimpleCommand (Command ([], [ Word "echo"; ParamExp (Param ("X", "0")) ]), []) ]
+    )
+    empty_env
+;;
