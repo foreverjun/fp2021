@@ -428,13 +428,35 @@ module Eval (M : MonadFail) = struct
     failwith "Not implemented"
 
   (** Evaluate pipeline *)
-  and ev_pipeline (_ : environment) : environment t = fail "Not implemented"
+  and ev_pipeline env (neg, c, cs) =
+    let rec helper env cl c = function
+      | hd :: tl ->
+        let rd, wr = Unix.pipe () in
+        ev_compound { env with chs = IMap.add 1 wr env.chs } c
+        >>= fun _ ->
+        (* Close pipe's output *)
+        if cl then Unix.close (IMap.find 0 env.chs);
+        (* Close pipe's input *)
+        Unix.close wr;
+        helper { env with chs = IMap.add 0 rd env.chs } true hd tl
+      | [] ->
+        ev_compound env c
+        >>| fun { retcode } ->
+        (* Close pipe's output *)
+        if cl then Unix.close (IMap.find 0 env.chs);
+        retcode
+    in
+    helper env false c cs
+    >>| fun retcode ->
+    let retcode = if neg then if retcode = 0 then 1 else 0 else retcode in
+    { env with retcode }
 
   (** Evaluate compound *)
   and ev_compound (env : environment) : compound -> environment t =
     let ev evaluator c rs =
       ev_redirs env rs
-      >>= fun n_env -> evaluator n_env c >>| fun { retcode } -> { env with retcode }
+      >>= fun n_env ->
+      evaluator n_env c >>| fun { vars; retcode } -> { env with vars; retcode }
     in
     function
     | While (c, rs) -> ev ev_while_loop c rs
