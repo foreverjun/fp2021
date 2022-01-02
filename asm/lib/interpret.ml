@@ -141,7 +141,10 @@ module Eval (M : MonadError) = struct
     let env_add id v env9 =
       match MapString.find_opt id env9 with
       | None -> return (MapString.add id v env9)
-      | Some _ -> error ("label `" ^ id ^ "\' inconsistently redefined") in
+      | Some _ ->
+          error
+            (String.concat "" ["label `"; id; "\' inconsistently redefined"])
+    in
     let env_set id v env9 =
       match MapString.find_opt id env9 with
       | None -> return (MapString.add id v env9)
@@ -233,7 +236,8 @@ module Eval (M : MonadError) = struct
     ; ("RSP", R64 0L); ("RBP", R64 0L); ("RSI", R64 0L); ("RDI", R64 0L)
     ; ("XMM0", RSSE "\x00"); ("XMM1", RSSE "\x00"); ("XMM2", RSSE "\x00")
     ; ("XMM3", RSSE "\x00"); ("XMM4", RSSE "\x00"); ("XMM5", RSSE "\x00")
-    ; ("XMM6", RSSE "\x00"); ("XMM7", RSSE "\x00") ]
+    ; ("XMM6", RSSE "\x00"); ("XMM7", RSSE "\x00"); ("0cond", R64 0L)
+    ; ("0jump", Ls "") ]
 
   let reg8 = function
     | "AH" | "AL" | "BH" | "BL" | "CH" | "CL" | "DH" | "DL" -> true
@@ -262,7 +266,7 @@ module Eval (M : MonadError) = struct
         match MapString.find_opt l e with
         | Some (Ls s) -> return (string_to_int64 s)
         | Some Er -> error "byte data exceeds bounds"
-        | _ -> error ("symbol `" ^ l ^ "\' not defined") )
+        | _ -> error (String.concat "" ["symbol `"; l; "\' not defined"]) )
       | _ -> error "fatal error" in
     let find_reg env3 r =
       return (MapString.find r env3)
@@ -275,8 +279,9 @@ module Eval (M : MonadError) = struct
         let ns =
           let h = int64_to_string nt in
           h ^ String.make (8 - String.length h) '\x00' in
-        String.sub os 0 offs ^ String.sub ns 0 len
-        ^ String.sub os (offs + len) (8 - offs - len) in
+        String.concat ""
+          [ String.sub os 0 offs; String.sub ns 0 len
+          ; String.sub os (offs + len) (8 - offs - len) ] in
       let helper env4 foo offset len s =
         find_reg env3 s
         >>= fun i ->
@@ -289,15 +294,29 @@ module Eval (M : MonadError) = struct
         match r with
         | s when reg8 s -> (
           match s with
-          | s when reg8L s -> helper env3 foo 0 1 ("R" ^ String.sub s 1 1 ^ "X")
-          | s -> helper env3 foo 1 1 ("R" ^ String.sub s 1 1 ^ "X") )
+          | s when reg8L s ->
+              helper env3 foo 0 1
+                (String.concat "" ["R"; String.sub s 1 1; "X"])
+          | s ->
+              helper env3 foo 1 1
+                (String.concat "" ["R"; String.sub s 1 1; "X"]) )
         | s when reg16 s -> helper env3 foo 0 2 ("R" ^ s)
         | s when reg32 s -> helper env3 foo 0 4 ("R" ^ String.sub s 1 2)
         | s when reg64 s -> helper env3 foo 0 8 s
         | _ -> error "invalid combination of opcode and operands" )
       | _ -> error "invalid combination of opcode and operands" in
+    let jump env2 st foo = function
+      | Label l ->
+          foo (MapString.find "0cond" env2)
+          >>= fun b ->
+          if b then return (MapString.add "0jump" (Ls l) env2, st)
+          else return (env2, st)
+      | _ -> error "Illegal instruction (core dumped)" in
     let inter_arg0 env2 st = function
-      | "RET" -> error "TODO"
+      | "RET" ->
+          jump env2 (List.tl st)
+            (function R64 _ -> return true | _ -> error "fatal error")
+            (Label (List.hd st))
       | "SYSCALL" -> (
           find_reg env2 "RAX"
           >>= function
@@ -319,7 +338,9 @@ module Eval (M : MonadError) = struct
               >>= fun code ->
               return (MapString.add "0retcode" (R64 (rem code 256L)) env2, st)
           | i when i < 336L ->
-              error ("syscall " ^ to_string i ^ " is not implemented")
+              error
+                (String.concat ""
+                   ["syscall "; to_string i; " is not implemented"] )
           | _ -> return (env2, st) )
       | _ -> error "fatal error" in
     let inter_arg1 env2 st e = function
@@ -345,9 +366,60 @@ module Eval (M : MonadError) = struct
               ( MapString.add r (R64 (string_to_int64 (List.hd st))) env2
               , List.tl st )
         | _ -> error "byte data exceeds bounds" )
-      | "CALL" -> error "TODO"
-      | "JMP" | "JE" | "JNE" | "JZ" | "JG" | "JGE" | "JL" | "JLE" ->
-          error "TODO"
+      | "CALL" -> (
+        match e with
+        | Label l ->
+            jump env2
+              ([l] @ st)
+              (function R64 _ -> return true | _ -> error "fatal error")
+              e
+        | _ -> error "Illegal instruction (core dumped)" )
+      | "JMP" ->
+          jump env2 st
+            (function R64 _ -> return true | _ -> error "fatal error")
+            e
+      | "JE" ->
+          jump env2 st
+            (function
+              | R64 0L -> return true
+              | R64 _ -> return false
+              | _ -> error "fatal error" )
+            e
+      | "JNE" ->
+          jump env2 st
+            (function
+              | R64 0L -> return false
+              | R64 _ -> return true
+              | _ -> error "fatal error" )
+            e
+      | "JG" ->
+          jump env2 st
+            (function
+              | R64 i when i > 0L -> return true
+              | R64 _ -> return false
+              | _ -> error "fatal error" )
+            e
+      | "JGE" ->
+          jump env2 st
+            (function
+              | R64 i when i >= 0L -> return true
+              | R64 _ -> return false
+              | _ -> error "fatal error" )
+            e
+      | "JL" ->
+          jump env2 st
+            (function
+              | R64 i when i < 0L -> return true
+              | R64 _ -> return false
+              | _ -> error "fatal error" )
+            e
+      | "JLE" ->
+          jump env2 st
+            (function
+              | R64 i when i <= 0L -> return true
+              | R64 _ -> return false
+              | _ -> error "fatal error" )
+            e
       | _ -> error "fatal error" in
     let inter_arg2 env2 e1 e2 =
       let helper foo =
@@ -364,17 +436,31 @@ module Eval (M : MonadError) = struct
               mul (if s >= 0L then s else neg s) (if i >= 0L then i else neg i) )
       | "SHR" -> helper (fun i s -> shift_right_logical s (to_int i))
       | "SHL" -> helper (fun i s -> shift_left s (to_int i))
-      | "CMP" -> error "TODO"
+      | "CMP" ->
+          ( match e1 with
+          | Reg _ -> ev env2 (f env2) (Sub (e1, e2))
+          | _ -> error "invalid combination of opcode and operands" )
+          >>= fun i -> return (MapString.add "0cond" (R64 i) env2)
       | "MOVUPS" | "MOVSS" | "MOVLPS" | "MOVHPS" | "ADDSS" | "MULSS" | "SUBSS"
        |"SHUFPS" ->
           error "TODO"
       | _ -> error "fatal error" in
     let inter_cmd env1 st = function
-      | Arg0 (_, Mnemonic mn) -> inter_arg0 env1 st mn (* ret (env2, st) *)
-      | Arg1 (_, Mnemonic mn, e) -> inter_arg1 env1 st e mn (* ret (env2, st) *)
+      | Arg0 (_, Mnemonic mn) -> inter_arg0 env1 st mn
+      | Arg1 (_, Mnemonic mn, e) -> inter_arg1 env1 st e mn
       | Arg2 (_, Mnemonic mn, e1, e2) ->
           inter_arg2 env1 e1 e2 mn >>= fun env2 -> return (env2, st) in
-    let rec helper env0 st = function
+    let rec helper env0 st =
+      let rec find_label l = function
+        | [] -> error (String.concat "" ["symbol `"; l; "\' not defined"])
+        | hd :: tl -> (
+          match hd with
+          | Arg0 (Some (Id id), _)
+           |Arg1 (Some (Id id), _, _)
+           |Arg2 (Some (Id id), _, _, _) ->
+              if id = l then return (hd :: tl) else find_label l tl
+          | _ -> find_label l tl ) in
+      function
       | [] -> return env0
       | hd :: tl -> (
           inter_cmd env0 st hd
@@ -382,8 +468,15 @@ module Eval (M : MonadError) = struct
           match MapString.find_opt "0retcode" env2 with
           | Some (R64 0L) -> return env2
           | Some (R64 i) -> error ("Error " ^ to_string i)
-          | _ -> helper env2 st1 tl ) in
-    helper env [] list
+          | _ -> (
+            match MapString.find "0jump" env2 with
+            | Ls "" -> helper env2 st1 tl
+            | Ls s ->
+                find_label s list
+                >>= fun list2 ->
+                helper (MapString.add "0jump" (Ls "") env2) st1 list2
+            | _ -> error "fatal error" ) ) in
+    helper env [] list >>= fun _ -> return ()
 
   let asm directive = prepr (MapString.of_list reg_list) directive >>= interpret
 end

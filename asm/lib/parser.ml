@@ -104,7 +104,7 @@ let is_mnemonic = function
   (*
       jmp <label>
   *)
-   |"JE" | "JNE" | "JZ" | "JG" | "JGE" | "JL" | "JLE"
+   |"JE" | "JNE" | "JG" | "JGE" | "JL" | "JLE"
   (*
       j* <label>
   *)
