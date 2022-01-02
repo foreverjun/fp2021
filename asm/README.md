@@ -8,15 +8,19 @@ Author: Alina Shlegel, https://github.com/shlegelal
 
 Features done (append only):
 
-- Parser  (for example)
-- interpreter of non-recursive functions (for example)
-- ...
+- Parser
+- Interpreter поддерживающий
+    - арифметические операции с целочисленными
+    - `stdlib` (`pop`, `push`, `call`, `ret`)
+    - `cmp` и `jumps`
+    - SSE команды над Packed 2 Double
+    - в случае успеха возвращает значения регистров и объявленных констант
+    - в случае не успеха - сообщение об ошибке, аналогичное настоящему ассеблеру
+- Запуск и печать работы интерпретатора
+- Тесты (inline и demos)
 
-Features in progress (and TODOs):
 
-- Interpreter of recursive functions is not yet ready  (for example)
-- TODO: make pretty-printing less memory consuming (for example)
-- ...
+---
 
 ## How to work with repo 
 // TODO: перевести на англ
