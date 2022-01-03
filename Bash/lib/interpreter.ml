@@ -684,8 +684,9 @@ struct
       exp
     =
     let test_env = make_test_env ~tmpl () in
-    ignore
-      (Unix.write_substring test_env.wr_stdin giv_stdin 0 (String.length giv_stdin) : int);
+    let (_ : int) =
+      Unix.write_substring test_env.wr_stdin giv_stdin 0 (String.length giv_stdin)
+    in
     let res, act_stdout, act_stderr = with_test_env (T.ev test_env.env giv) test_env in
     match res with
     | Error e ->
@@ -714,8 +715,9 @@ struct
 
   let fail_ev ?(tmpl = empty_env) ?(giv_stdin = "") giv exp =
     let test_env = make_test_env ~tmpl () in
-    ignore
-      (Unix.write_substring test_env.wr_stdin giv_stdin 0 (String.length giv_stdin) : int);
+    let (_ : int) =
+      Unix.write_substring test_env.wr_stdin giv_stdin 0 (String.length giv_stdin)
+    in
     let res, act_stdout, act_stderr = with_test_env (T.ev test_env.env giv) test_env in
     match res with
     | Error e when e = exp -> true
