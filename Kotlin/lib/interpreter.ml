@@ -370,21 +370,22 @@ module Interpret (M : MONAD_FAIL) = struct
         (match
            ( check_typename_value_correspondance
                (var.var_typename, assign_value_ctx.last_eval_expression)
-           , ctx.scope )
+           , ctx.scope
+           , !(var.value) )
          with
-        | true, ObjectInitialization { contents = obj }
-          when Poly.equal (Unitialized (Some obj)) !(var.value) ->
+        | true, ObjectInitialization obj, Unitialized (Some obj_of_field)
+          when phys_equal obj obj_of_field ->
           rc.clojure := identifier_ctx.environment;
           rc.enclosing_object := get_enclosing_object ctx;
           var.value := assign_value_ctx.last_eval_expression;
           M.return assign_value_ctx
-        | true, _ when var.mutable_status ->
+        | true, _, _ when var.mutable_status ->
           rc.clojure := identifier_ctx.environment;
           rc.enclosing_object := get_enclosing_object ctx;
           var.value := assign_value_ctx.last_eval_expression;
           M.return assign_value_ctx
-        | true, _ -> M.fail (VariableNotMutable rc.name)
-        | false, _ ->
+        | true, _, _ -> M.fail (VariableNotMutable rc.name)
+        | false, _, _ ->
           M.fail
             (VariableValueTypeMismatch
                (rc.name, var.var_typename, assign_value_ctx.last_eval_expression))))
@@ -618,7 +619,7 @@ module Interpret (M : MONAD_FAIL) = struct
                   | VarDeclaration
                       (modifiers, var_modifier, name, var_typename, init_expression) ->
                     (match init_expression with
-                    | None -> M.return (Unitialized (Some !new_object))
+                    | None -> M.return (Unitialized (Some new_object))
                     | Some expr ->
                       interpret_expression class_inner_ctx expr
                       >>= fun interpreted_ctx ->

@@ -35,7 +35,7 @@ type value =
   | AnonymousFunction of function_t
   | Object of object_t
   | NullValue
-  | Unitialized of object_t option
+  | Unitialized of object_t ref option
 
 and record_content =
   | Variable of variable_t

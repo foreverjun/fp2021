@@ -32,7 +32,9 @@ let rec repl buffered_lines ctx =
     (* В случае, если внутри In_channel.stdin напечатать только EOF (ctrl + d), вылетит исключение и обработается в with блоке *)
     let line = Option.value_exn (In_channel.input_line In_channel.stdin) in
     if String.is_prefix line ~prefix:"@"
-    then interpert_repl_command ctx line
+    then (
+      interpert_repl_command ctx line;
+      repl [] ctx)
     else if String.is_suffix line ~suffix:";;"
     then (
       let filtered_line = String.rstrip ?drop:(Some (fun c -> Char.equal c ';')) line in
