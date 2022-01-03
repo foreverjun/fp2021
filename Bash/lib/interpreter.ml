@@ -98,17 +98,17 @@ end = struct
     | Unix.Unix_error (Unix.EBADF, "write", "") -> false
   ;;
 
-  let echo args chs =
-    match IMap.find_opt 1 chs with
-    | Some stdout when try_wr stdout (String.concat " " args) -> 0
+  let echo argv chs =
+    match IMap.find_opt 1 chs, argv with
+    | Some stdout, _ :: args when try_wr stdout (String.concat " " args) -> 0
     | _ -> 1
   ;;
 
-  let cat args chs =
-    match args, IMap.find_opt 0 chs, IMap.find_opt 1 chs with
+  let cat argv chs =
+    match argv, IMap.find_opt 0 chs, IMap.find_opt 1 chs with
     | _, None, _ | _, _, None -> 1
-    | _ :: _, _, _ -> 1 (* Not implemented *)
-    | [], Some stdin, Some stdout when try_wr stdout (try_read stdin) -> 0
+    | _ :: _ :: _, _, _ -> 1 (* Not implemented *)
+    | [ _ ], Some stdin, Some stdout when try_wr stdout (try_read stdin) -> 0
     | _ -> 1
   ;;
 
@@ -395,8 +395,15 @@ module Eval (M : MonadFail) = struct
       >>= fun (env, cmd, args) ->
       (* Probably not very efficient to match like this, but it is more readable *)
       (match get_fun cmd env, Builtins.find cmd, try_read cmd with
-      | Some b, _, _ -> ev_compound env b
-      | None, Some f, _ -> return { env with retcode = f args env.chs }
+      | Some b, _, _ ->
+        let named_args =
+          List.mapi
+            (fun i e -> string_of_int i, IndArray (IMap.singleton 0 e))
+            (cmd :: args)
+        in
+        ev_compound { env with vars = SMap.add_list named_args env.vars } b
+        >>| fun { retcode } -> { env with retcode }
+      | None, Some f, _ -> return { env with retcode = f (cmd :: args) env.chs }
       | None, None, Some s ->
         (match Parser.parse s with
         | Ok script ->
@@ -599,7 +606,7 @@ let interpret script =
   let open Eval (Result) in
   match ev_script empty_env script with
   | Ok env -> Ok env.retcode
-  | Error e -> Error (Printf.sprintf "Interpretation failed: %s" e)
+  | Error e -> Error e
 ;;
 
 (* ----------------------------------------------- *)
@@ -1412,7 +1419,7 @@ open TestMake (struct
   let cmp = cmp_envs
 end)
 
-(* TODO: add tests for user-defined functions and sourced scripts *)
+(* May also test sourced scripts in the future *)
 
 let%test _ =
   succ_ev
@@ -1429,6 +1436,30 @@ let%test _ =
     (Command ([], [ Word "echo"; Word "1"; BraceExp [ ArithmExp (Num 2); Word "3" ] ]))
     empty_env
     ~exp_stdout:"1 2 3"
+;;
+
+let%test _ =
+  let tmpl =
+    { empty_env with
+      funs =
+        SMap.singleton
+          "say_meow"
+          (SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []))
+    }
+  in
+  succ_ev ~tmpl (Command ([], [ Word "say_meow" ])) tmpl ~exp_stdout:"meow"
+;;
+
+let%test _ =
+  let tmpl =
+    { empty_env with
+      funs =
+        SMap.singleton
+          "cat"
+          (SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []))
+    }
+  in
+  succ_ev ~tmpl (Command ([], [ Word "cat" ])) tmpl ~exp_stdout:"meow"
 ;;
 
 (* -------------------- While loop -------------------- *)
@@ -1903,4 +1934,119 @@ let%test _ =
            , SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "b") ], [])
            , [] ) ))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "b")) }
+;;
+
+(* -------------------- Function -------------------- *)
+
+open TestMake (struct
+  type giv_t = func
+  type exp_t = environment
+
+  let pp_giv = pp_func
+  let pp_res = pp_environment
+  let ev = ev_func
+  let cmp = cmp_envs
+end)
+
+let%test _ =
+  succ_ev
+    ("say_meow", SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []))
+    { empty_env with
+      funs =
+        SMap.singleton
+          "say_meow"
+          (SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []))
+    }
+;;
+
+(* -------------------- Script -------------------- *)
+
+open TestMake (struct
+  type giv_t = script
+  type exp_t = environment
+
+  let pp_giv = pp_script
+  let pp_res = pp_environment
+  let ev = ev_script
+  let cmp = cmp_envs
+end)
+
+let%test _ = succ_ev Empty empty_env
+
+let%test _ =
+  match
+    Parser.parse
+      {|
+f () if ((ABC == 0)); then echo yes && ABC=1 && f; else echo no; fi
+f
+|}
+  with
+  | Ok ast ->
+    succ_ev
+      ast
+      { empty_env with
+        funs =
+          SMap.singleton
+            "f"
+            (If
+               ( ( Pipeline (false, ArithmExpr (Equal (Var ("ABC", "0"), Num 0), []), [])
+                 , PipelineAndList
+                     ( ( false
+                       , SimpleCommand (Command ([], [ Word "echo"; Word "yes" ]), [])
+                       , [] )
+                     , PipelineAndList
+                         ( ( false
+                           , SimpleCommand
+                               (Assignt [ SimpleAssignt (("ABC", "0"), Word "1") ], [])
+                           , [] )
+                         , Pipeline
+                             (false, SimpleCommand (Command ([], [ Word "f" ]), []), [])
+                         ) )
+                 , Some
+                     (Pipeline
+                        ( false
+                        , SimpleCommand (Command ([], [ Word "echo"; Word "no" ]), [])
+                        , [] )) )
+               , [] ))
+      }
+      ~exp_stdout:"yesno"
+  | Error _ -> false
+;;
+
+let%test _ =
+  match Parser.parse {|
+f () echo $1 $2
+f a b
+|} with
+  | Ok ast ->
+    succ_ev
+      ast
+      { empty_env with
+        funs =
+          SMap.singleton
+            "f"
+            (SimpleCommand
+               ( Command
+                   ( []
+                   , [ Word "echo"
+                     ; ParamExp (Param ("1", "0"))
+                     ; ParamExp (Param ("2", "0"))
+                     ] )
+               , [] ))
+      }
+      ~exp_stdout:"a b"
+  | Error _ -> false
+;;
+
+let%test _ =
+  match Parser.parse {|
+ABC=10
+ABC=5 echo $ABC
+|} with
+  | Ok ast ->
+    succ_ev
+      ast
+      { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "10")) }
+      ~exp_stdout:"5"
+  | Error _ -> false
 ;;
