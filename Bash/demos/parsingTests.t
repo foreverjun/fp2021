@@ -7,67 +7,43 @@ the answer is correct.
   $ ./demoParse.exe <<-EOF
   > VAR=100
   > 
-  > function some_f ()
-  >   echo something >> output.txt
+  > function some_f () {
+  >   echo something
+  > } >> output.txt
   > 
   > for i in 1 2 3; do
-  >   echo i
+  >   echo $i
   > done | grep 2
   > 
   > echo 1 && echo 2 || echo 3
   > EOF
-  (Script (
-     (Pipelines
-        (Pipeline
-           (false,
-            (SimpleCommand (
-               (Assignt [(SimpleAssignt (("VAR", "0"), (Word "100")))]), 
-               [])),
-            []))),
-     (Script (
-        (Func
-           ("some_f",
-            (SimpleCommand (
-               (Command ([], [(Word "echo"); (Word "something")])),
-               [(AppendOtp (1, (Word "output.txt")))])))),
-        (Script (
-           (Pipelines
-              (Pipeline
-                 (false,
-                  (ForList (
-                     ("i", [(Word "1"); (Word "2"); (Word "3")],
-                      (Pipeline
-                         (false,
-                          (SimpleCommand (
-                             (Command ([], [(Word "echo"); (Word "i")])), 
-                             [])),
-                          []))),
-                     [])),
-                  [(SimpleCommand ((Command ([], [(Word "grep"); (Word "2")])),
-                      []))
-                    ]))),
-           (Script (
-              (Pipelines
-                 (PipelineAndList (
-                    (false,
-                     (SimpleCommand (
-                        (Command ([], [(Word "echo"); (Word "1")])), [])),
-                     []),
-                    (PipelineOrList (
-                       (false,
-                        (SimpleCommand (
-                           (Command ([], [(Word "echo"); (Word "2")])), 
-                           [])),
-                        []),
-                       (Pipeline
-                          (false,
-                           (SimpleCommand (
-                              (Command ([], [(Word "echo"); (Word "3")])), 
-                              [])),
-                           []))
-                       ))
-                    ))),
-              Empty))
-           ))
-        ))
-     ))
+  [(Pipes
+      (Pipe
+         (false,
+          (Simple ([(SimpleAssignt (("VAR", "0"), (Word "100")))], [], [])), 
+          [])));
+    (Func
+       ("some_f",
+        (Group
+           [(Pipe
+               (false, (Simple ([], [(Word "echo"); (Word "something")], [])),
+                []))
+             ]),
+        [(AppendOtp (1, (Word "output.txt")))]));
+    (Pipes
+       (Pipe
+          (false,
+           (Compound (
+              (ForList ("i", [(Word "1"); (Word "2"); (Word "3")],
+                 (Pipe (false, (Simple ([], [(Word "echo")], [])), [])))),
+              [])),
+           [(Simple ([], [(Word "grep"); (Word "2")], []))])));
+    (Pipes
+       (PipeAndList (
+          (false, (Simple ([], [(Word "echo"); (Word "1")], [])), []),
+          (PipeOrList (
+             (false, (Simple ([], [(Word "echo"); (Word "2")], [])), []),
+             (Pipe (false, (Simple ([], [(Word "echo"); (Word "3")], [])), []))
+             ))
+          )))
+    ]

@@ -1,5 +1,3 @@
-(** AST *)
-
 (** Variable reference in the form of [name\[subscript\]] *)
 type var = string * string [@@deriving show { with_path = false }]
 
@@ -35,30 +33,21 @@ type param_exp =
   | SubstEnd of var * string * string (** [$\{name/%pattern\[/string\]\}] *)
 [@@deriving show { with_path = false }]
 
-(** Token that may be subject to expansions *)
-type word =
-  (*
-  Cases of expansions (here * means that the expansion may produce more than one word):
+(** Token that may be subject to expansions (here * means that the expansion may produce more than one word):
   Redirection: BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem (error if expands to more than one word)
   For (with list): BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem
   Case: ParameterExp, CommandSubst, ArithmExp, QuoteRem
   Case item: ParameterExp, CommandSubst, ArithmExp
   Simple command: BraceExp*, ParameterExp, CommandSubst, ArithmExp, WordSpl*, FilenameExp*, QuoteRem
   Assignment: ParameterExp, CommandSubst, ArithmExp, QuoteRem
-  *)
+*)
+type word =
   | BraceExp of word list (** Brace expansion *)
   | ParamExp of param_exp (** Parameter expansion *)
   | CmdSubst of cmd (** [$(command)] *)
   | ArithmExp of arithm (** [$((...))] *)
   | FilenameExp of string (** A string that includes [*], [?] or [\[] *)
   | Word of string (** If none of the expansions above are applicable *)
-[@@deriving show { with_path = false }]
-
-(** Simple command *)
-and cmd =
-  | Assignt of assignt list (** [name1=val1 name1=val2 ...] *)
-  | Command of assignt list * word list
-      (** [\[ assignments \] command \[ parameters \]] *)
 [@@deriving show { with_path = false }]
 
 (** Assignment (differs from the original Bash not to depend on the declare built-in) *)
@@ -71,7 +60,7 @@ and assignt =
 [@@deriving show { with_path = false }]
 
 (** Redirection *)
-type redir =
+and redir =
   | RedirInp of int * word (** [\[n\]<word] *)
   | RedirOtp of int * word (** [\[n\]>word] *)
   | AppendOtp of int * word (** [\[n\]>>word] *)
@@ -79,59 +68,44 @@ type redir =
   | DuplOtp of int * word (** [\[n\]>&word] *)
 [@@deriving show { with_path = false }]
 
-(** List of pipelines *)
-type pipeline_list =
-  | Pipeline of pipeline (** list containing a single pipeline *)
-  | PipelineAndList of pipeline * pipeline_list (** [pipeline && other-pipelines] *)
-  | PipelineOrList of pipeline * pipeline_list (** [pipeline || other-pipelines] *)
-[@@deriving show { with_path = false }]
-
-(** Pipeline in the form of [\[ ! \] command1 \[ | command2 \[ | ... \] \]] *)
-and pipeline = bool * compound * compound list [@@deriving show { with_path = false }]
-
 (** Compound command *)
 and compound =
-  | While of while_loop * redir list
-  | ForList of for_list_loop * redir list
-  | ForExpr of for_expr_loop * redir list
-  | If of if_stmt * redir list
-  | Case of case_stmt * redir list
-  | ArithmExpr of arithm * redir list (** [(( ... ))] *)
-  | SimpleCommand of cmd * redir list
+  | Group of pipe_list list (** { ... } *)
+  | While of pipe_list * pipe_list (** [while list; do list; done] *)
+  | ForList of string * word list * pipe_list
+      (** [name in \[ word ... \]; do list ; done] *)
+  | ForExpr of arithm * arithm * arithm * pipe_list
+      (** [for (( expr1 ; expr2 ; expr3 )) ; do list ; done] *)
+  | If of pipe_list * pipe_list * pipe_list option
+      (** [if list; then list; \[ else list; \] fi] *)
+  | Case of word * (word list * pipe_list) list
+      (** [case word in \[ [\[(\] pattern \[ | pattern \] ... ) list ;;] \] ... esac] *)
+  | ArithmExpr of arithm (** [(( ... ))] *)
 [@@deriving show { with_path = false }]
 
-(** While loop in the form of [while list; do list; done] *)
-and while_loop = pipeline_list * pipeline_list [@@deriving show { with_path = false }]
+(** Simple or compound command with redirections *)
+and cmd =
+  | Simple of assignt list * word list * redir list
+  | Compound of compound * redir list
 
-(** For loop in the form of or [name in \[ word ... \]; do list ; done] *)
-and for_list_loop = string * word list * pipeline_list
+(** Pipeline in the form of [\[ ! \] command1 \[ | command2 \[ | ... \] \]] *)
+and pipe = bool * cmd * cmd list [@@deriving show { with_path = false }]
+
+(** List of pipelines *)
+and pipe_list =
+  | Pipe of pipe (** list containing a single pipeline *)
+  | PipeAndList of pipe * pipe_list (** [pipeline && other-pipelines] *)
+  | PipeOrList of pipe * pipe_list (** [pipeline || other-pipelines] *)
 [@@deriving show { with_path = false }]
 
-(** For loop in the form of [for (( expr1 ; expr2 ; expr3 )) ; do list ; done] *)
-and for_expr_loop = arithm * arithm * arithm * pipeline_list
+(** Function definition *)
+type func = string * compound * redir list [@@deriving show { with_path = false }]
+
+(** A function declaration or a command *)
+type script_elem =
+  | Func of func
+  | Pipes of pipe_list
 [@@deriving show { with_path = false }]
-
-(** If statement in the form of [if list; then list; \[ else list; \] fi] *)
-and if_stmt = pipeline_list * pipeline_list * pipeline_list option
-[@@deriving show { with_path = false }]
-
-(** Case statement in the form of [case word in \[ case_item \] ... esac] *)
-and case_stmt = word * case_item list [@@deriving show { with_path = false }]
-
-(** An element of a case statement in the form of [\[(\] pattern \[ | pattern \] ... ) list ;;] *)
-and case_item = word list * pipeline_list [@@deriving show { with_path = false }]
-
-(** Function in the form of [function name \[()\] compound] or [name () compound] *)
-type func = string * compound [@@deriving show { with_path = false }]
 
 (** AST root *)
-type script =
-  | Empty
-  | Script of script_elem * script
-[@@deriving show { with_path = false }]
-
-(** A function declaration or a pipeline list *)
-and script_elem =
-  | Func of func
-  | Pipelines of pipeline_list
-[@@deriving show { with_path = false }]
+type script = script_elem list [@@deriving show { with_path = false }]

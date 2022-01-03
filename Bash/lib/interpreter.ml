@@ -136,7 +136,8 @@ module Eval (M : MonadFail) = struct
   (** Complete environment *)
   type environment =
     { vars : var_t SMap.t (** Variables available in the current scope *)
-    ; funs : compound SMap.t (** Functions available in the current scope *)
+    ; funs : (compound * redir list) SMap.t
+          (** Functions available in the current scope *)
     ; chs : Unix.file_descr IMap.t
           [@printer fun fmt m -> IMap.pp (fun fmt _ -> fprintf fmt "[...]") fmt m]
           (** IO channels file descriptors *)
@@ -269,7 +270,7 @@ module Eval (M : MonadFail) = struct
       env_set env name (Assoc (List.map2 (fun (k, _) v -> k, v) ps ss))
 
   (** Evaluate bare arithmetic *)
-  and ev_arithm env : arithm -> (environment * int) t =
+  and ev_arithm env =
     let rec ev_ari ?(c = fun _ _ -> true) ?(e = "") env op l r =
       ev env l
       >>= fun (env, l) ->
@@ -303,7 +304,7 @@ module Eval (M : MonadFail) = struct
     ev env
 
   (** Evaluate parameter expansion *)
-  and ev_param_exp env : param_exp -> (environment * string) t =
+  and ev_param_exp env =
     let subst size ~all ~beg v p r =
       ev_var env v
       >>| fun s ->
@@ -358,59 +359,6 @@ module Eval (M : MonadFail) = struct
     | SubstBeg (v, p, r) -> subst Re.longest ~all:false ~beg:(Some true) v p r
     | SubstEnd (v, p, r) -> subst Re.longest ~all:false ~beg:(Some false) v p r
 
-  (** Evaluate simple command *)
-  and ev_cmd env =
-    let env_with assignts =
-      List.fold_left
-        (fun acc a -> acc >>= fun env -> ev_assignt env a)
-        (return env)
-        assignts
-    in
-    let expand env ws =
-      ev_words env ws
-      >>= function
-      | env, cmd :: tl -> return (env, cmd, tl)
-      | _, [] -> fail "Simple command expanded to nothing"
-    in
-    let try_read =
-      let read_from s =
-        if Sys.file_exists s
-        then (
-          let ch = open_in s in
-          try Some (really_input_string ch (in_channel_length ch)) with
-          | End_of_file -> None)
-        else None
-      in
-      function
-      | s when Filename.dirname s = "." -> read_from (Filename.basename s)
-      | s when Filename.dirname s = "" -> read_from s
-      | _ -> None
-    in
-    function
-    | Assignt assignts -> env_with assignts
-    | Command (assignts, ws) ->
-      env_with assignts
-      >>= fun env ->
-      expand env ws
-      >>= fun (env, cmd, args) ->
-      (* Probably not very efficient to match like this, but it is more readable *)
-      (match get_fun cmd env, Builtins.find cmd, try_read cmd with
-      | Some b, _, _ ->
-        let named_args =
-          List.mapi
-            (fun i e -> string_of_int i, IndArray (IMap.singleton 0 e))
-            (cmd :: args)
-        in
-        ev_compound { env with vars = SMap.add_list named_args env.vars } b
-        >>| fun { retcode } -> { env with retcode }
-      | None, Some f, _ -> return { env with retcode = f (cmd :: args) env.chs }
-      | None, None, Some s ->
-        (match Parser.parse s with
-        | Ok script ->
-          ev_script empty_env script >>| fun { retcode } -> { env with retcode }
-        | Error e -> fail (Printf.sprintf "%s: syntax error %s" cmd e))
-      | None, None, None -> fail (Printf.sprintf "%s: command not found" cmd))
-
   (** Evaluate redirection (when duplicationg, no checks are performed for r-w access) *)
   and ev_redir env =
     (* Permissions for new files: rw for user, r for group, none for others *)
@@ -450,87 +398,147 @@ module Eval (M : MonadFail) = struct
   and ev_redirs env rs =
     List.fold_left (fun acc r -> acc >>= fun env -> ev_redir env r) (return env) rs
 
+  (** Evaluate command *)
+  and ev_cmd env =
+    let env_with assignts =
+      List.fold_left
+        (fun acc a -> acc >>= fun env -> ev_assignt env a)
+        (return env)
+        assignts
+    in
+    let expand env ws =
+      ev_words env ws
+      >>= function
+      | env, cmd :: tl -> return (env, cmd, tl)
+      | _, [] -> fail "Simple command expanded to nothing"
+    in
+    let try_read =
+      let read_from s =
+        if Sys.file_exists s
+        then (
+          let ch = open_in s in
+          try Some (really_input_string ch (in_channel_length ch)) with
+          | End_of_file -> None)
+        else None
+      in
+      function
+      | s when Filename.dirname s = "." -> read_from (Filename.basename s)
+      | s when Filename.dirname s = "" -> read_from s
+      | _ -> None
+    in
+    function
+    | Simple ((_ :: _ as assignts), [], _) ->
+      env_with assignts >>| fun env -> { env with retcode = 0 }
+    | Simple (assignts, ws, rs) ->
+      env_with assignts
+      >>= fun n_env ->
+      ev_redirs n_env rs
+      >>= fun n_env ->
+      expand n_env ws
+      >>= fun (n_env, cmd, args) ->
+      (* Probably not very efficient to match like this, but it is more readable *)
+      (match get_fun cmd n_env, Builtins.find cmd, try_read cmd with
+      | Some (b, rs), _, _ ->
+        let named_args =
+          List.mapi
+            (fun i e -> string_of_int i, IndArray (IMap.singleton 0 e))
+            (cmd :: args)
+        in
+        ev_redirs n_env rs
+        >>= fun n_env ->
+        ev_compound { n_env with vars = SMap.add_list named_args n_env.vars } b
+        >>| fun { retcode } -> { env with retcode }
+      | None, Some f, _ -> return { env with retcode = f (cmd :: args) n_env.chs }
+      | None, None, Some s ->
+        (match Parser.parse s with
+        | Ok script ->
+          ev_script empty_env script >>| fun { retcode } -> { env with retcode }
+        | Error e -> fail (Printf.sprintf "%s: syntax error %s" cmd e))
+      | None, None, None -> fail (Printf.sprintf "%s: command not found" cmd))
+    | Compound (c, rs) ->
+      ev_redirs env rs
+      >>= fun n_env ->
+      ev_compound n_env c >>| fun { vars; retcode } -> { env with vars; retcode }
+
   (** Evaluate pipeline list *)
-  and ev_pipeline_list env = function
-    | Pipeline p -> ev_pipeline env p
-    | PipelineAndList (hd, tl) ->
-      ev_pipeline env hd
-      >>= fun env -> if env.retcode = 0 then ev_pipeline_list env tl else return env
-    | PipelineOrList (hd, tl) ->
-      ev_pipeline env hd
-      >>= fun env -> if env.retcode <> 0 then ev_pipeline_list env tl else return env
+  and ev_pipe_list env = function
+    | Pipe p -> ev_pipe env p
+    | PipeAndList (hd, tl) ->
+      ev_pipe env hd
+      >>= fun env -> if env.retcode = 0 then ev_pipe_list env tl else return env
+    | PipeOrList (hd, tl) ->
+      ev_pipe env hd
+      >>= fun env -> if env.retcode <> 0 then ev_pipe_list env tl else return env
 
   (** Evaluate pipeline *)
-  and ev_pipeline env =
+  and ev_pipe env =
     let get_retcode neg rc = if neg then if rc = 0 then 1 else 0 else rc in
     let rec helper env cl c = function
       | hd :: tl ->
         let rd, wr = Unix.pipe () in
-        ev_compound { env with chs = IMap.add 1 wr env.chs } c
+        ev_cmd { env with chs = IMap.add 1 wr env.chs } c
         >>= fun _ ->
         if cl then Unix.close (IMap.find 0 env.chs);
         Unix.close wr;
         helper { env with chs = IMap.add 0 rd env.chs } true hd tl
       | [] ->
-        ev_compound env c
+        ev_cmd env c
         >>| fun { retcode } ->
         if cl then Unix.close (IMap.find 0 env.chs);
         retcode
     in
     function
-    | neg, c, [] ->
-      (* A single compound should affect the environment *)
-      ev_compound env c >>| fun env -> { env with retcode = get_retcode neg env.retcode }
+    | neg, cmd, [] ->
+      (* A single command should affect the environment *)
+      ev_cmd env cmd >>| fun env -> { env with retcode = get_retcode neg env.retcode }
     | neg, c, cs ->
       (* A pipeline should only affect the return code *)
       helper env false c cs
       >>| fun retcode -> { env with retcode = get_retcode neg retcode }
 
-  (** Evaluate compound *)
-  and ev_compound env =
-    let ev evaluator c rs =
-      ev_redirs env rs
-      >>= fun n_env ->
-      evaluator n_env c >>| fun { vars; retcode } -> { env with vars; retcode }
-    in
-    function
-    | While (c, rs) -> ev ev_while_loop c rs
-    | ForList (c, rs) -> ev ev_for_list_loop c rs
-    | ForExpr (c, rs) -> ev ev_for_expr_loop c rs
-    | If (c, rs) -> ev ev_if_stmt c rs
-    | Case (c, rs) -> ev ev_case_stmt c rs
-    | ArithmExpr (c, rs) -> ev ev_arithm_expr c rs
-    | SimpleCommand (c, rs) -> ev ev_cmd c rs
+  (** Evaluate compound command *)
+  and ev_compound env = function
+    | Group pls -> ev_group env pls
+    | While (cnd, body) -> ev_while_loop env cnd body
+    | ForList (name, ws, body) -> ev_for_list_loop env name ws body
+    | ForExpr (a1, a2, a3, body) -> ev_for_expr_loop env a1 a2 a3 body
+    | If (cnd, cns, alt) -> ev_if_stmt env cnd cns alt
+    | Case (w, cs) -> ev_case_stmt env w cs
+    | ArithmExpr a -> ev_arithm_expr env a
 
   (** Evaluate while loop *)
-  and ev_while_loop env ((cnd, body) : while_loop) =
+  and ev_group env =
+    List.fold_left (fun acc pl -> acc >>= fun env -> ev_pipe_list env pl) (return env)
+
+  (** Evaluate while loop *)
+  and ev_while_loop env cnd body =
     (* Return code is passed so that if body was executed 0 times the return code of the
       loop is 0, but condition receives the real environment with the real return code *)
     let rec loop env retcode =
-      ev_pipeline_list env cnd
+      ev_pipe_list env cnd
       >>= fun cnd_env ->
       if cnd_env.retcode = 0
-      then ev_pipeline_list cnd_env body >>= fun env -> loop env env.retcode
+      then ev_pipe_list cnd_env body >>= fun env -> loop env env.retcode
       else return { cnd_env with retcode }
     in
     loop env 0
 
   (** Evaluate for loop (list form) *)
-  and ev_for_list_loop env ((name, ws, body) : for_list_loop) =
+  and ev_for_list_loop env name ws body =
     ev_words env ws
     >>= fun (env, ss) ->
     (* Return code is passed so that if body was executed 0 times the return code of the
       loop is 0, but body receives the real environment with the real return code *)
     let rec loop env retcode = function
       | hd :: tl ->
-        ev_pipeline_list (set_var name (IndArray (IMap.singleton 0 hd)) env) body
+        ev_pipe_list (set_var name (IndArray (IMap.singleton 0 hd)) env) body
         >>= fun env -> loop env env.retcode tl
       | [] -> return { env with retcode }
     in
     loop env 0 ss
 
   (** Evaluate for loop (expression form) *)
-  and ev_for_expr_loop env ((a1, a2, a3, body) : for_expr_loop) =
+  and ev_for_expr_loop env a1 a2 a3 body =
     ev_arithm env a1
     >>= fun (env, _) ->
     (* Return code is passed to save the return code of the last body's execution *)
@@ -539,25 +547,25 @@ module Eval (M : MonadFail) = struct
       >>= fun (env, v) ->
       if v <> 0
       then
-        ev_pipeline_list env body
+        ev_pipe_list env body
         >>= fun env -> ev_arithm env a3 >>= fun (new_env, _) -> loop new_env env.retcode
       else return { env with retcode }
     in
     loop env 0
 
   (** Evaluate if statement *)
-  and ev_if_stmt env ((cnd, cns, alt) : if_stmt) =
-    ev_pipeline_list env cnd
+  and ev_if_stmt env cnd cns alt =
+    ev_pipe_list env cnd
     >>= fun cnd_env ->
     if cnd_env.retcode = 0
-    then ev_pipeline_list cnd_env cns
+    then ev_pipe_list cnd_env cns
     else (
       match alt with
-      | Some alt -> ev_pipeline_list cnd_env alt
+      | Some alt -> ev_pipe_list cnd_env alt
       | None -> return { cnd_env with retcode = 0 })
 
   (** Evaluate case statement *)
-  and ev_case_stmt env ((w, cs) : case_stmt) =
+  and ev_case_stmt env w cs =
     ev_word env w
     >>= fun (env, ss) ->
     match ss with
@@ -574,30 +582,30 @@ module Eval (M : MonadFail) = struct
           >>= fun (env, ptrns) ->
           (match List.filter (fun p -> Re.(execp (compile (Glob.glob p)) s)) ptrns with
           | [] -> helper env tl
-          | _ -> ev_pipeline_list env item)
+          | _ -> ev_pipe_list env item)
         | [] -> return { env with retcode = 0 }
       in
       helper env cs
     | _ -> fail "Illegal expansion in case statement"
 
   (** Evaluate arithmetic expression *)
-  and ev_arithm_expr env (a : arithm) =
+  and ev_arithm_expr env a =
     ev_arithm env a
     >>| fun (env, n) ->
     if n <> 0 then { env with retcode = 0 } else { env with retcode = 1 }
 
   (** Evaluate function *)
-  and ev_func env ((name, body) : func) = return (set_fun name body env)
+  and ev_func env ((name, body, rs) : func) = return (set_fun name (body, rs) env)
 
   (** Evaluate script element *)
   and ev_script_elem env = function
     | Func f -> ev_func env f
-    | Pipelines ps -> ev_pipeline_list env ps
+    | Pipes ps -> ev_pipe_list env ps
 
   (** Evaluate Bash script *)
   and ev_script env = function
-    | Empty -> return env
-    | Script (hd, tl) -> ev_script_elem env hd >>= fun env -> ev_script env tl
+    | [] -> return env
+    | hd :: tl -> ev_script_elem env hd >>= fun env -> ev_script env tl
   ;;
 end
 
@@ -692,7 +700,9 @@ struct
     | Error e ->
       Printf.printf "Error: %s\n" e;
       false
-    | Ok res when act_stdout = exp_stdout && act_stderr = exp_stderr && cnd res -> true
+    | Ok res
+      when T.cmp res exp && act_stdout = exp_stdout && act_stderr = exp_stderr && cnd res
+      -> true
     | Ok res ->
       print_string "\n-------------------- Input --------------------\n";
       T.pp_giv Format.std_formatter giv;
@@ -1223,7 +1233,7 @@ let%test _ =
 let%test _ =
   succ_ev
     ~tmpl:empty_env
-    (CmdSubst (Command ([], [ Word "echo"; Word "123 45" ])))
+    (CmdSubst (Simple ([], [ Word "echo"; Word "123 45" ], [])))
     (empty_env, [ "123"; "45" ])
 ;;
 
@@ -1409,308 +1419,6 @@ let%test _ =
     { empty_env with vars = SMap.singleton "X" (AssocArray (SMap.singleton "x" "y")) }
 ;;
 
-(* -------------------- Simple command -------------------- *)
-
-open TestMake (struct
-  type giv_t = cmd
-  type exp_t = environment
-
-  let pp_giv = pp_cmd
-  let pp_res = pp_environment
-  let ev = ev_cmd
-  let cmp = cmp_envs
-end)
-
-(* May also test sourced scripts in the future *)
-
-let%test _ =
-  succ_ev
-    (Assignt [ SimpleAssignt (("X", "0"), Word "a") ])
-    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "a")) }
-;;
-
-let%test _ =
-  succ_ev (Command ([], [ Word "echo"; Word "123" ])) empty_env ~exp_stdout:"123"
-;;
-
-let%test _ =
-  succ_ev
-    (Command ([], [ Word "echo"; Word "1"; BraceExp [ ArithmExp (Num 2); Word "3" ] ]))
-    empty_env
-    ~exp_stdout:"1 2 3"
-;;
-
-let%test _ =
-  let tmpl =
-    { empty_env with
-      funs =
-        SMap.singleton
-          "say_meow"
-          (SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []))
-    }
-  in
-  succ_ev ~tmpl (Command ([], [ Word "say_meow" ])) tmpl ~exp_stdout:"meow"
-;;
-
-let%test _ =
-  let tmpl =
-    { empty_env with
-      funs =
-        SMap.singleton
-          "cat"
-          (SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []))
-    }
-  in
-  succ_ev ~tmpl (Command ([], [ Word "cat" ])) tmpl ~exp_stdout:"meow"
-;;
-
-(* -------------------- While loop -------------------- *)
-
-open TestMake (struct
-  type giv_t = while_loop
-  type exp_t = environment
-
-  let pp_giv = pp_while_loop
-  let pp_res = pp_environment
-  let ev = ev_while_loop
-  let cmp = cmp_envs
-end)
-
-let%test _ =
-  succ_ev
-    ~tmpl:{ empty_env with retcode = 1 }
-    ( Pipeline (false, ArithmExpr (Num 0, []), [])
-    , Pipeline
-        (false, SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "1") ], []), [])
-    )
-    empty_env
-;;
-
-let%test _ =
-  succ_ev
-    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "0")) }
-    ( Pipeline (false, ArithmExpr (Less (Var ("X", "0"), Num 5), []), [])
-    , Pipeline
-        ( false
-        , SimpleCommand
-            ( Assignt
-                [ SimpleAssignt (("X", "0"), ArithmExp (Plus (Var ("X", "0"), Num 1))) ]
-            , [] )
-        , [] ) )
-    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "5")) }
-;;
-
-(* -------------------- For loop (list form) -------------------- *)
-
-open TestMake (struct
-  type giv_t = for_list_loop
-  type exp_t = environment
-
-  let pp_giv = pp_for_list_loop
-  let pp_res = pp_environment
-  let ev = ev_for_list_loop
-  let cmp = cmp_envs
-end)
-
-let%test _ =
-  succ_ev
-    ~tmpl:{ empty_env with retcode = 1 }
-    ( "i"
-    , []
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []), [])
-    )
-    { empty_env with retcode = 0 }
-;;
-
-let%test _ =
-  succ_ev
-    ( "i"
-    , [ Word "a"; Word "b"; BraceExp [ Word "c"; Word "d" ] ]
-    , Pipeline
-        ( false
-        , SimpleCommand (Command ([], [ Word "echo"; ParamExp (Param ("i", "0")) ]), [])
-        , [] ) )
-    { empty_env with vars = SMap.singleton "i" (IndArray (IMap.singleton 0 "d")) }
-    ~exp_stdout:"abcd"
-;;
-
-(* -------------------- For loop (expression form) -------------------- *)
-
-open TestMake (struct
-  type giv_t = for_expr_loop
-  type exp_t = environment
-
-  let pp_giv = pp_for_expr_loop
-  let pp_res = pp_environment
-  let ev = ev_for_expr_loop
-  let cmp = cmp_envs
-end)
-
-let%test _ =
-  succ_ev
-    ~tmpl:{ empty_env with retcode = 1 }
-    ( Num 1
-    , Num 0
-    , ArithmAssignt (("i", "0"), Num 2)
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []), [])
-    )
-    empty_env
-;;
-
-let%test _ =
-  succ_ev
-    ( ArithmAssignt (("i", "0"), Num 0)
-    , Less (Var ("i", "0"), Num 5)
-    , ArithmAssignt (("i", "0"), Plus (Var ("i", "0"), Num 1))
-    , Pipeline
-        ( false
-        , SimpleCommand (Command ([], [ Word "echo"; ParamExp (Param ("i", "0")) ]), [])
-        , [] ) )
-    { empty_env with vars = SMap.singleton "i" (IndArray (IMap.singleton 0 "5")) }
-    ~exp_stdout:"01234"
-;;
-
-(* -------------------- If statement -------------------- *)
-
-open TestMake (struct
-  type giv_t = if_stmt
-  type exp_t = environment
-
-  let pp_giv = pp_if_stmt
-  let pp_res = pp_environment
-  let ev = ev_if_stmt
-  let cmp = cmp_envs
-end)
-
-let%test _ =
-  succ_ev
-    ~tmpl:{ empty_env with retcode = 1 }
-    ( Pipeline (false, ArithmExpr (Num 0, []), [])
-    , Pipeline
-        (false, SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "1") ], []), [])
-    , None )
-    empty_env
-;;
-
-let%test _ =
-  succ_ev
-    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "123")) }
-    ( Pipeline (false, ArithmExpr (Equal (Var ("X", "0"), Num 123), []), [])
-    , Pipeline
-        (false, SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "1") ], []), [])
-    , None )
-    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "1")) }
-;;
-
-let%test _ =
-  succ_ev
-    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "abc")) }
-    ( Pipeline (false, ArithmExpr (Equal (Var ("X", "0"), Num 123), []), [])
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "yes" ]), []), [])
-    , Some
-        (Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "no" ]), []), []))
-    )
-    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "abc")) }
-    ~exp_stdout:"no"
-;;
-
-(* -------------------- Case statement -------------------- *)
-
-open TestMake (struct
-  type giv_t = case_stmt
-  type exp_t = environment
-
-  let pp_giv = pp_case_stmt
-  let pp_res = pp_environment
-  let ev = ev_case_stmt
-  let cmp = cmp_envs
-end)
-
-let%test _ = succ_ev ~tmpl:{ empty_env with retcode = 1 } (Word "a", []) empty_env
-
-let%test _ =
-  succ_ev
-    ~tmpl:{ empty_env with retcode = 1 }
-    ( Word "a"
-    , [ ( [ Word "b" ]
-        , Pipeline
-            (false, SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []), []) )
-      ] )
-    empty_env
-;;
-
-let%test _ =
-  succ_ev
-    ( Word "abacab"
-    , [ ( [ Word "mmm"; Word "a*b" ]
-        , Pipeline
-            (false, SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []), []) )
-      ] )
-    empty_env
-    ~exp_stdout:"meow"
-;;
-
-let%test _ =
-  succ_ev
-    ( Word "a"
-    , [ ( [ Word "a" ]
-        , Pipeline
-            (false, SimpleCommand (Command ([], [ Word "echo"; Word "meow1" ]), []), []) )
-      ; ( [ Word "a" ]
-        , Pipeline
-            (false, SimpleCommand (Command ([], [ Word "echo"; Word "meow2" ]), []), []) )
-      ] )
-    empty_env
-    ~exp_stdout:"meow1"
-;;
-
-let%test _ =
-  fail_ev
-    ( BraceExp [ Word "a"; Word "b" ]
-    , [ ( [ Word "b" ]
-        , Pipeline
-            (false, SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []), []) )
-      ] )
-    "Illegal expansion in case statement"
-;;
-
-let%test _ =
-  fail_ev
-    ( Word "a"
-    , [ ( [ BraceExp [ Word "a"; Word "b" ] ]
-        , Pipeline
-            (false, SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []), []) )
-      ] )
-    "Illegal expansion in case statement item"
-;;
-
-(* -------------------- Arithmetic expression -------------------- *)
-
-open TestMake (struct
-  type giv_t = arithm
-  type exp_t = environment
-
-  let pp_giv = pp_arithm
-  let pp_res = pp_environment
-  let ev = ev_arithm_expr
-  let cmp = cmp_envs
-end)
-
-let%test _ = succ_ev (Num 0) { empty_env with retcode = 1 }
-let%test _ = succ_ev (Num 1) { empty_env with retcode = 0 }
-let%test _ = succ_ev (Less (Num 1, Num 5)) { empty_env with retcode = 0 }
-
-let%test _ =
-  succ_ev
-    (ArithmAssignt (("x", "0"), Num 5))
-    { empty_env with
-      vars = SMap.singleton "x" (IndArray (IMap.singleton 0 "5"))
-    ; retcode = 0
-    }
-;;
-
-let%test _ = fail_ev (Div (Num 5, Num 0)) "Division by 0"
-
 (* -------------------- Redirection -------------------- *)
 
 open TestMake (struct
@@ -1799,6 +1507,93 @@ let%test _ =
 let%test _ = fail_ev (DuplInp (0, Word "4")) (Printf.sprintf "%i: Bad file descriptor" 4)
 let%test _ = fail_ev (DuplInp (0, Word "a")) (Printf.sprintf "%s: ambiguous redirect" "a")
 
+(* -------------------- Command -------------------- *)
+
+open TestMake (struct
+  type giv_t = cmd
+  type exp_t = environment
+
+  let pp_giv = pp_cmd
+  let pp_res = pp_environment
+  let ev = ev_cmd
+  let cmp = cmp_envs
+end)
+
+(* May also test sourced scripts in the future *)
+
+let%test _ =
+  succ_ev
+    (Simple ([ SimpleAssignt (("X", "0"), Word "a") ], [], []))
+    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "a")) }
+;;
+
+let%test _ =
+  succ_ev (Simple ([], [ Word "echo"; Word "123" ], [])) empty_env ~exp_stdout:"123"
+;;
+
+let%test _ =
+  succ_ev
+    (Simple ([], [ Word "echo"; Word "123" ], [ DuplOtp (1, Word "2") ]))
+    empty_env
+    ~exp_stderr:"123"
+;;
+
+let%test _ =
+  succ_ev
+    (Simple ([], [ Word "echo"; Word "1"; BraceExp [ ArithmExp (Num 2); Word "3" ] ], []))
+    empty_env
+    ~exp_stdout:"1 2 3"
+;;
+
+let%test _ =
+  let tmpl =
+    { empty_env with
+      funs =
+        SMap.singleton
+          "say_meow"
+          (Group [ Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), []) ], [])
+    }
+  in
+  succ_ev ~tmpl (Simple ([], [ Word "say_meow" ], [])) tmpl ~exp_stdout:"meow"
+;;
+
+let%test _ =
+  let tmpl =
+    { empty_env with
+      funs =
+        SMap.singleton
+          "cat"
+          (Group [ Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), []) ], [])
+    }
+  in
+  succ_ev ~tmpl (Simple ([], [ Word "cat" ], [])) tmpl ~exp_stdout:"meow"
+;;
+
+let%test _ =
+  let tmpl =
+    { empty_env with
+      funs =
+        SMap.singleton
+          "say_meow"
+          ( Group [ Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), []) ]
+          , [ DuplOtp (1, Word "2") ] )
+    }
+  in
+  succ_ev ~tmpl (Simple ([], [ Word "say_meow" ], [])) tmpl ~exp_stderr:"meow"
+;;
+
+let%test _ =
+  succ_ev
+    (Compound
+       ( If
+           ( Pipe (false, Compound (ArithmExpr (Num 1), []), [])
+           , Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), [])
+           , None )
+       , [ DuplOtp (1, Word "2") ] ))
+    empty_env
+    ~exp_stderr:"meow"
+;;
+
 (* -------------------- Compound -------------------- *)
 
 open TestMake (struct
@@ -1811,52 +1606,254 @@ open TestMake (struct
   let cmp = cmp_envs
 end)
 
+(* Group *)
+
 let%test _ =
   succ_ev
-    (SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), [ DuplOtp (1, Word "2") ]))
+    ~tmpl:{ empty_env with retcode = 1 }
+    (Group [ Pipe (false, Compound (ArithmExpr (Num 1), []), []) ])
     empty_env
-    ~exp_stderr:"meow"
 ;;
 
 let%test _ =
   succ_ev
-    (If
-       ( ( Pipeline (false, ArithmExpr (Num 1, []), [])
-         , Pipeline
-             (false, SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []), [])
-         , None )
-       , [ DuplOtp (1, Word "2") ] ))
-    empty_env
-    ~exp_stderr:"meow"
+    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "0")) }
+    (Group
+       [ Pipe (false, Compound (ArithmExpr (ArithmAssignt (("X", "0"), Num 5)), []), []) ])
+    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "5")) }
 ;;
+
+let%test _ =
+  succ_ev
+    (Group
+       [ Pipe (false, Simple ([ SimpleAssignt (("X", "0"), Word "1") ], [], []), [])
+       ; Pipe (true, Simple ([ SimpleAssignt (("X", "0"), Word "2") ], [], []), [])
+       ])
+    { empty_env with
+      vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "2"))
+    ; retcode = 1
+    }
+;;
+
+(* While loop *)
+
+let%test _ =
+  succ_ev
+    ~tmpl:{ empty_env with retcode = 1 }
+    (While
+       ( Pipe (false, Compound (ArithmExpr (Num 0), []), [])
+       , Pipe (false, Simple ([ SimpleAssignt (("X", "0"), Word "1") ], [], []), []) ))
+    empty_env
+;;
+
+let%test _ =
+  succ_ev
+    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "0")) }
+    (While
+       ( Pipe (false, Compound (ArithmExpr (Less (Var ("X", "0"), Num 5)), []), [])
+       , Pipe
+           ( false
+           , Simple
+               ( [ SimpleAssignt (("X", "0"), ArithmExp (Plus (Var ("X", "0"), Num 1))) ]
+               , []
+               , [] )
+           , [] ) ))
+    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "5")) }
+;;
+
+(* For loop (list form) *)
+
+let%test _ =
+  succ_ev
+    ~tmpl:{ empty_env with retcode = 1 }
+    (ForList ("i", [], Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), [])))
+    { empty_env with retcode = 0 }
+;;
+
+let%test _ =
+  succ_ev
+    (ForList
+       ( "i"
+       , [ Word "a"; Word "b"; BraceExp [ Word "c"; Word "d" ] ]
+       , Pipe (false, Simple ([], [ Word "echo"; ParamExp (Param ("i", "0")) ], []), [])
+       ))
+    { empty_env with vars = SMap.singleton "i" (IndArray (IMap.singleton 0 "d")) }
+    ~exp_stdout:"abcd"
+;;
+
+(* For loop (expression form) *)
+
+let%test _ =
+  succ_ev
+    ~tmpl:{ empty_env with retcode = 1 }
+    (ForExpr
+       ( Num 1
+       , Num 0
+       , ArithmAssignt (("i", "0"), Num 2)
+       , Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), []) ))
+    empty_env
+;;
+
+let%test _ =
+  succ_ev
+    (ForExpr
+       ( ArithmAssignt (("i", "0"), Num 0)
+       , Less (Var ("i", "0"), Num 5)
+       , ArithmAssignt (("i", "0"), Plus (Var ("i", "0"), Num 1))
+       , Pipe (false, Simple ([], [ Word "echo"; ParamExp (Param ("i", "0")) ], []), [])
+       ))
+    { empty_env with vars = SMap.singleton "i" (IndArray (IMap.singleton 0 "5")) }
+    ~exp_stdout:"01234"
+;;
+
+(* If statement *)
+
+let%test _ =
+  succ_ev
+    ~tmpl:{ empty_env with retcode = 1 }
+    (If
+       ( Pipe (false, Compound (ArithmExpr (Num 0), []), [])
+       , Pipe (false, Simple ([ SimpleAssignt (("X", "0"), Word "1") ], [], []), [])
+       , None ))
+    empty_env
+;;
+
+let%test _ =
+  succ_ev
+    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "123")) }
+    (If
+       ( Pipe (false, Compound (ArithmExpr (Equal (Var ("X", "0"), Num 123)), []), [])
+       , Pipe (false, Simple ([ SimpleAssignt (("X", "0"), Word "1") ], [], []), [])
+       , None ))
+    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "1")) }
+;;
+
+let%test _ =
+  succ_ev
+    ~tmpl:{ empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "abc")) }
+    (If
+       ( Pipe (false, Compound (ArithmExpr (Equal (Var ("X", "0"), Num 123)), []), [])
+       , Pipe (false, Simple ([], [ Word "echo"; Word "yes" ], []), [])
+       , Some (Pipe (false, Simple ([], [ Word "echo"; Word "no" ], []), [])) ))
+    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "abc")) }
+    ~exp_stdout:"no"
+;;
+
+(* Case statement *)
+
+let%test _ = succ_ev ~tmpl:{ empty_env with retcode = 1 } (Case (Word "a", [])) empty_env
+
+let%test _ =
+  succ_ev
+    ~tmpl:{ empty_env with retcode = 1 }
+    (Case
+       ( Word "a"
+       , [ [ Word "b" ], Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), []) ]
+       ))
+    empty_env
+;;
+
+let%test _ =
+  succ_ev
+    (Case
+       ( Word "abacab"
+       , [ ( [ Word "mmm"; Word "a*b" ]
+           , Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), []) )
+         ] ))
+    empty_env
+    ~exp_stdout:"meow"
+;;
+
+let%test _ =
+  succ_ev
+    (Case
+       ( Word "a"
+       , [ [ Word "a" ], Pipe (false, Simple ([], [ Word "echo"; Word "meow1" ], []), [])
+         ; [ Word "a" ], Pipe (false, Simple ([], [ Word "echo"; Word "meow2" ], []), [])
+         ] ))
+    empty_env
+    ~exp_stdout:"meow1"
+;;
+
+let%test _ =
+  fail_ev
+    (Case
+       ( BraceExp [ Word "a"; Word "b" ]
+       , [ [ Word "b" ], Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), []) ]
+       ))
+    "Illegal expansion in case statement"
+;;
+
+let%test _ =
+  fail_ev
+    (Case
+       ( Word "a"
+       , [ ( [ BraceExp [ Word "a"; Word "b" ] ]
+           , Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), []) )
+         ] ))
+    "Illegal expansion in case statement item"
+;;
+
+(* -------------------- Arithmetic expression -------------------- *)
+
+open TestMake (struct
+  type giv_t = arithm
+  type exp_t = environment
+
+  let pp_giv = pp_arithm
+  let pp_res = pp_environment
+  let ev = ev_arithm_expr
+  let cmp = cmp_envs
+end)
+
+let%test _ = succ_ev (Num 0) { empty_env with retcode = 1 }
+let%test _ = succ_ev (Num 1) { empty_env with retcode = 0 }
+let%test _ = succ_ev (Less (Num 1, Num 5)) { empty_env with retcode = 0 }
+
+let%test _ =
+  succ_ev
+    (ArithmAssignt (("x", "0"), Num 5))
+    { empty_env with
+      vars = SMap.singleton "x" (IndArray (IMap.singleton 0 "5"))
+    ; retcode = 0
+    }
+;;
+
+let%test _ = fail_ev (Div (Num 5, Num 0)) "Division by 0"
 
 (* -------------------- Pipeline -------------------- *)
 
 open TestMake (struct
-  type giv_t = pipeline
+  type giv_t = pipe
   type exp_t = environment
 
-  let pp_giv = pp_pipeline
+  let pp_giv = pp_pipe
   let pp_res = pp_environment
-  let ev = ev_pipeline
+  let ev = ev_pipe
   let cmp = cmp_envs
 end)
 
 let%test _ =
   succ_ev
-    (false, SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "1") ], []), [])
+    (false, Simple ([ SimpleAssignt (("X", "0"), Word "1") ], [], []), [])
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "1")) }
 ;;
 
-let%test _ = succ_ev (false, ArithmExpr (Num 0, []), []) { empty_env with retcode = 1 }
-let%test _ = succ_ev (true, ArithmExpr (Num 0, []), []) empty_env
-let%test _ = succ_ev (true, ArithmExpr (Num 100, []), []) { empty_env with retcode = 1 }
+let%test _ =
+  succ_ev (false, Compound (ArithmExpr (Num 0), []), []) { empty_env with retcode = 1 }
+;;
+
+let%test _ = succ_ev (true, Compound (ArithmExpr (Num 0), []), []) empty_env
+
+let%test _ =
+  succ_ev (true, Compound (ArithmExpr (Num 100), []), []) { empty_env with retcode = 1 }
+;;
 
 let%test _ =
   succ_ev
     ( false
-    , SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), [])
-    , [ SimpleCommand (Command ([], [ Word "cat" ]), [ DuplOtp (1, Word "2") ]) ] )
+    , Simple ([], [ Word "echo"; Word "meow" ], [])
+    , [ Simple ([], [ Word "cat" ], [ DuplOtp (1, Word "2") ]) ] )
     empty_env
     ~exp_stderr:"meow"
 ;;
@@ -1864,9 +1861,8 @@ let%test _ =
 let%test _ =
   succ_ev
     ( false
-    , SimpleCommand
-        (Command ([], [ Word "echo"; Word "meow1" ]), [ DuplOtp (1, Word "2") ])
-    , [ SimpleCommand (Command ([], [ Word "echo"; Word "meow2" ]), []) ] )
+    , Simple ([], [ Word "echo"; Word "meow1" ], [ DuplOtp (1, Word "2") ])
+    , [ Simple ([], [ Word "echo"; Word "meow2" ], []) ] )
     empty_env
     ~exp_stdout:"meow2"
     ~exp_stderr:"meow1"
@@ -1875,66 +1871,58 @@ let%test _ =
 let%test _ =
   succ_ev
     ( false
-    , SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "1") ], [])
-    , [ SimpleCommand (Command ([], [ Word "echo"; ParamExp (Param ("X", "0")) ]), []) ]
-    )
+    , Simple ([ SimpleAssignt (("X", "0"), Word "1") ], [], [])
+    , [ Simple ([], [ Word "echo"; ParamExp (Param ("X", "0")) ], []) ] )
     empty_env
 ;;
 
 (* -------------------- Pipeline list -------------------- *)
 
 open TestMake (struct
-  type giv_t = pipeline_list
+  type giv_t = pipe_list
   type exp_t = environment
 
-  let pp_giv = pp_pipeline_list
+  let pp_giv = pp_pipe_list
   let pp_res = pp_environment
-  let ev = ev_pipeline_list
+  let ev = ev_pipe_list
   let cmp = cmp_envs
 end)
 
 let%test _ =
   succ_ev
-    (PipelineAndList
-       ( (false, SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "a") ], []), [])
-       , Pipeline
-           ( false
-           , SimpleCommand (Command ([], [ Word "echo"; ParamExp (Param ("X", "0")) ]), [])
-           , [] ) ))
+    (PipeAndList
+       ( (false, Simple ([ SimpleAssignt (("X", "0"), Word "a") ], [], []), [])
+       , Pipe (false, Simple ([], [ Word "echo"; ParamExp (Param ("X", "0")) ], []), [])
+       ))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "a")) }
     ~exp_stdout:"a"
 ;;
 
 let%test _ =
   succ_ev
-    (PipelineAndList
-       ( (true, SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "a") ], []), [])
-       , Pipeline
-           ( false
-           , SimpleCommand (Command ([], [ Word "echo"; ParamExp (Param ("X", "0")) ]), [])
-           , [] ) ))
+    (PipeAndList
+       ( (true, Simple ([ SimpleAssignt (("X", "0"), Word "a") ], [], []), [])
+       , Pipe (false, Simple ([], [ Word "echo"; ParamExp (Param ("X", "0")) ], []), [])
+       ))
+    { empty_env with
+      vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "a"))
+    ; retcode = 1
+    }
+;;
+
+let%test _ =
+  succ_ev
+    (PipeOrList
+       ( (false, Simple ([ SimpleAssignt (("X", "0"), Word "a") ], [], []), [])
+       , Pipe (false, Simple ([ SimpleAssignt (("X", "0"), Word "b") ], [], []), []) ))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "a")) }
 ;;
 
 let%test _ =
   succ_ev
-    (PipelineOrList
-       ( (false, SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "a") ], []), [])
-       , Pipeline
-           ( false
-           , SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "b") ], [])
-           , [] ) ))
-    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "a")) }
-;;
-
-let%test _ =
-  succ_ev
-    (PipelineOrList
-       ( (true, SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "a") ], []), [])
-       , Pipeline
-           ( false
-           , SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "b") ], [])
-           , [] ) ))
+    (PipeOrList
+       ( (true, Simple ([ SimpleAssignt (("X", "0"), Word "a") ], [], []), [])
+       , Pipe (false, Simple ([ SimpleAssignt (("X", "0"), Word "b") ], [], []), []) ))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "b")) }
 ;;
 
@@ -1952,12 +1940,28 @@ end)
 
 let%test _ =
   succ_ev
-    ("say_meow", SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []))
+    ( "say_meow"
+    , Group [ Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), []) ]
+    , [] )
     { empty_env with
       funs =
         SMap.singleton
           "say_meow"
-          (SimpleCommand (Command ([], [ Word "echo"; Word "meow" ]), []))
+          (Group [ Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), []) ], [])
+    }
+;;
+
+let%test _ =
+  succ_ev
+    ( "say_meow"
+    , Group [ Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), []) ]
+    , [ RedirInp (0, Word "inp.txt") ] )
+    { empty_env with
+      funs =
+        SMap.singleton
+          "say_meow"
+          ( Group [ Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), []) ]
+          , [ RedirInp (0, Word "inp.txt") ] )
     }
 ;;
 
@@ -1973,7 +1977,7 @@ open TestMake (struct
   let cmp = cmp_envs
 end)
 
-let%test _ = succ_ev Empty empty_env
+let%test _ = succ_ev [] empty_env
 
 let%test _ =
   match
@@ -1990,26 +1994,20 @@ f
         funs =
           SMap.singleton
             "f"
-            (If
-               ( ( Pipeline (false, ArithmExpr (Equal (Var ("ABC", "0"), Num 0), []), [])
-                 , PipelineAndList
-                     ( ( false
-                       , SimpleCommand (Command ([], [ Word "echo"; Word "yes" ]), [])
-                       , [] )
-                     , PipelineAndList
-                         ( ( false
-                           , SimpleCommand
-                               (Assignt [ SimpleAssignt (("ABC", "0"), Word "1") ], [])
-                           , [] )
-                         , Pipeline
-                             (false, SimpleCommand (Command ([], [ Word "f" ]), []), [])
-                         ) )
-                 , Some
-                     (Pipeline
-                        ( false
-                        , SimpleCommand (Command ([], [ Word "echo"; Word "no" ]), [])
-                        , [] )) )
-               , [] ))
+            ( If
+                ( Pipe
+                    ( false
+                    , Compound (ArithmExpr (Equal (Var ("ABC", "0"), Num 0)), [])
+                    , [] )
+                , PipeAndList
+                    ( (false, Simple ([], [ Word "echo"; Word "yes" ], []), [])
+                    , PipeAndList
+                        ( ( false
+                          , Simple ([ SimpleAssignt (("ABC", "0"), Word "1") ], [], [])
+                          , [] )
+                        , Pipe (false, Simple ([], [ Word "f" ], []), []) ) )
+                , Some (Pipe (false, Simple ([], [ Word "echo"; Word "no" ], []), [])) )
+            , [] )
       }
       ~exp_stdout:"yesno"
   | Error _ -> false
@@ -2017,7 +2015,7 @@ f
 
 let%test _ =
   match Parser.parse {|
-f () echo $1 $2
+f () { echo $1 $2 }
 f a b
 |} with
   | Ok ast ->
@@ -2027,14 +2025,19 @@ f a b
         funs =
           SMap.singleton
             "f"
-            (SimpleCommand
-               ( Command
-                   ( []
-                   , [ Word "echo"
-                     ; ParamExp (Param ("1", "0"))
-                     ; ParamExp (Param ("2", "0"))
-                     ] )
-               , [] ))
+            ( Group
+                [ Pipe
+                    ( false
+                    , Simple
+                        ( []
+                        , [ Word "echo"
+                          ; ParamExp (Param ("1", "0"))
+                          ; ParamExp (Param ("2", "0"))
+                          ]
+                        , [] )
+                    , [] )
+                ]
+            , [] )
       }
       ~exp_stdout:"a b"
   | Error _ -> false

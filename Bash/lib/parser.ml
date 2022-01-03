@@ -11,6 +11,21 @@ let chainl1 e op =
   e >>= fun init -> go init
 ;;
 
+(** [choice_sep_by1 sep p1 p2] parses one or more elements separated by [sep] using [p1]
+or [p2] returning the results *)
+let either_sep_by1 s p1 p2 =
+  fix (fun m ->
+      lift2
+        (fun (e1, e2) (l1, l2) ->
+          match e1, e2 with
+          | Some e1, Some e2 -> e1 :: l1, e2 :: l2
+          | Some e, None -> e :: l1, l2
+          | None, Some e -> l1, e :: l2
+          | None, None -> l1, l2)
+        (p1 >>| (fun e -> Some e, None) <|> (p2 >>| fun e -> None, Some e))
+        (s *> m <|> return ([], [])))
+;;
+
 (** Integer parser *)
 let int_p =
   option "" (string "+" <|> string "-")
@@ -37,6 +52,8 @@ let reserved =
   ; "case"
   ; "esac"
   ; "function"
+  ; "{"
+  ; "}"
   ; "!"
   ]
 ;;
@@ -56,7 +73,9 @@ let is_delim = function
   | _ -> false
 ;;
 
+let delim = take_while is_delim
 let delim1 = take_while1 is_delim
+let sc_delim1 = string ";" <|> delim1
 
 let is_meta = function
   | '|' | '&' | ';' | '(' | ')' | '<' | '>' -> true
@@ -66,6 +85,12 @@ let is_meta = function
 
 let meta = take_while is_meta
 let non_meta = take_while1 (fun c -> not (is_meta c))
+
+(** Reserved words in the middle of compounds *)
+let ctrl_m s = sc_delim1 *> many (delim1 <|> blank1) *> string s <* many delim1
+
+(** Reserved words at the end of compounds *)
+let ctrl_e s = sc_delim1 *> many (delim1 <|> blank1) *> string s
 
 (* -------------------- Variables -------------------- *)
 
@@ -122,20 +147,21 @@ let arithm_p =
       asnt <|> equl)
 ;;
 
-(* -------------------- Word, expansions and simple command -------------------- *)
+(* -------------------- Word and expansions -------------------- *)
 
 (** Word parser. Parameters determine which expansions may be performed. *)
 let rec word_p ?(brc = true) ?(prm = true) ?(cmd = true) ?(ari = true) ?(fln = true) () =
-  let skip = fail "Expansion not requested" in
-  (if brc then brace_exp () else skip)
-  <|> (if prm then param_exp_p >>| fun p -> ParamExp p else skip)
-  <|> (if cmd then inn_cmd_subst () else skip)
-  <|> (if ari then arithm_exp else skip)
-  <|> (if fln then filename_exp else skip)
-  <|> (non_meta
-      >>= function
-      | s when List.mem s reserved -> fail "Reserved string"
-      | s -> return (Word s))
+  fix (fun _ ->
+      let skip = fail "Expansion not requested" in
+      (if brc then brace_exp () else skip)
+      <|> (if prm then param_exp_p >>| fun p -> ParamExp p else skip)
+      <|> (if cmd then inn_cmd_subst () else skip)
+      <|> (if ari then arithm_exp else skip)
+      <|> (if fln then filename_exp else skip)
+      <|> (non_meta
+          >>= function
+          | s when List.mem s reserved -> fail "Reserved string"
+          | s -> return (Word s)))
 
 (** Brace expansion *)
 and brace_exp () =
@@ -273,6 +299,8 @@ and filename_exp =
   | w when Base.String.exists ~f:fn_char w -> return (FilenameExp w)
   | _ -> fail "Not a filename pattern"
 
+(* -------------------- Assignment -------------------- *)
+
 (** Inner assignment parser to use for mutual recursion *)
 and inn_assignt_p () =
   let word = word_p ~brc:false ~fln:false in
@@ -280,44 +308,21 @@ and inn_assignt_p () =
     var_p
     >>= fun v -> char '=' *> option (Word "") (word ()) >>| fun w -> SimpleAssignt (v, w)
   in
-  let cmpnd p c =
+  let compound p c =
     name >>= fun n -> char '=' *> parens (sep_by1 blank (p ())) >>| fun vs -> c n vs
   in
-  let ind = cmpnd word (fun n ws -> IndArrAssignt (n, ws)) in
+  let ind = compound word (fun n ws -> IndArrAssignt (n, ws)) in
   let assoc =
-    cmpnd
+    compound
       (fun () -> name <* char '=' >>= fun k -> word () >>| fun v -> k, v)
       (fun n ps -> AssocArrAssignt (n, ps))
   in
   assoc <|> ind <|> simple
 
-(** Inner simple command parser to use for mutual recursion *)
-and inn_cmd_p () =
-  let word = word_p in
-  let blank_if_ne = function
-    | _ :: _ -> blank
-    | [] -> peek_string 0
-  in
-  sep_by blank (inn_assignt_p ())
-  >>= fun assignts ->
-  option [] (blank_if_ne assignts *> sep_by1 blank (word ()))
-  >>= fun words ->
-  match assignts, words with
-  | _, _ :: _ -> return (Command (assignts, words))
-  | _ :: _, [] -> return (Assignt assignts)
-  | [], [] -> fail "Empty simple command"
-;;
+(* -------------------- Redirection -------------------- *)
 
-(** Assignment parser *)
-let assignt_p = inn_assignt_p ()
-
-(** Simple command parser *)
-let cmd_p = inn_cmd_p ()
-
-(* -------------------- Command list, pipeline and compounds -------------------- *)
-
-(** Redirection parser *)
-let redir_p =
+(** Inner redirection parser to use for mutual recursion *)
+and inn_redir_p () =
   let word = word_p in
   let parse_by s d act =
     option d int_p >>= fun fd -> string s *> blank *> word () >>| act fd
@@ -327,65 +332,40 @@ let redir_p =
   <|> parse_by ">&" 1 (fun fd w -> DuplOtp (fd, w))
   <|> parse_by "<" 0 (fun fd w -> RedirInp (fd, w))
   <|> parse_by ">" 1 (fun fd w -> RedirOtp (fd, w))
-;;
 
-(** Helper functions to parse reserved words in the middle of compounds *)
-let ctrl_m s =
-  (string ";" <|> delim1) *> many (delim1 <|> blank1) *> string s <* many delim1
-;;
-
-(** Helper functions to parse reserved words in the end of compounds *)
-let ctrl_e s = (string ";" <|> delim1) *> many (delim1 <|> blank1) *> string s
-
-(** Inner pipeline list parser to use for mutual recursion *)
-let rec inn_pipeline_list_p () =
-  let parse_tail sep = blank *> string sep *> trim (inn_pipeline_list_p ()) in
-  inn_pipeline_p ()
-  >>= fun hd ->
-  parse_tail "&&"
-  >>| (fun tl -> PipelineAndList (hd, tl))
-  <|> (parse_tail "||" >>| fun tl -> PipelineOrList (hd, tl))
-  <|> return (Pipeline hd)
-
-(** Inner pipeline parser to use for mutual recursion *)
-and inn_pipeline_p () =
-  option false (char '!' <* blank1 >>| fun _ -> true)
-  >>= fun neg ->
-  inn_compound_p ()
-  >>= fun hd ->
-  option [] (blank *> char '|' *> sep_by1 (char '|') (trim (inn_compound_p ())))
-  >>| fun tl -> neg, hd, tl
+(* -------------------- Compound command -------------------- *)
 
 (** Inner compound command parser to use for mutual recursion *)
 and inn_compound_p () =
-  let parse_by p act =
-    p >>= fun c -> option [] (blank *> sep_by1 blank redir_p) >>| act c
+  let td p =
+    let d = blank1 <|> sc_delim1 in
+    many d *> p <* many d
   in
-  parse_by (inn_while_loop_p ()) (fun c rs -> While (c, rs))
-  <|> parse_by (inn_for_list_loop_p ()) (fun c rs -> ForList (c, rs))
-  <|> parse_by (inn_for_expr_loop_p ()) (fun c rs -> ForExpr (c, rs))
-  <|> parse_by (inn_if_stmt_p ()) (fun c rs -> If (c, rs))
-  <|> parse_by (inn_case_stmt_p ()) (fun c rs -> Case (c, rs))
-  <|> parse_by
-        (string "((" *> trim arithm_p <* string "))")
-        (fun c rs -> ArithmExpr (c, rs))
-  <|> parse_by cmd_p (fun c rs -> SimpleCommand (c, rs))
+  char '{' *> td (sep_by1 sc_delim1 (trim (inn_pipe_list_p ())))
+  <* char '}'
+  >>| (fun pl -> Group pl)
+  <|> (inn_while_loop_p () >>| fun (cnd, act) -> While (cnd, act))
+  <|> (inn_for_list_loop_p () >>| fun (n, ws, act) -> ForList (n, ws, act))
+  <|> (inn_for_expr_loop_p () >>| fun (e1, e2, e3, act) -> ForExpr (e1, e2, e3, act))
+  <|> (inn_if_stmt_p () >>| fun (cnd, thn, els) -> If (cnd, thn, els))
+  <|> (inn_case_stmt_p () >>| fun (w, cs) -> Case (w, cs))
+  <|> (string "((" *> td arithm_p <* string "))" >>| fun a -> ArithmExpr a)
 
 (** Inner while loop parser to use for mutual recursion *)
 and inn_while_loop_p () =
-  string "while" *> trim (inn_pipeline_list_p ())
+  string "while" *> trim (inn_pipe_list_p ())
   >>= fun cnd ->
-  ctrl_m "do" *> trim (inn_pipeline_list_p ()) <* ctrl_e "done" >>| fun act -> cnd, act
+  ctrl_m "do" *> trim (inn_pipe_list_p ()) <* ctrl_e "done" >>| fun act -> cnd, act
 
 (** Helper function to parse for loops in two forms *)
-and for_loop_with : 'a. 'a t -> ('a * pipeline_list) t =
+and for_loop_with : 'a. 'a t -> ('a * pipe_list) t =
  fun p ->
   string "for" *> trim p
   >>= fun cnd ->
-  ctrl_m "do" *> trim (inn_pipeline_list_p ()) <* ctrl_e "done" >>| fun act -> cnd, act
+  ctrl_m "do" *> trim (inn_pipe_list_p ()) <* ctrl_e "done" >>| fun act -> cnd, act
 
 (** Inner for loop (list form) parser to use for mutual recursion *)
-and inn_for_list_loop_p () : for_list_loop t =
+and inn_for_list_loop_p () =
   let word = word_p in
   let list_cnd =
     name >>= fun n -> trim (string "in") *> sep_by blank (word ()) >>| fun ws -> n, ws
@@ -393,7 +373,7 @@ and inn_for_list_loop_p () : for_list_loop t =
   for_loop_with list_cnd >>| fun ((n, ws), act) -> n, ws, act
 
 (** Inner for loop (expression form) parser to use for mutual recursion *)
-and inn_for_expr_loop_p () : for_expr_loop t =
+and inn_for_expr_loop_p () =
   let expr_cnd =
     let expr = trim (option (Num 1) arithm_p) in
     string "((" *> expr
@@ -405,11 +385,11 @@ and inn_for_expr_loop_p () : for_expr_loop t =
 
 (** Inner if statement parser to use for mutual recursion *)
 and inn_if_stmt_p () =
-  string "if" *> trim (inn_pipeline_list_p ())
+  string "if" *> trim (inn_pipe_list_p ())
   >>= fun cnd ->
-  ctrl_m "then" *> trim (inn_pipeline_list_p ())
+  ctrl_m "then" *> trim (inn_pipe_list_p ())
   >>= fun thn ->
-  option None (ctrl_m "else" *> trim (inn_pipeline_list_p ()) >>| fun els -> Some els)
+  option None (ctrl_m "else" *> trim (inn_pipe_list_p ()) >>| fun els -> Some els)
   <* ctrl_e "fi"
   >>| fun els -> cnd, thn, els
 
@@ -430,35 +410,77 @@ and inn_case_item_p () =
   let word = word_p ~brc:false ~fln:false in
   option ' ' (char '(') *> sep_by1 (char '|') (trim (word ()))
   <* char ')'
-  >>= fun ptrns -> trim (inn_pipeline_list_p ()) <* string ";;" >>| fun act -> ptrns, act
+  >>= fun ptrns -> trim (inn_pipe_list_p ()) <* string ";;" >>| fun act -> ptrns, act
+
+(* -------------------- Command -------------------- *)
+
+(** Inner simple command parser to use for mutual recursion *)
+and inn_simple_p () =
+  let word = word_p in
+  let blank_if_ne = function
+    | _ :: _ -> blank
+    | [] -> peek_string 0
+  in
+  sep_by blank (inn_assignt_p ())
+  >>= fun assignts ->
+  option ([], []) (blank_if_ne assignts *> either_sep_by1 blank (inn_redir_p ()) (word ()))
+  >>= fun (rs, ws) ->
+  match assignts, ws with
+  | _, _ :: _ | _ :: _, [] -> return (assignts, ws, rs)
+  | [], [] -> fail "Empty simple command"
+
+(** Inner command parser to use for mutual recursion *)
+and inn_cmd_p () =
+  inn_simple_p ()
+  >>| (fun (assignts, ws, rs) -> Simple (assignts, ws, rs))
+  <|> (inn_compound_p ()
+      >>= fun c ->
+      option [] (blank *> sep_by1 blank (inn_redir_p ())) >>| fun rs -> Compound (c, rs))
+
+(* -------------------- Pipe and pipe list -------------------- *)
+
+(** Inner pipe parser to use for mutual recursion *)
+and inn_pipe_p () =
+  option false (char '!' <* blank1 >>| fun _ -> true)
+  >>= fun neg ->
+  inn_cmd_p ()
+  >>= fun hd ->
+  option [] (blank *> char '|' *> sep_by1 (char '|') (trim (inn_cmd_p ())))
+  >>| fun tl -> neg, hd, tl
+
+(** Inner pipe list parser to use for mutual recursion *)
+and inn_pipe_list_p () =
+  let parse_tail sep = trim sep *> delim *> inn_pipe_list_p () in
+  inn_pipe_p ()
+  >>= fun hd ->
+  parse_tail (string "&&")
+  >>| (fun tl -> PipeAndList (hd, tl))
+  <|> (parse_tail (string "||") >>| fun tl -> PipeOrList (hd, tl))
+  <|> return (Pipe hd)
 ;;
 
-(** Pipeline list parser *)
-let pipeline_list_p = inn_pipeline_list_p ()
+(* -------------------- Mutually recursive parsers -------------------- *)
 
-(** Pipeline parser *)
-let pipeline_p = inn_pipeline_p ()
+(** Assignment parser *)
+let assignt_p = inn_assignt_p ()
 
-(** Compound parser *)
+(** Redirection parser *)
+let redir_p = inn_redir_p ()
+
+(** Simple command parser *)
+let simple_p = inn_simple_p ()
+
+(** Compound command *)
 let compound_p = inn_compound_p ()
 
-(** While loop parser *)
-let while_loop_p = inn_while_loop_p ()
+(** Command parser *)
+let cmd_p = inn_cmd_p ()
 
-(** For loop (list form) parser *)
-let for_list_loop_p = inn_for_list_loop_p ()
+(** Pipeline parser *)
+let pipe_p = inn_pipe_p ()
 
-(** For loop (expr form) parser *)
-let for_expr_loop_p = inn_for_expr_loop_p ()
-
-(** If statement parser *)
-let if_stmt_p = inn_if_stmt_p ()
-
-(** Case statement parser *)
-let case_stmt_p = inn_case_stmt_p ()
-
-(** Case item parser *)
-let case_item_p = inn_case_item_p ()
+(** Pipeline list parser *)
+let pipe_list_p = inn_pipe_list_p ()
 
 (* -------------------- Function -------------------- *)
 
@@ -468,26 +490,21 @@ let func_p : func t =
   <* option "" (string "()" <* blank)
   <|> (name <* trim (string "()"))
   <* many delim1
-  >>= fun n -> blank *> compound_p >>| fun body -> n, body
+  >>= fun n ->
+  blank *> compound_p
+  >>= fun body -> option [] (blank *> sep_by1 blank redir_p) >>| fun rs -> n, body, rs
 ;;
 
 (* -------------------- Script -------------------- *)
 
 (** Script element parser *)
-let script_elem_p =
-  func_p >>| (fun f -> Func f) <|> (pipeline_list_p >>| fun p -> Pipelines p)
-;;
+let script_elem_p = func_p >>| (fun f -> Func f) <|> (pipe_list_p >>| fun ps -> Pipes ps)
 
 (** Bash script parser *)
-let script_p =
+let script_p : script t =
   let gap = many (blank1 <|> delim1) in
   let gap1 = blank *> delim1 *> gap in
-  let rec helper g =
-    option
-      Empty
-      (g *> script_elem_p >>= fun hd -> helper gap1 >>| fun tl -> Script (hd, tl))
-  in
-  gap *> helper (return []) <* gap
+  gap *> sep_by gap1 script_elem_p <* gap
 ;;
 
 (* -------------------- Main parser function -------------------- *)
@@ -699,11 +716,13 @@ let succ_cmd_subst = succ_p pp_word (inn_cmd_subst ())
 let fail_cmd_subst = fail_p pp_word (inn_cmd_subst ())
 
 let%test _ =
-  succ_cmd_subst "$(X=2)" (CmdSubst (Assignt [ SimpleAssignt (("X", "0"), Word "2") ]))
+  succ_cmd_subst
+    "$(X=2)"
+    (CmdSubst (Simple ([ SimpleAssignt (("X", "0"), Word "2") ], [], [])))
 ;;
 
 let%test _ =
-  succ_cmd_subst "$(echo hey)" (CmdSubst (Command ([], [ Word "echo"; Word "hey" ])))
+  succ_cmd_subst "$(echo hey)" (CmdSubst (Simple ([], [ Word "echo"; Word "hey" ], [])))
 ;;
 
 let%test _ = fail_cmd_subst " $(X=2)"
@@ -764,7 +783,7 @@ let%test _ = succ_word_p "1{a,b}2" (BraceExp [ Word "1a2"; Word "1b2" ])
 let%test _ = succ_word_p "$A" (ParamExp (Param ("A", "0")))
 
 let%test _ =
-  succ_word_p "$(cmd arg)" (CmdSubst (Command ([], [ Word "cmd"; Word "arg" ])))
+  succ_word_p "$(cmd arg)" (CmdSubst (Simple ([], [ Word "cmd"; Word "arg" ], [])))
 ;;
 
 let%test _ = succ_word_p "$((3 / 1))" (ArithmExp (Div (Num 3, Num 1)))
@@ -775,77 +794,6 @@ let%test _ = fail_word_p " something "
 let%test _ = fail_word_p "if"
 let%test _ = succ_word_p ~b:false "1{a,b}2" (Word "1{a,b}2")
 let%test _ = succ_word_p ~f:false "?.a" (Word "?.a")
-
-(* -------------------- Simple command -------------------- *)
-
-let succ_cmd_p = succ_p pp_cmd cmd_p
-let fail_cmd_p = fail_p pp_cmd cmd_p
-
-let%test _ = succ_cmd_p "A=123" (Assignt [ SimpleAssignt (("A", "0"), Word "123") ])
-let%test _ = succ_cmd_p "A=" (Assignt [ SimpleAssignt (("A", "0"), Word "") ])
-
-let%test _ =
-  succ_cmd_p
-    "A=123      B=567      _ckd24=df!5[]%$~7"
-    (Assignt
-       [ SimpleAssignt (("A", "0"), Word "123")
-       ; SimpleAssignt (("B", "0"), Word "567")
-       ; SimpleAssignt (("_ckd24", "0"), Word "df!5[]%$~7")
-       ])
-;;
-
-let%test _ = succ_cmd_p "1A=123" (Command ([], [ Word "1A=123" ]))
-
-let%test _ =
-  succ_cmd_p "ARR[3]=123" (Assignt [ SimpleAssignt (("ARR", "3"), Word "123") ])
-;;
-
-let%test _ =
-  succ_cmd_p
-    "ARR=( 1   2  abc    )"
-    (Assignt [ IndArrAssignt ("ARR", [ Word "1"; Word "2"; Word "abc" ]) ])
-;;
-
-let%test _ =
-  succ_cmd_p
-    "ARR1=( 1   2  abc    )        ARR2=(bcd)"
-    (Assignt
-       [ IndArrAssignt ("ARR1", [ Word "1"; Word "2"; Word "abc" ])
-       ; IndArrAssignt ("ARR2", [ Word "bcd" ])
-       ])
-;;
-
-let%test _ = fail_cmd_p "ARR=()"
-let%test _ = fail_cmd_p "ARR[1]=(a b c)"
-
-let%test _ =
-  succ_cmd_p
-    "ARR=(k1=v1 k2=v2)"
-    (Assignt [ AssocArrAssignt ("ARR", [ "k1", Word "v1"; "k2", Word "v2" ]) ])
-;;
-
-let%test _ = fail_cmd_p "ARR[1]=(k1=v1 k2=v2)"
-
-let%test _ =
-  succ_cmd_p "cmd arg1 arg2" (Command ([], [ Word "cmd"; Word "arg1"; Word "arg2" ]))
-;;
-
-let%test _ =
-  succ_cmd_p
-    "VAR1=123    VAR2=    cmd     arg1     arg2"
-    (Command
-       ( [ SimpleAssignt (("VAR1", "0"), Word "123")
-         ; SimpleAssignt (("VAR2", "0"), Word "")
-         ]
-       , [ Word "cmd"; Word "arg1"; Word "arg2" ] ))
-;;
-
-let%test _ = fail_cmd_p " A=123"
-let%test _ = fail_cmd_p "A=123 "
-let%test _ = fail_cmd_p " A=123 "
-let%test _ = fail_cmd_p " echo 1"
-let%test _ = fail_cmd_p "echo 1 "
-let%test _ = fail_cmd_p " echo 1 "
 
 (* -------------------- Redirection -------------------- *)
 
@@ -865,218 +813,115 @@ let%test _ = fail_redir_p " < abc "
 let%test _ = fail_redir_p "12 < abc"
 let%test _ = succ_redir_p "< $a" (RedirInp (0, ParamExp (Param ("a", "0"))))
 
-(* -------------------- Pipeline list -------------------- *)
+(* -------------------- Assignment -------------------- *)
 
-let succ_pipeline_list_p = succ_p pp_pipeline_list pipeline_list_p
-let fail_pipeline_list_p = fail_p pp_pipeline_list pipeline_list_p
+let succ_assignt_p = succ_p pp_assignt assignt_p
+let fail_assignt_p = fail_p pp_assignt assignt_p
 
-let%test _ =
-  succ_pipeline_list_p
-    "echo 1"
-    (Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), []))
-;;
-
-let%test _ =
-  succ_pipeline_list_p
-    "echo 1 && echo 2"
-    (PipelineAndList
-       ( (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), [])
-       , Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "2" ]), []), [])
-       ))
-;;
+let%test _ = succ_assignt_p "A=123" (SimpleAssignt (("A", "0"), Word "123"))
+let%test _ = succ_assignt_p "A=" (SimpleAssignt (("A", "0"), Word ""))
+let%test _ = fail_assignt_p "1A=123"
+let%test _ = succ_assignt_p "ARR[3]=123" (SimpleAssignt (("ARR", "3"), Word "123"))
 
 let%test _ =
-  succ_pipeline_list_p
-    "! echo 1 && ! echo 2"
-    (PipelineAndList
-       ( (true, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), [])
-       , Pipeline (true, SimpleCommand (Command ([], [ Word "echo"; Word "2" ]), []), [])
-       ))
+  succ_assignt_p
+    "ARR=( 1   2  abc    )"
+    (IndArrAssignt ("ARR", [ Word "1"; Word "2"; Word "abc" ]))
 ;;
+
+let%test _ = fail_assignt_p "ARR=()"
+let%test _ = fail_assignt_p "ARR[1]=(a b c)"
 
 let%test _ =
-  succ_pipeline_list_p
-    "echo 1 || echo 2"
-    (PipelineOrList
-       ( (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), [])
-       , Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "2" ]), []), [])
-       ))
+  succ_assignt_p
+    "ARR=(k1=v1 k2=v2)"
+    (AssocArrAssignt ("ARR", [ "k1", Word "v1"; "k2", Word "v2" ]))
 ;;
 
-let%test _ =
-  succ_pipeline_list_p
-    "echo 1 && echo 2 || echo 3"
-    (PipelineAndList
-       ( (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), [])
-       , PipelineOrList
-           ( (false, SimpleCommand (Command ([], [ Word "echo"; Word "2" ]), []), [])
-           , Pipeline
-               (false, SimpleCommand (Command ([], [ Word "echo"; Word "3" ]), []), []) )
-       ))
-;;
+let%test _ = fail_assignt_p "ARR[1]=(k1=v1 k2=v2)"
+let%test _ = fail_assignt_p " A=123"
+let%test _ = fail_assignt_p "A=123 "
+let%test _ = fail_assignt_p " A=123 "
 
-let%test _ =
-  succ_pipeline_list_p
-    "echo 1 || echo 2 && echo 3"
-    (PipelineOrList
-       ( (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), [])
-       , PipelineAndList
-           ( (false, SimpleCommand (Command ([], [ Word "echo"; Word "2" ]), []), [])
-           , Pipeline
-               (false, SimpleCommand (Command ([], [ Word "echo"; Word "3" ]), []), []) )
-       ))
-;;
-
-let%test _ = fail_pipeline_list_p " echo 1"
-let%test _ = fail_pipeline_list_p "echo 1 "
-let%test _ = fail_pipeline_list_p " echo 1 "
-
-(* -------------------- Pipeline -------------------- *)
-
-let succ_pipeline_p = succ_p pp_pipeline pipeline_p
-let fail_pipeline_p = fail_p pp_pipeline pipeline_p
-
-let%test _ =
-  succ_pipeline_p
-    "echo 1"
-    (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), [])
-;;
-
-let%test _ =
-  succ_pipeline_p
-    "! echo 1"
-    (true, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), [])
-;;
-
-let%test _ =
-  succ_pipeline_p
-    "!echo 1"
-    (false, SimpleCommand (Command ([], [ Word "!echo"; Word "1" ]), []), [])
-;;
-
-let%test _ =
-  succ_pipeline_p
-    "echo 1 | grep 1"
-    ( false
-    , SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), [])
-    , [ SimpleCommand (Command ([], [ Word "grep"; Word "1" ]), []) ] )
-;;
-
-let%test _ =
-  succ_pipeline_p
-    "while a; do meow; done 2>& 1 | grep 1 >> a.txt"
-    ( false
-    , While
-        ( ( Pipeline (false, SimpleCommand (Command ([], [ Word "a" ]), []), [])
-          , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
-        , [ DuplOtp (2, Word "1") ] )
-    , [ SimpleCommand
-          (Command ([], [ Word "grep"; Word "1" ]), [ AppendOtp (1, Word "a.txt") ])
-      ] )
-;;
-
-let%test _ = fail_pipeline_p " echo 1"
-let%test _ = fail_pipeline_p "echo 1 "
-let%test _ = fail_pipeline_p " echo 1 "
-
-(* -------------------- Compound -------------------- *)
+(* -------------------- Compound command -------------------- *)
 
 let succ_compound_p = succ_p pp_compound compound_p
 let fail_compound_p = fail_p pp_compound compound_p
 
 let%test _ =
   succ_compound_p
+    "{\n\n \n meow1\n    meow2;meow3\n  }"
+    (Group
+       [ Pipe (false, Simple ([], [ Word "meow1" ], []), [])
+       ; Pipe (false, Simple ([], [ Word "meow2" ], []), [])
+       ; Pipe (false, Simple ([], [ Word "meow3" ], []), [])
+       ])
+;;
+
+let%test _ = fail_compound_p "{}"
+let%test _ = fail_compound_p "{\n \n \n }"
+
+let%test _ =
+  succ_compound_p
     "while a; do meow; done"
     (While
-       ( ( Pipeline (false, SimpleCommand (Command ([], [ Word "a" ]), []), [])
-         , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
-       , [] ))
+       ( Pipe (false, Simple ([], [ Word "a" ], []), [])
+       , Pipe (false, Simple ([], [ Word "meow" ], []), []) ))
 ;;
 
 let%test _ =
   succ_compound_p
-    "while a; do meow; done >> a.txt"
-    (While
-       ( ( Pipeline (false, SimpleCommand (Command ([], [ Word "a" ]), []), [])
-         , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
-       , [ AppendOtp (1, Word "a.txt") ] ))
-;;
-
-let%test _ =
-  succ_compound_p
-    "while a; do meow; done>>a.txt"
-    (While
-       ( ( Pipeline (false, SimpleCommand (Command ([], [ Word "a" ]), []), [])
-         , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
-       , [ AppendOtp (1, Word "a.txt") ] ))
-;;
-
-let%test _ =
-  succ_compound_p
-    "while a; do meow; done >> a.txt 2>& 1"
-    (While
-       ( ( Pipeline (false, SimpleCommand (Command ([], [ Word "a" ]), []), [])
-         , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
-       , [ AppendOtp (1, Word "a.txt"); DuplOtp (2, Word "1") ] ))
-;;
-
-let%test _ =
-  succ_compound_p
-    "for i in 1 2 34; do meow; done >> a.txt"
+    "for i in 1 2 34; do meow; done"
     (ForList
-       ( ( "i"
-         , [ Word "1"; Word "2"; Word "34" ]
-         , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
-       , [ AppendOtp (1, Word "a.txt") ] ))
+       ( "i"
+       , [ Word "1"; Word "2"; Word "34" ]
+       , Pipe (false, Simple ([], [ Word "meow" ], []), []) ))
 ;;
 
 let%test _ =
   succ_compound_p
-    "if ((1)); then meow; fi >> a.txt"
+    "if ((\n1\n)); then meow; fi"
     (If
-       ( ( Pipeline (false, ArithmExpr (Num 1, []), [])
-         , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), [])
-         , None )
-       , [ AppendOtp (1, Word "a.txt") ] ))
+       ( Pipe (false, Compound (ArithmExpr (Num 1), []), [])
+       , Pipe (false, Simple ([], [ Word "meow" ], []), [])
+       , None ))
 ;;
 
-let%test _ =
-  succ_compound_p
-    "case abc in esac >> a.txt"
-    (Case ((Word "abc", []), [ AppendOtp (1, Word "a.txt") ]))
-;;
-
+let%test _ = succ_compound_p "case abc in esac" (Case (Word "abc", []))
+let%test _ = fail_compound_p " { meow }"
+let%test _ = fail_compound_p "{ meow } "
+let%test _ = fail_compound_p " { meow } "
 let%test _ = fail_compound_p " while a; do meow; done"
 let%test _ = fail_compound_p "while a; do meow; done "
 let%test _ = fail_compound_p " while a; do meow; done "
-let%test _ = fail_compound_p " case abc in esac >> a.txt"
-let%test _ = fail_compound_p "case abc in esac >> a.txt "
-let%test _ = fail_compound_p " case abc in esac >> a.txt "
 
 (* -------------------- While -------------------- *)
 
-let succ_while_loop_p = succ_p pp_while_loop while_loop_p
-let fail_while_loop_p = fail_p pp_while_loop while_loop_p
+let succ_while_loop_p = succ_p pp_compound compound_p
+let fail_while_loop_p = fail_p pp_compound compound_p
 
 let%test _ =
   succ_while_loop_p
     "while a; do echo a; done"
-    ( Pipeline (false, SimpleCommand (Command ([], [ Word "a" ]), []), [])
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "a" ]), []), []) )
+    (While
+       ( Pipe (false, Simple ([], [ Word "a" ], []), [])
+       , Pipe (false, Simple ([], [ Word "echo"; Word "a" ], []), []) ))
 ;;
 
 let%test _ =
   succ_while_loop_p
     "while a \n do echo a \n done"
-    ( Pipeline (false, SimpleCommand (Command ([], [ Word "a" ]), []), [])
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "a" ]), []), []) )
+    (While
+       ( Pipe (false, Simple ([], [ Word "a" ], []), [])
+       , Pipe (false, Simple ([], [ Word "echo"; Word "a" ], []), []) ))
 ;;
 
 let%test _ =
   succ_while_loop_p
     "while a ;\n\n do echo a; done"
-    ( Pipeline (false, SimpleCommand (Command ([], [ Word "a" ]), []), [])
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "a" ]), []), []) )
+    (While
+       ( Pipe (false, Simple ([], [ Word "a" ], []), [])
+       , Pipe (false, Simple ([], [ Word "echo"; Word "a" ], []), []) ))
 ;;
 
 let%test _ = fail_while_loop_p " while a; do echo a; done"
@@ -1093,37 +938,40 @@ let%test _ = fail_while_loop_p "while a; echo a; done"
 
 (* -------------------- For (list form) -------------------- *)
 
-let succ_for_list_loop_p = succ_p pp_for_list_loop for_list_loop_p
-let fail_for_list_loop_p = fail_p pp_for_list_loop for_list_loop_p
+let succ_for_list_loop_p = succ_p pp_compound compound_p
+let fail_for_list_loop_p = fail_p pp_compound compound_p
 
 let%test _ =
   succ_for_list_loop_p
     "for i in 1 2 34; do meow; done"
-    ( "i"
-    , [ Word "1"; Word "2"; Word "34" ]
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
+    (ForList
+       ( "i"
+       , [ Word "1"; Word "2"; Word "34" ]
+       , Pipe (false, Simple ([], [ Word "meow" ], []), []) ))
 ;;
 
 let%test _ =
   succ_for_list_loop_p
     "for i in 1 2 34;\n\n do meow;\n done"
-    ( "i"
-    , [ Word "1"; Word "2"; Word "34" ]
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
+    (ForList
+       ( "i"
+       , [ Word "1"; Word "2"; Word "34" ]
+       , Pipe (false, Simple ([], [ Word "meow" ], []), []) ))
 ;;
 
 let%test _ =
   succ_for_list_loop_p
     "for i in 1 2 34\ndo\nmeow\ndone"
-    ( "i"
-    , [ Word "1"; Word "2"; Word "34" ]
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
+    (ForList
+       ( "i"
+       , [ Word "1"; Word "2"; Word "34" ]
+       , Pipe (false, Simple ([], [ Word "meow" ], []), []) ))
 ;;
 
 let%test _ =
   succ_for_list_loop_p
     "for i in; do meow; done"
-    ("i", [], Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []))
+    (ForList ("i", [], Pipe (false, Simple ([], [ Word "meow" ], []), [])))
 ;;
 
 let%test _ = fail_for_list_loop_p " for i in 1 2 34; do meow; done"
@@ -1138,34 +986,33 @@ let%test _ = fail_for_list_loop_p "for i in 1 2 3; meow; done"
 
 (* -------------------- For (expression form) -------------------- *)
 
-let succ_for_expr_loop_p = succ_p pp_for_expr_loop for_expr_loop_p
-let fail_for_expr_loop_p = fail_p pp_for_expr_loop for_expr_loop_p
+let succ_for_expr_loop_p = succ_p pp_compound compound_p
+let fail_for_expr_loop_p = fail_p pp_compound compound_p
 
 let%test _ =
   succ_for_expr_loop_p
     "for ((0; 0; 1 + 1)); do meow; done"
-    ( Num 0
-    , Num 0
-    , Plus (Num 1, Num 1)
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
+    (ForExpr
+       ( Num 0
+       , Num 0
+       , Plus (Num 1, Num 1)
+       , Pipe (false, Simple ([], [ Word "meow" ], []), []) ))
 ;;
 
 let%test _ =
   succ_for_expr_loop_p
     "for (( 0; 0; 1 + 1 )) ; do meow; done"
-    ( Num 0
-    , Num 0
-    , Plus (Num 1, Num 1)
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
+    (ForExpr
+       ( Num 0
+       , Num 0
+       , Plus (Num 1, Num 1)
+       , Pipe (false, Simple ([], [ Word "meow" ], []), []) ))
 ;;
 
 let%test _ =
   succ_for_expr_loop_p
     "for ((;;)) ; do meow; done"
-    ( Num 1
-    , Num 1
-    , Num 1
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
+    (ForExpr (Num 1, Num 1, Num 1, Pipe (false, Simple ([], [ Word "meow" ], []), [])))
 ;;
 
 let%test _ = fail_for_expr_loop_p " for ((0; 0; 1 + 1)); do meow; done"
@@ -1179,43 +1026,43 @@ let%test _ = fail_for_expr_loop_p "for ((;;0; 1 + 1)); do meow; done"
 
 (* -------------------- If -------------------- *)
 
-let succ_if_stmt_p = succ_p pp_if_stmt if_stmt_p
-let fail_if_stmt_p = fail_p pp_if_stmt if_stmt_p
+let succ_if_stmt_p = succ_p pp_compound compound_p
+let fail_if_stmt_p = fail_p pp_compound compound_p
 
 let%test _ =
   succ_if_stmt_p
     "if ((1)); then echo 1; else echo 0; fi"
-    ( Pipeline (false, ArithmExpr (Num 1, []), [])
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), [])
-    , Some
-        (Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "0" ]), []), []))
-    )
+    (If
+       ( Pipe (false, Compound (ArithmExpr (Num 1), []), [])
+       , Pipe (false, Simple ([], [ Word "echo"; Word "1" ], []), [])
+       , Some (Pipe (false, Simple ([], [ Word "echo"; Word "0" ], []), [])) ))
 ;;
 
 let%test _ =
   succ_if_stmt_p
     "if ((1))\nthen echo 1\nelse echo 0\nfi"
-    ( Pipeline (false, ArithmExpr (Num 1, []), [])
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), [])
-    , Some
-        (Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "0" ]), []), []))
-    )
+    (If
+       ( Pipe (false, Compound (ArithmExpr (Num 1), []), [])
+       , Pipe (false, Simple ([], [ Word "echo"; Word "1" ], []), [])
+       , Some (Pipe (false, Simple ([], [ Word "echo"; Word "0" ], []), [])) ))
 ;;
 
 let%test _ =
   succ_if_stmt_p
     "if ((1)); then echo 1; fi"
-    ( Pipeline (false, ArithmExpr (Num 1, []), [])
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), [])
-    , None )
+    (If
+       ( Pipe (false, Compound (ArithmExpr (Num 1), []), [])
+       , Pipe (false, Simple ([], [ Word "echo"; Word "1" ], []), [])
+       , None ))
 ;;
 
 let%test _ =
   succ_if_stmt_p
     "if ((1)) ;\n\n then echo 1;\n fi"
-    ( Pipeline (false, ArithmExpr (Num 1, []), [])
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), [])
-    , None )
+    (If
+       ( Pipe (false, Compound (ArithmExpr (Num 1), []), [])
+       , Pipe (false, Simple ([], [ Word "echo"; Word "1" ], []), [])
+       , None ))
 ;;
 
 let%test _ = fail_if_stmt_p " if ((1)); then echo 1; else echo 0; fi"
@@ -1225,81 +1072,240 @@ let%test _ = fail_if_stmt_p "if ; then echo 1; else echo 0; fi"
 let%test _ = fail_if_stmt_p "if ((1)); then ; else echo 0; fi"
 let%test _ = fail_if_stmt_p "if ((1)); then echo 1; else ; fi"
 let%test _ = fail_if_stmt_p "if ((1)); echo 1; else echo 0; fi"
-let%test _ = fail_if_stmt_p "if ((1)); then echo 1; echo 0; fi"
 let%test _ = fail_if_stmt_p "if ((1)); then echo 1; else echo 0"
 
 (* -------------------- Case -------------------- *)
 
-let succ_case_stmt_p = succ_p pp_case_stmt case_stmt_p
-let fail_case_stmt_p = fail_p pp_case_stmt case_stmt_p
+let succ_case_stmt_p = succ_p pp_compound compound_p
+let fail_case_stmt_p = fail_p pp_compound compound_p
+
+let%test _ =
+  succ_case_stmt_p
+    "case abc in ( *.txt | abc ) meow ;; esac"
+    (Case
+       ( Word "abc"
+       , [ [ Word "*.txt"; Word "abc" ], Pipe (false, Simple ([], [ Word "meow" ], []), [])
+         ] ))
+;;
+
+let%test _ =
+  succ_case_stmt_p
+    "case abc in *.txt | abc ) meow ;; esac"
+    (Case
+       ( Word "abc"
+       , [ [ Word "*.txt"; Word "abc" ], Pipe (false, Simple ([], [ Word "meow" ], []), [])
+         ] ))
+;;
+
+let%test _ =
+  succ_case_stmt_p
+    "case abc in *.txt | abc) meow ;; esac"
+    (Case
+       ( Word "abc"
+       , [ [ Word "*.txt"; Word "abc" ], Pipe (false, Simple ([], [ Word "meow" ], []), [])
+         ] ))
+;;
+
+let%test _ =
+  succ_case_stmt_p
+    "case abc in *.txt | abc) echo 1 ;; esac"
+    (Case
+       ( Word "abc"
+       , [ ( [ Word "*.txt"; Word "abc" ]
+           , Pipe (false, Simple ([], [ Word "echo"; Word "1" ], []), []) )
+         ] ))
+;;
 
 let%test _ =
   succ_case_stmt_p
     "case abc in ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac"
-    ( Word "abc"
-    , [ ( [ Word "*.txt"; Word "abc" ]
-        , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
-      ; ( [ Word "*.ml" ]
-        , Pipeline (false, SimpleCommand (Command ([], [ Word "woof" ]), []), []) )
-      ] )
+    (Case
+       ( Word "abc"
+       , [ [ Word "*.txt"; Word "abc" ], Pipe (false, Simple ([], [ Word "meow" ], []), [])
+         ; [ Word "*.ml" ], Pipe (false, Simple ([], [ Word "woof" ], []), [])
+         ] ))
 ;;
 
 let%test _ =
   succ_case_stmt_p
     "case abc in\n\n( *.txt | abc ) meow ;;\n( *.ml ) woof ;;\nesac"
-    ( Word "abc"
-    , [ ( [ Word "*.txt"; Word "abc" ]
-        , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
-      ; ( [ Word "*.ml" ]
-        , Pipeline (false, SimpleCommand (Command ([], [ Word "woof" ]), []), []) )
-      ] )
+    (Case
+       ( Word "abc"
+       , [ [ Word "*.txt"; Word "abc" ], Pipe (false, Simple ([], [ Word "meow" ], []), [])
+         ; [ Word "*.ml" ], Pipe (false, Simple ([], [ Word "woof" ], []), [])
+         ] ))
 ;;
 
-let%test _ = succ_case_stmt_p "case abc in esac" (Word "abc", [])
+let%test _ = succ_case_stmt_p "case abc in esac" (Case (Word "abc", []))
 let%test _ = fail_case_stmt_p " case abc in ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac"
-let%test _ = fail_case_stmt_p "case abc in ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac "
 
 let%test _ =
   fail_case_stmt_p " case abc in ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac "
 ;;
 
+let%test _ = fail_case_stmt_p "case abc in ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac "
+let%test _ = fail_case_stmt_p "case abc in ( *.txt | abc meow ;; esac"
+let%test _ = fail_case_stmt_p "case abc in ) meow ;; esac"
+let%test _ = fail_case_stmt_p "case abc in ( *.txt | abc ) meow ; esac"
+let%test _ = fail_case_stmt_p "case abc in ( *.txt | abc ) ;; esac"
 let%test _ = fail_case_stmt_p "case in ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac"
 let%test _ = fail_case_stmt_p "case abc ( *.txt | abc ) meow ;; ( *.ml ) woof ;; esac"
 let%test _ = fail_case_stmt_p "case abc in ( *.txt | abc ) meow ;; ( *.ml ) woof ;;"
 
-(* -------------------- Case item -------------------- *)
+(* -------------------- Command -------------------- *)
 
-let succ_case_item_p = succ_p pp_case_item case_item_p
-let fail_case_item_p = fail_p pp_case_item case_item_p
+let succ_cmd_p = succ_p pp_cmd cmd_p
+let fail_cmd_p = fail_p pp_cmd cmd_p
 
 let%test _ =
-  succ_case_item_p
-    "( *.txt | abc ) meow ;;"
-    ( [ Word "*.txt"; Word "abc" ]
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
+  succ_cmd_p
+    "A=123      B=567      _ckd24=df!5[]%$~7"
+    (Simple
+       ( [ SimpleAssignt (("A", "0"), Word "123")
+         ; SimpleAssignt (("B", "0"), Word "567")
+         ; SimpleAssignt (("_ckd24", "0"), Word "df!5[]%$~7")
+         ]
+       , []
+       , [] ))
+;;
+
+let%test _ = succ_cmd_p "1A=123" (Simple ([], [ Word "1A=123" ], []))
+
+let%test _ =
+  succ_cmd_p
+    "ARR1=( 1   2  abc    )        ARR2=(bcd)"
+    (Simple
+       ( [ IndArrAssignt ("ARR1", [ Word "1"; Word "2"; Word "abc" ])
+         ; IndArrAssignt ("ARR2", [ Word "bcd" ])
+         ]
+       , []
+       , [] ))
 ;;
 
 let%test _ =
-  succ_case_item_p
-    "*.txt|abc)meow;;"
-    ( [ Word "*.txt"; Word "abc" ]
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "meow" ]), []), []) )
+  succ_cmd_p "cmd arg1 arg2" (Simple ([], [ Word "cmd"; Word "arg1"; Word "arg2" ], []))
 ;;
 
 let%test _ =
-  succ_case_item_p
-    "*.txt)echo 1;;"
-    ( [ Word "*.txt" ]
-    , Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), []) )
+  succ_cmd_p
+    "VAR1=123    VAR2=    cmd     arg1     arg2"
+    (Simple
+       ( [ SimpleAssignt (("VAR1", "0"), Word "123")
+         ; SimpleAssignt (("VAR2", "0"), Word "")
+         ]
+       , [ Word "cmd"; Word "arg1"; Word "arg2" ]
+       , [] ))
 ;;
 
-let%test _ = fail_case_item_p " ( *.txt | abc ) meow ;;"
-let%test _ = fail_case_item_p "( *.txt | abc ) meow ;; "
-let%test _ = fail_case_item_p " ( *.txt | abc ) meow ;; "
-let%test _ = fail_case_item_p "( *.txt | abc meow ;;"
-let%test _ = fail_case_item_p ") meow ;;"
-let%test _ = fail_case_item_p "( *.txt | abc ) meow ;"
-let%test _ = fail_case_item_p "( *.txt | abc ) ;;"
+let%test _ =
+  succ_cmd_p
+    "echo 1 10>abc.txt"
+    (Simple ([], [ Word "echo"; Word "1" ], [ RedirOtp (10, Word "abc.txt") ]))
+;;
+
+let%test _ =
+  succ_cmd_p
+    "for ((0; 0; 0)); do meow; done 99<&99"
+    (Compound
+       ( ForExpr (Num 0, Num 0, Num 0, Pipe (false, Simple ([], [ Word "meow" ], []), []))
+       , [ DuplInp (99, Word "99") ] ))
+;;
+
+let%test _ = fail_cmd_p " echo 1"
+let%test _ = fail_cmd_p "echo 1 "
+let%test _ = fail_cmd_p " echo 1 "
+let%test _ = fail_cmd_p "i=1 for ((; i < 3; i++)); do echo $i; done"
+
+(* -------------------- Pipeline -------------------- *)
+
+let succ_pipe_p = succ_p pp_pipe pipe_p
+let fail_pipe_p = fail_p pp_pipe pipe_p
+
+let%test _ = succ_pipe_p "echo 1" (false, Simple ([], [ Word "echo"; Word "1" ], []), [])
+let%test _ = succ_pipe_p "! echo 1" (true, Simple ([], [ Word "echo"; Word "1" ], []), [])
+let%test _ = succ_pipe_p "!echo 1" (false, Simple ([], [ Word "!echo"; Word "1" ], []), [])
+
+let%test _ =
+  succ_pipe_p
+    "echo 1 | grep 1"
+    ( false
+    , Simple ([], [ Word "echo"; Word "1" ], [])
+    , [ Simple ([], [ Word "grep"; Word "1" ], []) ] )
+;;
+
+let%test _ =
+  succ_pipe_p
+    "while a; do meow; done 2>& 1 | grep 1 >> a.txt"
+    ( false
+    , Compound
+        ( While
+            ( Pipe (false, Simple ([], [ Word "a" ], []), [])
+            , Pipe (false, Simple ([], [ Word "meow" ], []), []) )
+        , [ DuplOtp (2, Word "1") ] )
+    , [ Simple ([], [ Word "grep"; Word "1" ], [ AppendOtp (1, Word "a.txt") ]) ] )
+;;
+
+let%test _ = fail_pipe_p " echo 1"
+let%test _ = fail_pipe_p "echo 1 "
+let%test _ = fail_pipe_p " echo 1 "
+
+(* -------------------- Pipeline list -------------------- *)
+
+let succ_pipe_list_p = succ_p pp_pipe_list pipe_list_p
+let fail_pipe_list_p = fail_p pp_pipe_list pipe_list_p
+
+let%test _ =
+  succ_pipe_list_p "echo 1" (Pipe (false, Simple ([], [ Word "echo"; Word "1" ], []), []))
+;;
+
+let%test _ =
+  succ_pipe_list_p
+    "echo 1 && echo 2"
+    (PipeAndList
+       ( (false, Simple ([], [ Word "echo"; Word "1" ], []), [])
+       , Pipe (false, Simple ([], [ Word "echo"; Word "2" ], []), []) ))
+;;
+
+let%test _ =
+  succ_pipe_list_p
+    "! echo 1 && ! echo 2"
+    (PipeAndList
+       ( (true, Simple ([], [ Word "echo"; Word "1" ], []), [])
+       , Pipe (true, Simple ([], [ Word "echo"; Word "2" ], []), []) ))
+;;
+
+let%test _ =
+  succ_pipe_list_p
+    "echo 1 || echo 2"
+    (PipeOrList
+       ( (false, Simple ([], [ Word "echo"; Word "1" ], []), [])
+       , Pipe (false, Simple ([], [ Word "echo"; Word "2" ], []), []) ))
+;;
+
+let%test _ =
+  succ_pipe_list_p
+    "echo 1 && echo 2 || echo 3"
+    (PipeAndList
+       ( (false, Simple ([], [ Word "echo"; Word "1" ], []), [])
+       , PipeOrList
+           ( (false, Simple ([], [ Word "echo"; Word "2" ], []), [])
+           , Pipe (false, Simple ([], [ Word "echo"; Word "3" ], []), []) ) ))
+;;
+
+let%test _ =
+  succ_pipe_list_p
+    "echo 1 || echo 2 && echo 3"
+    (PipeOrList
+       ( (false, Simple ([], [ Word "echo"; Word "1" ], []), [])
+       , PipeAndList
+           ( (false, Simple ([], [ Word "echo"; Word "2" ], []), [])
+           , Pipe (false, Simple ([], [ Word "echo"; Word "3" ], []), []) ) ))
+;;
+
+let%test _ = fail_pipe_list_p " echo 1"
+let%test _ = fail_pipe_list_p "echo 1 "
+let%test _ = fail_pipe_list_p " echo 1 "
+let%test _ = fail_pipe_list_p "echo 1 && echo 2 "
 
 (* -------------------- Function -------------------- *)
 
@@ -1308,39 +1314,44 @@ let fail_func_p = fail_p pp_func func_p
 
 let%test _ =
   succ_func_p
-    "function meow_f () meow"
-    ("meow_f", SimpleCommand (Command ([], [ Word "meow" ]), []))
+    "function meow_f () { meow }"
+    ("meow_f", Group [ Pipe (false, Simple ([], [ Word "meow" ], []), []) ], [])
 ;;
 
 let%test _ =
   succ_func_p
-    "function meow_f meow"
-    ("meow_f", SimpleCommand (Command ([], [ Word "meow" ]), []))
-;;
-
-let%test _ =
-  succ_func_p "meow_f() meow" ("meow_f", SimpleCommand (Command ([], [ Word "meow" ]), []))
+    "function meow_f { meow }"
+    ("meow_f", Group [ Pipe (false, Simple ([], [ Word "meow" ], []), []) ], [])
 ;;
 
 let%test _ =
   succ_func_p
-    "meow_f() meow >> a.txt"
+    "meow_f() { meow }"
+    ("meow_f", Group [ Pipe (false, Simple ([], [ Word "meow" ], []), []) ], [])
+;;
+
+let%test _ =
+  succ_func_p
+    "meow_f() { meow } >> a.txt"
     ( "meow_f"
-    , SimpleCommand (Command ([], [ Word "meow" ]), [ AppendOtp (1, Word "a.txt") ]) )
+    , Group [ Pipe (false, Simple ([], [ Word "meow" ], []), []) ]
+    , [ AppendOtp (1, Word "a.txt") ] )
 ;;
 
 let%test _ =
   succ_func_p
-    "meow_f()\nmeow >> a.txt"
+    "meow_f()\n{ meow } >> a.txt"
     ( "meow_f"
-    , SimpleCommand (Command ([], [ Word "meow" ]), [ AppendOtp (1, Word "a.txt") ]) )
+    , Group [ Pipe (false, Simple ([], [ Word "meow" ], []), []) ]
+    , [ AppendOtp (1, Word "a.txt") ] )
 ;;
 
 let%test _ =
   succ_func_p
-    "meow_f()\n   meow >> a.txt"
+    "meow_f()\n  { meow } >> a.txt"
     ( "meow_f"
-    , SimpleCommand (Command ([], [ Word "meow" ]), [ AppendOtp (1, Word "a.txt") ]) )
+    , Group [ Pipe (false, Simple ([], [ Word "meow" ], []), []) ]
+    , [ AppendOtp (1, Word "a.txt") ] )
 ;;
 
 let%test _ = fail_func_p " function meow_f () meow"
@@ -1361,14 +1372,41 @@ let fail_script_elem_p = fail_p pp_script_elem script_elem_p
 let%test _ =
   succ_script_elem_p
     "echo 1"
-    (Pipelines
-       (Pipeline (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), [])))
+    (Pipes (Pipe (false, Simple ([], [ Word "echo"; Word "1" ], []), [])))
 ;;
 
 let%test _ =
   succ_script_elem_p
-    "meow_f() meow"
-    (Func ("meow_f", SimpleCommand (Command ([], [ Word "meow" ]), [])))
+    "echo 1 | cat"
+    (Pipes
+       (Pipe
+          ( false
+          , Simple ([], [ Word "echo"; Word "1" ], [])
+          , [ Simple ([], [ Word "cat" ], []) ] )))
+;;
+
+let%test _ =
+  succ_script_elem_p
+    "for i in 1 2 3; do\n  echo $i\ndone | grep 2"
+    (Pipes
+       (Pipe
+          ( false
+          , Compound
+              ( ForList
+                  ( "i"
+                  , [ Word "1"; Word "2"; Word "3" ]
+                  , Pipe
+                      ( false
+                      , Simple ([], [ Word "echo"; ParamExp (Param ("i", "0")) ], [])
+                      , [] ) )
+              , [] )
+          , [ Simple ([], [ Word "grep"; Word "2" ], []) ] )))
+;;
+
+let%test _ =
+  succ_script_elem_p
+    "meow_f() { meow }"
+    (Func ("meow_f", Group [ Pipe (false, Simple ([], [ Word "meow" ], []), []) ], []))
 ;;
 
 let%test _ = fail_script_elem_p " echo 1"
@@ -1386,41 +1424,51 @@ let fail_script_p = fail_p pp_script script_p
 let%test _ =
   succ_script_p
     "echo 1"
-    (Script
-       ( Pipelines
-           (Pipeline
-              (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), []))
-       , Empty ))
+    [ Pipes (Pipe (false, Simple ([], [ Word "echo"; Word "1" ], []), [])) ]
 ;;
 
 let%test _ =
   succ_script_p
-    "meow_f() meow"
-    (Script (Func ("meow_f", SimpleCommand (Command ([], [ Word "meow" ]), [])), Empty))
+    "meow_f() { meow }"
+    [ Func ("meow_f", Group [ Pipe (false, Simple ([], [ Word "meow" ], []), []) ], []) ]
 ;;
 
 let%test _ =
   succ_script_p
-    "meow_f() meow\necho 1"
-    (Script
-       ( Func ("meow_f", SimpleCommand (Command ([], [ Word "meow" ]), []))
-       , Script
-           ( Pipelines
-               (Pipeline
-                  (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), []))
-           , Empty ) ))
+    {|
+meow_f () {
+  A=1
+  echo meow
+}
+|}
+    [ Func
+        ( "meow_f"
+        , Group
+            [ Pipe (false, Simple ([ SimpleAssignt (("A", "0"), Word "1") ], [], []), [])
+            ; Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), [])
+            ]
+        , [] )
+    ]
 ;;
 
 let%test _ =
   succ_script_p
-    "    \n  \n\n\n meow_f() meow\n  \n  \n\n\n echo 1\n\n\n\n \n \n"
-    (Script
-       ( Func ("meow_f", SimpleCommand (Command ([], [ Word "meow" ]), []))
-       , Script
-           ( Pipelines
-               (Pipeline
-                  (false, SimpleCommand (Command ([], [ Word "echo"; Word "1" ]), []), []))
-           , Empty ) ))
+    "meow_f() {\n meow; }\necho 1 | cat"
+    [ Func ("meow_f", Group [ Pipe (false, Simple ([], [ Word "meow" ], []), []) ], [])
+    ; Pipes
+        (Pipe
+           ( false
+           , Simple ([], [ Word "echo"; Word "1" ], [])
+           , [ Simple ([], [ Word "cat" ], []) ] ))
+    ]
 ;;
 
-let%test _ = succ_script_p "         \n\n \n" Empty
+let%test _ =
+  succ_script_p
+    "    \n  \n\n\n meow_f() { meow }\n  \n  \n\n\n echo 1\n\n\n\n \n \n"
+    [ Func ("meow_f", Group [ Pipe (false, Simple ([], [ Word "meow" ], []), []) ], [])
+    ; Pipes (Pipe (false, Simple ([], [ Word "echo"; Word "1" ], []), []))
+    ]
+;;
+
+let%test _ = succ_script_p "         \n\n \n" []
