@@ -1,6 +1,7 @@
 open Ast
 open Int64
 
+(** Infix monad with an error function. *)
 module type MonadError = sig
   include Base.Monad.Infix
 
@@ -8,20 +9,24 @@ module type MonadError = sig
   val error : string -> 'a t
 end
 
+(** [is_arg0] accepts assembler command, returns true if the command expects no arguments. *)
 let is_arg0 = function "RET" | "SYSCALL" -> true | _ -> false
 
+(** [is_arg1] accepts assembler command, returns true if command takes 1 argument. *)
 let is_arg1 = function
   | "PUSH" | "POP" | "INC" | "DEC" | "NOT" | "NEG" | "JMP" | "JE" | "JNE"
    |"JG" | "JGE" | "JL" | "JLE" | "CALL" ->
       true
   | _ -> false
 
+(** [is_arg2] accepts assembler command, returns true if command takes 2 arguments. *)
 let is_arg2 = function
   | "MOV" | "ADD" | "SUB" | "IMUL" | "AND" | "OR" | "XOR" | "SHL" | "SHR"
    |"CMP" | "ADDPD" | "SUBPD" | "MULPD" | "MOVAPD" ->
       true
   | _ -> false
 
+(** Result as a monad-error. *)
 module Result : MonadError with type 'a t = ('a, string) result = struct
   type 'a t = ('a, string) Result.t
 
@@ -43,15 +48,19 @@ module MapString = struct
     Format.fprintf ppf "@]]@]"
 end
 
+(** Main interpreter module. *)
 module Eval (M : MonadError) = struct
   open M
 
   (** Container for variables. *)
   type var_t =
-    (* registers *)
+    (* registers and magic variables "0retcode", "0jump", "0cond" *)
+    (* "0retcode" - the return code that appears after the exit system call. *)
+    (* "0cond" - stores the result of the CMP command *)
     | R64 of int64
     | RSSE of string (* 128 bit *)
-    (* constants *)
+    (* constants and magic variable "0jump" *)
+    (* "0jump" - stores the jump label *)
     | Ls of string
     (* labels whose call will cause an error *)
     | Er
@@ -60,17 +69,21 @@ module Eval (M : MonadError) = struct
   (** Enviroment variables. *)
   type env = var_t MapString.t [@@deriving show {with_path= false}]
 
+  (** [modulo x y] returns the positive remainder of the [Int64] division. *)
   let modulo x y =
     let result = rem x y in
     if result >= 0L then result else add result y
 
+  (** [string_to_int64 s] takes a string [s], interprets it as a bit little-endian number and returns it as [Int64]. *)
   let string_to_int64 s =
     let rec helper acc n = function
       | "" -> acc
       | s when String.length s = 1 ->
           let c = of_int (Char.code s.[0]) in
-          let res = add acc (shift_left (logand 0x7FL c) n) in
-          if logand 0x80L c = 0L then res else neg res
+          let res =
+            add acc (shift_left (logand 0x7FL c) n)
+            (* 0x7F = 0111_1111 i.e. remove the sign bit *) in
+          if logand 0x80L (* or 0b1000_0000 *) c = 0L then res else neg res
       | s ->
           helper
             (add (shift_left (of_int (Char.code s.[0])) n) acc)
@@ -78,15 +91,22 @@ module Eval (M : MonadError) = struct
             (String.sub s 1 (String.length s - 1)) in
     helper 0L 0 s
 
+  (** [int64_to_string i] takes an integer [i], interprets it as a hexadecimal number, makes and returns a little-endian string. *)
   let int64_to_string i =
     let rec helper acc = function
       | k when k = 0L -> acc
-      | k when k = -1L -> acc ^ "\x80"
+      | k when k = -1L -> (
+        match String.length acc with
+        | l when l >= 8 ->
+            String.make 1 (Char.chr (Int.logor 0x80 (Char.code acc.[l - 1])))
+            ^ String.sub acc 1 (l - 1)
+        | l -> String.concat "" [acc; String.make (7 - l) '\x00'; "\x80"] )
       | k ->
           let c = acc ^ String.make 1 (Char.chr (to_int (modulo k 256L))) in
           helper c (shift_right_logical k 8) in
     helper "" i
 
+  (** [ev e f] counts arithmetic operations, takes an [expr] and [f] that decides to process registers [Ast.Reg] and labels [Ast.Label]. *)
   let rec ev e f = function
     | Const n -> return n
     | Add (l, r) -> ev e f l >>= fun l -> ev e f r >>= fun r -> return (add l r)
@@ -115,8 +135,9 @@ module Eval (M : MonadError) = struct
           ev e f l >>= fun l -> return (shift_right_logical l (to_int r mod 64))
     | rl -> f rl
 
+  (** [prepr env dir] accepts the [environment] and [Ast.Directive], returns the environment filled with the labels found and the simplified directory with the instructions [Ast.simpl_dir]. *)
   let prepr env =
-    let pr_expr env17 =
+    let pr_expr env =
       let f e = function
         | Reg _ -> error "expression is not simple or relocatable"
         | Label l -> (
@@ -128,37 +149,33 @@ module Eval (M : MonadError) = struct
         | _ -> error "fatal error" in
       function
       | Label l -> (
-        match MapString.find_opt l env17 with
+        match MapString.find_opt l env with
         | Some (Ls s) -> return (Ls s)
         | Some Er -> error "byte data exceeds bounds"
         | _ -> error "relocation truncated to fit: R_X86_64_8 against `.data\'"
         )
       | Reg _ -> error "expression is not simple or relocatable"
-      | e -> ev env17 (f env17) e >>= fun i -> return (Ls (int64_to_string i))
-    in
+      | e -> ev env (f env) e >>= fun i -> return (Ls (int64_to_string i)) in
     let str_to_lb s = return (Ls s) in
-    let env_add id v env9 =
-      match MapString.find_opt id env9 with
-      | None -> return (MapString.add id v env9)
+    let env_add id v env =
+      match MapString.find_opt id env with
+      | None -> return (MapString.add id v env)
       | Some _ ->
           error
             (String.concat "" ["label `"; id; "\' inconsistently redefined"])
     in
-    let env_set id v env9 =
-      match MapString.find_opt id env9 with
-      | None -> return (MapString.add id v env9)
-      | Some _ -> return (MapString.add id v env9) in
-    let rec pr_init_val env16 acc =
-      let helper env17 = function
+    let env_set id v env = return (MapString.add id v env) in
+    let rec pr_init_val env acc =
+      let helper env = function
         | Str s -> return (Ls (acc ^ s))
-        | Expr e -> pr_expr env17 e
+        | Expr e -> pr_expr env e
         | Dup (e, s) -> (
-            pr_expr env17 e
+            pr_expr env e
             >>=
             let rec helper s acc d =
               if d = 0L then return acc else helper s (acc ^ s) (sub d 1L) in
             function
-            | Ls s1 -> helper s "" (string_to_int64 s1) >>| fun s1 -> Ls s1
+            | Ls k -> helper s "" (string_to_int64 k) >>| fun k -> Ls k
             | _ -> error "fatal error" ) in
       function
       | [] -> (
@@ -166,70 +183,70 @@ module Eval (M : MonadError) = struct
         | "" -> error "no operand for data declaration"
         | _ -> return acc )
       | hd :: tl -> (
-          helper env16 hd
+          helper env hd
           >>= function
-          | Ls s -> pr_init_val env16 (acc ^ s) tl | _ -> error "fatal error" )
+          | Ls s -> pr_init_val env (acc ^ s) tl | _ -> error "fatal error" )
     in
-    let pr_equdir env6 = function
-      | EquDir (Id id, e) -> pr_expr env6 e >>= fun v -> env_add id v env6
-      | EqualDir (Id id, e) -> pr_expr env6 e >>= fun v -> env_set id v env6
+    let pr_equdir env = function
+      | EquDir (Id id, e) -> pr_expr env e >>= fun v -> env_add id v env
+      | EqualDir (Id id, e) -> pr_expr env e >>= fun v -> env_set id v env
       | _ -> error "fatal error" in
-    let pr_dd env11 id =
-      let helper env12 list = function
+    let pr_dd env id =
+      let helper env list = function
         | Some (Id i) ->
-            pr_init_val env12 "" list >>= str_to_lb
-            >>= fun v -> env_add i v env12
-        | None -> return env12 in
-      fun (_, iv) -> helper env11 iv id in
-    let rec pr_data env7 =
-      let pr_inst env8 id =
-        let helper env9 = function
-          | Some (Id i) -> env_add i Er env9
-          | None -> return env9 in
+            pr_init_val env "" list >>= str_to_lb >>= fun v -> env_add i v env
+        | None -> return env in
+      fun (_, iv) -> helper env iv id in
+    let rec pr_data env =
+      let pr_inst env id =
+        let helper env = function
+          | Some (Id i) -> env_add i Er env
+          | None -> return env in
         function
-        | Instruction (Mnemonic s, []) when is_arg0 s -> helper env8 id
-        | Instruction (Mnemonic s, [_]) when is_arg1 s -> helper env8 id
-        | Instruction (Mnemonic s, [_; _]) when is_arg2 s -> helper env8 id
+        | Instruction (Mnemonic s, []) when is_arg0 s -> helper env id
+        | Instruction (Mnemonic s, [_]) when is_arg1 s -> helper env id
+        | Instruction (Mnemonic s, [_; _]) when is_arg2 s -> helper env id
         | Instruction _ -> error "invalid combination of opcode and operands"
-        | DataDecl (dd, l) -> pr_dd env8 id (dd, l) in
-      let helper env5 = function
-        | InDir (id, isd) -> pr_inst env5 id isd
-        | d -> pr_equdir env5 d in
+        | DataDecl (dd, l) -> pr_dd env id (dd, l) in
+      let helper env = function
+        | InDir (id, isd) -> pr_inst env id isd
+        | d -> pr_equdir env d in
       function
-      | [] -> return env7
-      | hd :: tl -> helper env7 hd >>= fun env8 -> pr_data env8 tl in
-    let rec pr_code env4 acc4 =
-      let pr_inst env12 id = function
+      | [] -> return env
+      | hd :: tl -> helper env hd >>= fun env -> pr_data env tl in
+    let rec pr_code env acc4 =
+      let pr_inst env id = function
         | Instruction (Mnemonic s, []) when is_arg0 s ->
-            return (env12, [Arg0 (id, Mnemonic s)])
-        | Instruction (Mnemonic s, [a1]) when is_arg1 s ->
-            return (env12, [Arg1 (id, Mnemonic s, a1)])
+            return (env, [Arg0 (id, Mnemonic s)])
+        | Instruction (Mnemonic s, [a]) when is_arg1 s ->
+            return (env, [Arg1 (id, Mnemonic s, a)])
         | Instruction (Mnemonic s, [a1; a2]) when is_arg2 s ->
-            return (env12, [Arg2 (id, Mnemonic s, a1, a2)])
+            return (env, [Arg2 (id, Mnemonic s, a1, a2)])
         | Instruction _ -> error "invalid combination of opcode and operands"
-        | DataDecl (dd, l) -> pr_dd env12 id (dd, l) >>| fun env13 -> (env13, [])
+        | DataDecl (dd, l) -> pr_dd env id (dd, l) >>| fun env -> (env, [])
       in
-      let helper env5 = function
-        | InDir (id, isd) -> pr_inst env5 id isd
-        | d -> pr_equdir env5 d >>| fun env6 -> (env6, []) in
+      let helper env = function
+        | InDir (id, isd) -> pr_inst env id isd
+        | d -> pr_equdir env d >>| fun env -> (env, []) in
       function
-      | [] -> return (env4, acc4)
-      | hd :: tl ->
-          helper env4 hd >>= fun (env1, l2) -> pr_code env1 (acc4 @ l2) tl in
-    let rec pr_sec_dir env1 acc1 =
-      let helper env2 = function
-        | Section ("DATA", l1) | Section ("CONST", l1) ->
-            pr_data env2 l1 >>| fun env3 -> (env3, [])
-        | Section ("TEXT", l1) | Section ("CODE", l1) ->
-            pr_code env2 [] l1 >>| fun (env3, acc2) -> (env3, acc2)
+      | [] -> return (env, acc4)
+      | hd :: tl -> helper env hd >>= fun (env, l) -> pr_code env (acc4 @ l) tl
+    in
+    let rec pr_sec_dir env acc =
+      let helper env = function
+        | Section ("DATA", l) | Section ("CONST", l) ->
+            pr_data env l >>| fun env -> (env, [])
+        | Section ("TEXT", l) | Section ("CODE", l) ->
+            pr_code env [] l >>| fun (env, new_acc) -> (env, new_acc)
         | _ -> error "fatal error" in
       function
-      | [] -> return (env1, acc1)
+      | [] -> return (env, acc)
       | hd :: tl ->
-          helper env1 hd
-          >>= fun (env2, acc2) -> pr_sec_dir env2 (acc1 @ acc2) tl in
+          helper env hd
+          >>= fun (env, new_acc) -> pr_sec_dir env (acc @ new_acc) tl in
     fun (Directive list) -> pr_sec_dir env [] list
 
+  (** List of all registers. *)
   let reg_list =
     [ ("RAX", R64 0L); ("RBX", R64 0L); ("RCX", R64 0L); ("RDX", R64 0L)
     ; ("RSP", R64 0L); ("RBP", R64 0L); ("RSI", R64 0L); ("RDI", R64 0L)
@@ -258,6 +275,7 @@ module Eval (M : MonadError) = struct
         true
     | _ -> false
 
+  (** [interpret (env, list)] executes commands from a list in this environment. *)
   let interpret (env, list) =
     let f e = function
       | Reg r -> (
@@ -271,10 +289,10 @@ module Eval (M : MonadError) = struct
         | Some Er -> error "byte data exceeds bounds"
         | _ -> error (String.concat "" ["symbol `"; l; "\' not defined"]) )
       | _ -> error "fatal error" in
-    let find_reg64 env3 r =
-      return (MapString.find r env3)
+    let find_reg64 env r =
+      return (MapString.find r env)
       >>= function R64 i -> return i | _ -> error "falal error" in
-    let change_reg64 env3 reg foo =
+    let change_reg64 env reg foo =
       let do_offset ot nt offs len =
         let os =
           let h = int64_to_string ot in
@@ -285,157 +303,153 @@ module Eval (M : MonadError) = struct
         String.concat ""
           [ String.sub os 0 offs; String.sub ns 0 len
           ; String.sub os (offs + len) (8 - offs - len) ] in
-      let helper env4 foo offset len s =
-        find_reg64 env3 s
+      let helper env foo offset len s =
+        find_reg64 env s
         >>= fun i ->
         return
           (MapString.add s
              (R64 (string_to_int64 (do_offset i (foo i) offset len)))
-             env4 ) in
+             env ) in
       match reg with
       | Reg r -> (
         match r with
         | s when reg8 s -> (
           match s with
           | s when reg8L s ->
-              helper env3 foo 0 1
-                (String.concat "" ["R"; String.sub s 1 1; "X"])
+              helper env foo 0 1 (String.of_seq (List.to_seq ['R'; s.[1]; 'X']))
           | s ->
-              helper env3 foo 1 1
-                (String.concat "" ["R"; String.sub s 1 1; "X"]) )
-        | s when reg16 s -> helper env3 foo 0 2 ("R" ^ s)
-        | s when reg32 s -> helper env3 foo 0 4 ("R" ^ String.sub s 1 2)
-        | s when reg64 s -> helper env3 foo 0 8 s
+              helper env foo 1 1 (String.of_seq (List.to_seq ['R'; s.[1]; 'X']))
+          )
+        | s when reg16 s -> helper env foo 0 2 ("R" ^ s)
+        | s when reg32 s -> helper env foo 0 4 ("R" ^ String.sub s 1 2)
+        | s when reg64 s -> helper env foo 0 8 s
         | _ -> error "invalid combination of opcode and operands" )
       | _ -> error "invalid combination of opcode and operands" in
-    let find_regsse env3 r =
-      return (MapString.find r env3)
+    let find_regsse env r =
+      return (MapString.find r env)
       >>= function RSSE i -> return i | _ -> error "falal error" in
-    let change_regsse env3 reg foo =
+    let change_regsse env reg foo =
       match reg with
       | Reg r when regSSE r ->
-          find_regsse env3 r >>= fun s -> return (MapString.add r (foo s) env3)
+          find_regsse env r >>= fun s -> return (MapString.add r (foo s) env)
       | _ -> error "invalid combination of opcode and operands" in
-    let jump env2 st foo = function
+    let jump env st foo = function
       | Label l ->
-          foo (MapString.find "0cond" env2)
+          foo (MapString.find "0cond" env)
           >>= fun b ->
-          if b then return (MapString.add "0jump" (Ls l) env2, st)
-          else return (env2, st)
+          if b then return (MapString.add "0jump" (Ls l) env, st)
+          else return (env, st)
       | _ -> error "Illegal instruction (core dumped)" in
-    let inter_arg0 env2 st = function
+    let inter_arg0 env st = function
       | "RET" ->
-          jump env2 (List.tl st)
+          jump env (List.tl st)
             (function R64 _ -> return true | _ -> error "fatal error")
             (Label (List.hd st))
       | "SYSCALL" -> (
-          find_reg64 env2 "RAX"
+          find_reg64 env "RAX"
           >>= function
-          | 1L -> (
-              find_reg64 env2 "RDI"
+          | 1L (* system call - print *) -> (
+              find_reg64 env "RDI"
               >>= function
               | 0L | 1L | 2L ->
-                  find_reg64 env2 "RDI"
+                  find_reg64 env "RDI"
                   >>= fun mes ->
-                  find_reg64 env2 "RDX"
+                  find_reg64 env "RDX"
                   >>= fun len ->
                   print_string
                     (String.sub (int64_to_string mes) 0
                        (min (String.length (int64_to_string mes)) (to_int len)) );
                   flush stdout;
-                  return (env2, st)
-              | _ -> return (env2, st) )
-          | 60L ->
-              find_reg64 env2 "RDI"
+                  return (env, st)
+              | _ -> return (env, st) )
+          | 60L (* system call - exit *) ->
+              find_reg64 env "RDI"
               >>= fun code ->
-              return (MapString.add "0retcode" (R64 (rem code 256L)) env2, st)
+              return (MapString.add "0retcode" (R64 (rem code 256L)) env, st)
           | i when i < 336L ->
               error
                 (String.concat ""
                    ["syscall "; to_string i; " is not implemented"] )
-          | _ -> return (env2, st) )
+          | _ -> return (env, st) )
       | _ -> error "fatal error" in
-    let inter_arg1 env2 st e = function
+    let inter_arg1 env st e = function
       | "INC" ->
-          change_reg64 env2 e (fun i -> add i 1L)
-          >>= fun env3 -> return (env3, st)
+          change_reg64 env e (fun i -> add i 1L) >>= fun env -> return (env, st)
       | "DEC" ->
-          change_reg64 env2 e (fun i -> sub i 1L)
-          >>= fun env3 -> return (env3, st)
+          change_reg64 env e (fun i -> sub i 1L) >>= fun env -> return (env, st)
       | "NOT" ->
-          change_reg64 env2 e (fun i -> neg i) >>= fun env3 -> return (env3, st)
+          change_reg64 env e (fun i -> neg i) >>= fun env -> return (env, st)
       | "NEG" ->
-          change_reg64 env2 e (fun i -> add (neg i) 1L)
-          >>= fun env3 -> return (env3, st)
+          change_reg64 env e (fun i -> add (neg i) 1L)
+          >>= fun env -> return (env, st)
       | "PUSH" -> (
         match e with
-        | Label l -> return (env2, [l] @ st)
+        | Label l -> return (env, l :: st)
         | _ -> error "byte data exceeds bounds" )
       | "POP" -> (
         match e with
         | Reg r ->
             return
-              ( MapString.add r (R64 (string_to_int64 (List.hd st))) env2
+              ( MapString.add r (R64 (string_to_int64 (List.hd st))) env
               , List.tl st )
         | _ -> error "byte data exceeds bounds" )
       | "CALL" -> (
         match e with
         | Label l ->
-            jump env2
-              ([l] @ st)
+            jump env (l :: st)
               (function R64 _ -> return true | _ -> error "fatal error")
               e
         | _ -> error "Illegal instruction (core dumped)" )
       | "JMP" ->
-          jump env2 st
+          jump env st
             (function R64 _ -> return true | _ -> error "fatal error")
             e
       | "JE" ->
-          jump env2 st
+          jump env st
             (function
               | R64 0L -> return true
               | R64 _ -> return false
               | _ -> error "fatal error" )
             e
       | "JNE" ->
-          jump env2 st
+          jump env st
             (function
               | R64 0L -> return false
               | R64 _ -> return true
               | _ -> error "fatal error" )
             e
       | "JG" ->
-          jump env2 st
+          jump env st
             (function
               | R64 i when i > 0L -> return true
               | R64 _ -> return false
               | _ -> error "fatal error" )
             e
       | "JGE" ->
-          jump env2 st
+          jump env st
             (function
               | R64 i when i >= 0L -> return true
               | R64 _ -> return false
               | _ -> error "fatal error" )
             e
       | "JL" ->
-          jump env2 st
+          jump env st
             (function
               | R64 i when i < 0L -> return true
               | R64 _ -> return false
               | _ -> error "fatal error" )
             e
       | "JLE" ->
-          jump env2 st
+          jump env st
             (function
               | R64 i when i <= 0L -> return true
               | R64 _ -> return false
               | _ -> error "fatal error" )
             e
       | _ -> error "fatal error" in
-    let inter_arg2 env2 e1 e2 =
+    let inter_arg2 env e1 e2 =
       let helper foo =
-        ev env2 (f env2) e2 >>= fun i -> change_reg64 env2 e1 (foo i) in
+        ev env (f env) e2 >>= fun i -> change_reg64 env e1 (foo i) in
       let helper_sse foo =
         let foo1 s1 s2 =
           let news n s =
@@ -450,15 +464,15 @@ module Eval (M : MonadError) = struct
           RSSE (half 0 ^ half 8) in
         ( match e2 with
         | Label l -> (
-          match MapString.find l env2 with
+          match MapString.find l env with
           | Ls s -> return s
           | _ -> error "fatal error" )
         | Reg r when regSSE r -> (
-          match MapString.find r env2 with
+          match MapString.find r env with
           | RSSE s -> return s
           | _ -> error "fatal error" )
         | _ -> error "invalid combination of opcode and operands" )
-        >>= fun s -> change_regsse env2 e1 (foo1 s) in
+        >>= fun s -> change_regsse env e1 (foo1 s) in
       function
       | "MOV" -> helper (fun i _ -> i)
       | "ADD" -> helper (fun i s -> add s i)
@@ -473,9 +487,9 @@ module Eval (M : MonadError) = struct
       | "SHL" -> helper (fun i s -> shift_left s (to_int i))
       | "CMP" ->
           ( match e1 with
-          | Reg _ -> ev env2 (f env2) (Sub (e1, e2))
+          | Reg _ -> ev env (f env) (Sub (e1, e2))
           | _ -> error "invalid combination of opcode and operands" )
-          >>= fun i -> return (MapString.add "0cond" (R64 i) env2)
+          >>= fun i -> return (MapString.add "0cond" (R64 i) env)
       | "ADDPD" -> helper_sse (fun i s -> add s i)
       | "SUBPD" -> helper_sse (fun i s -> sub s i)
       | "MULPD" -> helper_sse (fun i s -> mul s i)
@@ -484,22 +498,22 @@ module Eval (M : MonadError) = struct
         | Reg r when regSSE r -> (
           match e2 with
           | Label s -> (
-            match MapString.find s env2 with
-            | Ls i | RSSE i -> return (MapString.add r (RSSE i) env2)
+            match MapString.find s env with
+            | Ls i | RSSE i -> return (MapString.add r (RSSE i) env)
             | _ -> error "fatal error" )
           | Reg s when regSSE s -> (
-            match MapString.find s env2 with
-            | Ls i | RSSE i -> return (MapString.add r (RSSE i) env2)
+            match MapString.find s env with
+            | Ls i | RSSE i -> return (MapString.add r (RSSE i) env)
             | _ -> error "fatal error" )
           | _ -> error "invalid combination of opcode and operands" )
         | _ -> error "invalid combination of opcode and operands" )
       | _ -> error "fatal error" in
-    let inter_cmd env1 st = function
-      | Arg0 (_, Mnemonic mn) -> inter_arg0 env1 st mn
-      | Arg1 (_, Mnemonic mn, e) -> inter_arg1 env1 st e mn
+    let inter_cmd env st = function
+      | Arg0 (_, Mnemonic mn) -> inter_arg0 env st mn
+      | Arg1 (_, Mnemonic mn, e) -> inter_arg1 env st e mn
       | Arg2 (_, Mnemonic mn, e1, e2) ->
-          inter_arg2 env1 e1 e2 mn >>= fun env2 -> return (env2, st) in
-    let rec helper env0 st =
+          inter_arg2 env e1 e2 mn >>= fun env -> return (env, st) in
+    let rec helper env st =
       let rec find_label l = function
         | [] -> error (String.concat "" ["symbol `"; l; "\' not defined"])
         | hd :: tl -> (
@@ -513,37 +527,38 @@ module Eval (M : MonadError) = struct
           | _ -> find_label l tl ) in
       function
       | [] -> (
-        match MapString.find_opt "0retcode" env0 with
-        | Some (R64 0L) -> return env0
+        match MapString.find_opt "0retcode" env with
+        | Some (R64 0L) -> return env
         | Some (R64 i) -> error ("Error " ^ to_string i)
         | _ -> (
-          match MapString.find "0jump" env0 with
+          match MapString.find "0jump" env with
           | Ls "" -> error "Segmentation fault (core dumped)"
           | Ls s ->
               find_label s list
               >>= fun list2 ->
-              helper (MapString.add "0jump" (Ls "") env0) st list2
+              helper (MapString.add "0jump" (Ls "") env) st list2
           | _ -> error "fatal error" ) )
       | hd :: tl -> (
-          inter_cmd env0 st hd
-          >>= fun (env2, st1) ->
-          match MapString.find_opt "0retcode" env2 with
-          | Some (R64 0L) -> return env2
+          inter_cmd env st hd
+          >>= fun (env, st) ->
+          match MapString.find_opt "0retcode" env with
+          | Some (R64 0L) -> return env
           | Some (R64 i) -> error ("Error " ^ to_string i)
           | _ -> (
-            match MapString.find "0jump" env2 with
-            | Ls "" -> helper env2 st1 tl
+            match MapString.find "0jump" env with
+            | Ls "" -> helper env st tl
             | Ls s ->
                 find_label s list
                 >>= fun list2 ->
-                helper (MapString.add "0jump" (Ls "") env2) st1 list2
+                helper (MapString.add "0jump" (Ls "") env) st list2
             | _ -> error "fatal error" ) ) in
     helper env [] list
 
+  (** Main interpreter function. *)
   let asm directive = prepr (MapString.of_list reg_list) directive >>= interpret
 end
 
-(** / **)
+(** Helper functions for testing. *)
 
 (* ************************* Tests ********************************* *)
 
@@ -561,12 +576,12 @@ let succ_prepr ?(env = empty_env) giv exp_env exp_res =
       Printf.printf "Error: %s\n" e;
       false
   | Ok res when (exp_env, exp_res) = res -> true
-  | Ok (env1, list) ->
+  | Ok (act_env, list) ->
       print_string "\n-------------------- Input --------------------\n";
       pp_directive Format.std_formatter giv;
       Format.pp_print_flush Format.std_formatter ();
       print_string "\n------------- Actual Environment --------------\n";
-      pp_env Format.std_formatter env1;
+      pp_env Format.std_formatter act_env;
       Format.pp_print_flush Format.std_formatter ();
       print_string "\n------------- Expected Environment ------------\n";
       pp_env Format.std_formatter exp_env;
@@ -593,12 +608,12 @@ let fail_prepr ?(env = empty_env) giv exp_res =
       print_string "\n-----------------------------------------------\n";
       flush stdout;
       false
-  | Ok (env1, list) ->
+  | Ok (act_env, list) ->
       print_string "\n-------------------- Input --------------------\n";
       pp_directive Format.std_formatter giv;
       Format.pp_print_flush Format.std_formatter ();
       print_string "\n------------- Actual Environment --------------\n";
-      pp_env Format.std_formatter env1;
+      pp_env Format.std_formatter act_env;
       Format.pp_print_flush Format.std_formatter ();
       print_string "\n----------------- Actual Result ---------------\n";
       pp_simpl_dir Format.std_formatter list;
@@ -691,12 +706,12 @@ let fail_inter ?(env = MapString.of_list reg_list) giv exp_res =
       print_string "\n-----------------------------------------------\n";
       flush stdout;
       false
-  | Ok env1 ->
+  | Ok act_env ->
       print_string "\n-------------------- Input --------------------\n";
       pp_simpl_dir Format.std_formatter giv;
       Format.pp_print_flush Format.std_formatter ();
       print_string "\n------------- Actual Environment --------------\n";
-      pp_env Format.std_formatter env1;
+      pp_env Format.std_formatter act_env;
       Format.pp_print_flush Format.std_formatter ();
       print_string "\n-----------------------------------------------\n";
       flush stdout;
@@ -726,7 +741,7 @@ let%test _ =
 
 let%test _ =
   succ_inter input_env
-    ([Arg2 (None, Mnemonic "XOR", Reg "RBX", Reg "RBX")] @ succ_simpl_dir)
+    (Arg2 (None, Mnemonic "XOR", Reg "RBX", Reg "RBX") :: succ_simpl_dir)
     succ_env
 
 let%test _ =
@@ -743,7 +758,7 @@ let%test _ =
        ( reg_list
        @ [ ("XMM2", RSSE "Oh hi")
          ; ("XMM3", RSSE "\x00\x00\x00\x00\x00, Mark!    ") ] ) )
-    ([Arg2 (None, Mnemonic "ADDPD", Reg "XMM3", Reg "XMM2")] @ succ_simpl_dir)
+    (Arg2 (None, Mnemonic "ADDPD", Reg "XMM3", Reg "XMM2") :: succ_simpl_dir)
     (MapString.of_list
        ( succ_env_list
        @ [("XMM2", RSSE "Oh hi"); ("XMM3", RSSE "Oh hi, Mark!    ")] ) )
@@ -751,7 +766,7 @@ let%test _ =
 let%test _ =
   succ_inter
     (MapString.of_list (reg_list @ [("XMM2", RSSE "b"); ("XMM3", RSSE "a")]))
-    ([Arg2 (None, Mnemonic "SUBPD", Reg "XMM2", Reg "XMM3")] @ succ_simpl_dir)
+    (Arg2 (None, Mnemonic "SUBPD", Reg "XMM2", Reg "XMM3") :: succ_simpl_dir)
     (MapString.of_list
        ( succ_env_list
        @ [ ( "XMM2"

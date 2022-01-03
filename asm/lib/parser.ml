@@ -286,7 +286,7 @@ let directive_p = many sec_dir_p >>| fun s -> Directive s
     [`Eof] after all of [s] has been consumed. *)
 let parse = parse_string ~consume:Prefix directive_p
 
-(** / **)
+(** Helper functions for testing. *)
 
 (********************************* TESTS ****************************************)
 
