@@ -161,9 +161,10 @@ module Eval (M : MonadError) = struct
             | Ls s1 -> helper s "" (string_to_int64 s1) >>| fun s1 -> Ls s1
             | _ -> error "fatal error" ) in
       function
-      | [] ->
-          if acc = "" then error "no operand for data declaration"
-          else return acc
+      | [] -> (
+        match acc with
+        | "" -> error "no operand for data declaration"
+        | _ -> return acc )
       | hd :: tl -> (
           helper env16 hd
           >>= function
@@ -506,8 +507,10 @@ module Eval (M : MonadError) = struct
           match hd with
           | Arg0 (Some (Id id), _)
            |Arg1 (Some (Id id), _, _)
-           |Arg2 (Some (Id id), _, _, _) ->
-              if id = l then return (hd :: tl) else find_label l tl
+           |Arg2 (Some (Id id), _, _, _) -> (
+            match id with
+            | i when i = l -> return (hd :: tl)
+            | _ -> find_label l tl )
           | _ -> find_label l tl ) in
       function
       | [] -> (

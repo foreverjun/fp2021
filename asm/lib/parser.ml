@@ -175,7 +175,7 @@ let expr_p =
                  | 'A' .. 'F' -> true
                  | 'a' .. 'f' -> true
                  | _ -> false ) )
-          >>| fun s -> Int64.of_string (sign ^ "0x" ^ s) in
+          >>| fun s -> Int64.of_string (String.concat "" [sign; "0x"; s]) in
         let decNumber =
           option "" (string "+" <|> string "-")
           >>= fun sign ->
