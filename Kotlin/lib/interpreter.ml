@@ -29,8 +29,8 @@ module Interpret (M : MONAD_FAIL) = struct
 
   let empty_ctx =
     { environment = []
-    ; last_eval_expression = Unitialized
-    ; last_return_value = Unitialized
+    ; last_eval_expression = Unitialized None
+    ; last_return_value = Unitialized None
     ; last_derefered_variable = None
     ; scope = Initialize
     }
@@ -43,7 +43,7 @@ module Interpret (M : MONAD_FAIL) = struct
     | (String | Nullable String), StringValue _ -> true
     | (Boolean | Nullable Boolean), BooleanValue _ -> true
     | Nullable _, NullValue -> true
-    | Unit, Unitialized -> true
+    | Unit, Unitialized _ -> true
     | (ClassIdentifier identifier | Nullable (ClassIdentifier identifier)), Object obj
       when String.equal obj.classname identifier -> true
     | _, _ -> false
@@ -302,7 +302,7 @@ module Interpret (M : MONAD_FAIL) = struct
            { name
            ; modifiers
            ; clojure = ref ctx.environment
-           ; enclosing_object = get_enclosing_object ctx
+           ; enclosing_object = ref (get_enclosing_object ctx)
            ; content = Class { constructor_args; super_call; statements }
            }
        with
@@ -319,7 +319,7 @@ module Interpret (M : MONAD_FAIL) = struct
            { name
            ; modifiers
            ; clojure = ref ctx.environment
-           ; enclosing_object = get_enclosing_object ctx
+           ; enclosing_object = ref (get_enclosing_object ctx)
            ; content =
                Function
                  { identity_code = get_unique_identity_code ()
@@ -333,7 +333,7 @@ module Interpret (M : MONAD_FAIL) = struct
       | Some new_ctx -> M.return new_ctx)
     | VarDeclaration (modifiers, var_modifier, name, var_typename, init_expression) ->
       (match init_expression with
-      | None -> M.return Unitialized
+      | None -> M.return (Unitialized None)
       | Some expr ->
         interpret_expression ctx expr
         >>= fun interpreted_ctx -> M.return interpreted_ctx.last_eval_expression)
@@ -344,7 +344,7 @@ module Interpret (M : MONAD_FAIL) = struct
            { name
            ; modifiers
            ; clojure = ref ctx.environment
-           ; enclosing_object = get_enclosing_object ctx
+           ; enclosing_object = ref (get_enclosing_object ctx)
            ; content =
                Variable
                  { var_typename
@@ -367,17 +367,27 @@ module Interpret (M : MONAD_FAIL) = struct
         >>= fun var ->
         interpret_expression ctx assign_expression
         >>= fun assign_value_ctx ->
-        if var.mutable_status
-           && check_typename_value_correspondance
-                (var.var_typename, assign_value_ctx.last_eval_expression)
-        then (
+        (match
+           ( check_typename_value_correspondance
+               (var.var_typename, assign_value_ctx.last_eval_expression)
+           , ctx.scope )
+         with
+        | true, ObjectInitialization { contents = obj }
+          when Poly.equal (Unitialized (Some obj)) !(var.value) ->
           rc.clojure := identifier_ctx.environment;
+          rc.enclosing_object := get_enclosing_object ctx;
           var.value := assign_value_ctx.last_eval_expression;
-          M.return assign_value_ctx)
-        else
+          M.return assign_value_ctx
+        | true, _ when var.mutable_status ->
+          rc.clojure := identifier_ctx.environment;
+          rc.enclosing_object := get_enclosing_object ctx;
+          var.value := assign_value_ctx.last_eval_expression;
+          M.return assign_value_ctx
+        | true, _ -> M.fail (VariableNotMutable rc.name)
+        | false, _ ->
           M.fail
             (VariableValueTypeMismatch
-               (rc.name, var.var_typename, assign_value_ctx.last_eval_expression)))
+               (rc.name, var.var_typename, assign_value_ctx.last_eval_expression))))
     | If (log_expr, if_statement, else_statement) ->
       interpret_expression ctx log_expr
       >>= fun eval_ctx ->
@@ -420,7 +430,7 @@ module Interpret (M : MONAD_FAIL) = struct
       | IntValue v -> Stdio.print_endline (Int.to_string v)
       | StringValue v -> Stdio.print_endline v
       | BooleanValue v -> Stdio.print_endline (if v then "true" else "false")
-      | NullValue | Unitialized -> Stdio.print_endline "null"
+      | NullValue | Unitialized _ -> Stdio.print_endline "null"
       | Object obj -> Stdlib.Printf.printf "%s@%x\n" obj.classname obj.identity_code
       | _ -> failwith "Unsupported argument for println");
       M.return { ctx with last_eval_expression = NullValue }
@@ -459,7 +469,7 @@ module Interpret (M : MONAD_FAIL) = struct
                   { name = arg_name
                   ; modifiers = []
                   ; clojure = ref args_ctx.environment
-                  ; enclosing_object = get_enclosing_object args_ctx
+                  ; enclosing_object = ref (get_enclosing_object args_ctx)
                   ; content =
                       Variable
                         { var_typename = arg_typename
@@ -478,20 +488,20 @@ module Interpret (M : MONAD_FAIL) = struct
           fun_ctx
           >>= fun fun_ctx ->
           interpret_statement
-            { fun_ctx with last_return_value = Unitialized }
+            { fun_ctx with last_return_value = Unitialized None }
             func.statement
           >>= fun func_eval_ctx ->
           if check_typename_value_correspondance
                (func.fun_typename, func_eval_ctx.last_return_value)
           then
             if (not (Poly.( = ) func.fun_typename Unit))
-               && Poly.( = ) func_eval_ctx.last_return_value Unitialized
+               && Poly.( = ) func_eval_ctx.last_return_value (Unitialized None)
             then M.fail (ExpectedReturnInFunction identifier)
             else
               M.return
                 { ctx with
                   last_eval_expression = func_eval_ctx.last_return_value
-                ; last_return_value = Unitialized
+                ; last_return_value = Unitialized None
                 }
           else
             M.fail
@@ -521,7 +531,7 @@ module Interpret (M : MONAD_FAIL) = struct
               let new_ctx =
                 { ctx with
                   environment = !(rc.clojure)
-                ; scope = AnonymousFunction rc.enclosing_object
+                ; scope = AnonymousFunction !(rc.enclosing_object)
                 }
               in
               eval_function new_ctx func
@@ -549,7 +559,7 @@ module Interpret (M : MONAD_FAIL) = struct
               let new_ctx =
                 { ctx with
                   environment = !(rc.clojure)
-                ; scope = AnonymousFunction rc.enclosing_object
+                ; scope = AnonymousFunction !(rc.enclosing_object)
                 }
               in
               eval_function new_ctx func
@@ -608,7 +618,7 @@ module Interpret (M : MONAD_FAIL) = struct
                   | VarDeclaration
                       (modifiers, var_modifier, name, var_typename, init_expression) ->
                     (match init_expression with
-                    | None -> M.return Unitialized
+                    | None -> M.return (Unitialized (Some !new_object))
                     | Some expr ->
                       interpret_expression class_inner_ctx expr
                       >>= fun interpreted_ctx ->
@@ -620,7 +630,7 @@ module Interpret (M : MONAD_FAIL) = struct
                          { name
                          ; modifiers
                          ; clojure = ref ctx.environment
-                         ; enclosing_object = get_enclosing_object class_inner_ctx
+                         ; enclosing_object = ref (get_enclosing_object class_inner_ctx)
                          ; content =
                              Variable
                                { var_typename
@@ -645,7 +655,7 @@ module Interpret (M : MONAD_FAIL) = struct
                          { name
                          ; modifiers
                          ; clojure = ref ctx.environment
-                         ; enclosing_object = get_enclosing_object class_inner_ctx
+                         ; enclosing_object = ref (get_enclosing_object class_inner_ctx)
                          ; content =
                              Function
                                { identity_code = get_unique_identity_code ()
@@ -736,7 +746,7 @@ module Interpret (M : MONAD_FAIL) = struct
           >>= fun ctx_with_eval_dereference ->
           M.return { ctx_with_eval_dereference with scope = ctx.scope }
         | _ -> M.fail DereferenceError)
-      | NullValue | Unitialized ->
+      | NullValue | Unitialized _ ->
         (match expr with
         | ElvisDereference _ -> M.return { ctx with last_eval_expression = NullValue }
         | _ -> M.fail ExpectedObjectToDereference)
@@ -802,9 +812,9 @@ module Interpret (M : MONAD_FAIL) = struct
             last_eval_expression = BooleanValue (x.identity_code = y.identity_code)
           }
       | NullValue, NullValue
-      | NullValue, Unitialized
-      | Unitialized, NullValue
-      | Unitialized, Unitialized ->
+      | NullValue, Unitialized _
+      | Unitialized _, NullValue
+      | Unitialized _, Unitialized _ ->
         M.return { ctx with last_eval_expression = BooleanValue true }
       | NullValue, _ | _, NullValue ->
         M.return { ctx with last_eval_expression = BooleanValue false }

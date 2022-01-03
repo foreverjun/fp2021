@@ -35,7 +35,7 @@ type value =
   | AnonymousFunction of function_t
   | Object of object_t
   | NullValue
-  | Unitialized
+  | Unitialized of object_t option
 
 and record_content =
   | Variable of variable_t
@@ -46,7 +46,7 @@ and record_t =
   { name : string
   ; modifiers : modifier list
   ; clojure : (record_t list ref[@opaque])
-  ; enclosing_object : (object_t option[@opaque])
+  ; enclosing_object : (object_t option ref[@opaque])
   ; content : record_content
   }
 

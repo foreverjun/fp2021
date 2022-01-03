@@ -3,6 +3,7 @@ open Ast
 
 type error =
   | EmptyProgram
+  | VariableNotMutable of string
   | ExpectedReturnInFunction of string
   | ThisExpressionError
   | UnsupportedOperandTypes of expression
