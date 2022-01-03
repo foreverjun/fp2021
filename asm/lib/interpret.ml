@@ -227,8 +227,7 @@ module Eval (M : MonadError) = struct
       | [] -> return (env1, acc1)
       | hd :: tl ->
           helper env1 hd
-          >>= fun (env2, acc2) -> (pr_sec_dir [@tailcall]) env2 (acc1 @ acc2) tl
-    in
+          >>= fun (env2, acc2) -> pr_sec_dir env2 (acc1 @ acc2) tl in
     fun (Directive list) -> pr_sec_dir env [] list
 
   let reg_list =
