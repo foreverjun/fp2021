@@ -709,17 +709,6 @@ let%test _ =
   let ctx =
     interpret_expression
       ctx_with_standard_classes
-      (Equal (Const Unitialized, Const NullValue))
-  in
-  match ctx with
-  | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
-;;
-
-let%test _ =
-  let ctx =
-    interpret_expression
-      ctx_with_standard_classes
       (Equal
          ( Const
              (AnonymousFunction
@@ -839,7 +828,7 @@ let%test _ =
     { name = "foo"
     ; modifiers = []
     ; clojure = ref []
-    ; enclosing_object = None
+    ; enclosing_object = ref None
     ; content =
         Variable { var_typename = Int; mutable_status = false; value = ref (IntValue 1) }
     }
@@ -868,7 +857,7 @@ let%test _ =
     { name = "foo"
     ; modifiers = []
     ; clojure = ref []
-    ; enclosing_object = None
+    ; enclosing_object = ref None
     ; content =
         Function
           { identity_code = 1
@@ -900,7 +889,7 @@ let%test _ =
     { name = "foo"
     ; modifiers = []
     ; clojure = ref []
-    ; enclosing_object = None
+    ; enclosing_object = ref None
     ; content =
         Variable
           { var_typename = ClassIdentifier "MyClass"
@@ -917,7 +906,7 @@ let%test _ =
                        [ { name = "field"
                          ; modifiers = []
                          ; clojure = ref []
-                         ; enclosing_object = None
+                         ; enclosing_object = ref None
                          ; content =
                              Variable
                                { var_typename = Int
@@ -947,7 +936,7 @@ let%test _ =
     { name = "foo"
     ; modifiers = []
     ; clojure = ref []
-    ; enclosing_object = None
+    ; enclosing_object = ref None
     ; content =
         Variable { var_typename = Int; mutable_status = false; value = ref NullValue }
     }
