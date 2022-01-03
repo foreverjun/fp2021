@@ -444,7 +444,7 @@ module Eval (M : MonadFail) = struct
     List.fold_left (fun acc r -> acc >>= fun env -> ev_redir env r) (return env) rs
 
   (** Evaluate pipeline list *)
-  and ev_pipeline_list (env : environment) : pipeline_list -> environment t = function
+  and ev_pipeline_list env = function
     | Pipeline p -> ev_pipeline env p
     | PipelineAndList (hd, tl) ->
       ev_pipeline env hd
@@ -1846,4 +1846,61 @@ let%test _ =
     , [ SimpleCommand (Command ([], [ Word "echo"; ParamExp (Param ("X", "0")) ]), []) ]
     )
     empty_env
+;;
+
+(* -------------------- Pipeline list -------------------- *)
+
+open TestMake (struct
+  type giv_t = pipeline_list
+  type exp_t = environment
+
+  let pp_giv = pp_pipeline_list
+  let pp_res = pp_environment
+  let ev = ev_pipeline_list
+  let cmp = cmp_envs
+end)
+
+let%test _ =
+  succ_ev
+    (PipelineAndList
+       ( (false, SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "a") ], []), [])
+       , Pipeline
+           ( false
+           , SimpleCommand (Command ([], [ Word "echo"; ParamExp (Param ("X", "0")) ]), [])
+           , [] ) ))
+    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "a")) }
+    ~exp_stdout:"a"
+;;
+
+let%test _ =
+  succ_ev
+    (PipelineAndList
+       ( (true, SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "a") ], []), [])
+       , Pipeline
+           ( false
+           , SimpleCommand (Command ([], [ Word "echo"; ParamExp (Param ("X", "0")) ]), [])
+           , [] ) ))
+    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "a")) }
+;;
+
+let%test _ =
+  succ_ev
+    (PipelineOrList
+       ( (false, SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "a") ], []), [])
+       , Pipeline
+           ( false
+           , SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "b") ], [])
+           , [] ) ))
+    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "a")) }
+;;
+
+let%test _ =
+  succ_ev
+    (PipelineOrList
+       ( (true, SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "a") ], []), [])
+       , Pipeline
+           ( false
+           , SimpleCommand (Assignt [ SimpleAssignt (("X", "0"), Word "b") ], [])
+           , [] ) ))
+    { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "b")) }
 ;;
