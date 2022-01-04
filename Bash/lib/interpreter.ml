@@ -604,8 +604,8 @@ module Eval (M : MonadFail) = struct
 
   (** Evaluate Bash script *)
   and ev_script env = function
-    | [] -> return env
     | hd :: tl -> ev_script_elem env hd >>= fun env -> ev_script env tl
+    | [] -> return env
   ;;
 end
 

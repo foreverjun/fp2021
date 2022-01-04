@@ -4,7 +4,7 @@ For example, where you test correctness of AST it's recommended to put both
 input and output into this file. In this case it will be easier to check that
 the answer is correct.
 
-  $ ./demoParse.exe <<-EOF
+  $ ./demoParse.exe <<-"EOF"
   > VAR=100
   > 
   > function some_f () {
@@ -35,7 +35,13 @@ the answer is correct.
           (false,
            (Compound (
               (ForList ("i", [(Word "1"); (Word "2"); (Word "3")],
-                 (Pipe (false, (Simple ([], [(Word "echo")], [])), [])))),
+                 (Pipe
+                    (false,
+                     (Simple ([],
+                        [(Word "echo"); (ParamExp (Param ("i", "0")))], 
+                        [])),
+                     []))
+                 )),
               [])),
            [(Simple ([], [(Word "grep"); (Word "2")], []))])));
     (Pipes
