@@ -37,9 +37,10 @@ module TMap (T : PpOrderedType) = struct
   let add_list l = add_seq (List.to_seq l)
 
   let pp pp_v ppf m =
-    Format.fprintf ppf "@[[@[";
-    iter (fun k v -> Format.fprintf ppf "@[%a: %a@],@\n" T.pp_t k pp_v v) m;
-    Format.fprintf ppf "@]]@]"
+    let open Format in
+    fprintf ppf "@[[@[";
+    iter (fun k v -> fprintf ppf "@[%a: %a@],@\n" T.pp_t k pp_v v) m;
+    fprintf ppf "@]]@]"
   ;;
 end
 
@@ -706,18 +707,18 @@ struct
     | Ok res ->
       print_string "\n-------------------- Input --------------------\n";
       T.pp_giv Format.std_formatter giv;
-      Format.pp_print_flush Format.std_formatter ();
+      Format.(pp_print_flush std_formatter ());
       print_string "\n----------------- Environment -----------------\n";
       pp_test_environment Format.std_formatter test_env;
-      Format.pp_print_flush Format.std_formatter ();
+      Format.(pp_print_flush std_formatter ());
       print_string "\n------------------- Expected ------------------\n";
-      Printf.printf "Stdout: \"%s\"\nStderr: \"%s\"\n" exp_stdout exp_stderr;
+      Printf.printf "Stdout: %S\nStderr: %S\n" exp_stdout exp_stderr;
       T.pp_res Format.std_formatter exp;
-      Format.pp_print_flush Format.std_formatter ();
+      Format.(pp_print_flush std_formatter ());
       print_string "\n-------------------- Actual -------------------\n";
-      Printf.printf "Stdout: \"%s\"\nStderr: \"%s\"\n" act_stdout act_stderr;
+      Printf.printf "Stdout: %S\nStderr: %S\n" act_stdout act_stderr;
       T.pp_res Format.std_formatter res;
-      Format.pp_print_flush Format.std_formatter ();
+      Format.(pp_print_flush std_formatter ());
       print_string "\n-----------------------------------------------\n";
       flush stdout;
       false
@@ -734,10 +735,10 @@ struct
     | Error e ->
       print_string "\n-------------------- Input --------------------\n";
       T.pp_giv Format.std_formatter giv;
-      Format.pp_print_flush Format.std_formatter ();
+      Format.(pp_print_flush std_formatter ());
       print_string "\n----------------- Environment -----------------\n";
       pp_test_environment Format.std_formatter test_env;
-      Format.pp_print_flush Format.std_formatter ();
+      Format.(pp_print_flush std_formatter ());
       print_string "\n--------------- Unexpected error --------------\n";
       print_string e;
       print_string "\n-----------------------------------------------\n";
@@ -746,14 +747,14 @@ struct
     | Ok res ->
       print_string "\n-------------------- Input --------------------\n";
       T.pp_giv Format.std_formatter giv;
-      Format.pp_print_flush Format.std_formatter ();
+      Format.(pp_print_flush std_formatter ());
       print_string "\n----------------- Environment -----------------\n";
       pp_test_environment Format.std_formatter test_env;
-      Format.pp_print_flush Format.std_formatter ();
+      Format.(pp_print_flush std_formatter ());
       print_string "\n-------------------- Actual -------------------\n";
-      Printf.printf "Stdout: \"%s\"\nStderr: \"%s\"\n" act_stdout act_stderr;
+      Printf.printf "Stdout: %S\nStderr: %S\n" act_stdout act_stderr;
       T.pp_res Format.std_formatter res;
-      Format.pp_print_flush Format.std_formatter ();
+      Format.(pp_print_flush std_formatter ());
       print_string "\n-----------------------------------------------\n";
       flush stdout;
       false
@@ -858,13 +859,7 @@ open TestMake (struct
   type exp_t = environment * int
 
   let pp_giv = pp_arithm
-
-  let pp_res fmt (env, n) =
-    pp_environment fmt env;
-    Format.pp_print_newline fmt ();
-    Format.pp_print_int fmt n
-  ;;
-
+  let pp_res fmt (env, n) = Format.fprintf fmt "%a@\n%i" pp_environment env n
   let ev = ev_arithm
   let cmp = cmp_env_pairs
 end)
@@ -890,12 +885,7 @@ open TestMake (struct
   type exp_t = environment * string
 
   let pp_giv = pp_param_exp
-
-  let pp_res fmt (env, s) =
-    pp_environment fmt env;
-    Format.pp_print_string fmt s
-  ;;
-
+  let pp_res fmt (env, s) = Format.fprintf fmt "%a@\n%s" pp_environment env s
   let ev = ev_param_exp
   let cmp = cmp_env_pairs
 end)
@@ -1185,7 +1175,7 @@ open TestMake (struct
   type exp_t = string list
 
   let pp_giv = Format.pp_print_string
-  let pp_res = Format.pp_print_list ~pp_sep:Format.pp_print_newline Format.pp_print_string
+  let pp_res = Format.(pp_print_list ~pp_sep:pp_print_newline pp_print_string)
   let ev = ev_filename_exp
   let cmp = ( = )
 end)
@@ -1211,8 +1201,14 @@ open TestMake (struct
   let pp_giv = pp_word
 
   let pp_res fmt (env, ss) =
-    pp_environment fmt env;
-    Format.pp_print_list ~pp_sep:Format.pp_print_newline Format.pp_print_string fmt ss
+    Format.(
+      fprintf
+        fmt
+        "%a%a"
+        pp_environment
+        env
+        (pp_print_list ~pp_sep:pp_print_newline pp_print_string)
+        ss)
   ;;
 
   let ev = ev_word
