@@ -952,34 +952,3 @@ let%test _ =
   | Error _ -> raise Test_failed
   | Ok eval_ctx -> eval_ctx.last_eval_expression = NullValue
 ;;
-
-(* Демо *)
-open Demos
-
-let%test _ =
-  print_endline "";
-  print_endline "BFS demo";
-  match parse_and_run bfs_algorithm with
-  | Ok _ -> true
-  | Error _ -> raise Test_failed
-;;
-
-let%test _ =
-  print_endline "";
-  print_endline "IteratorMap demo";
-  match parse_and_run iterator_map_algorithm with
-  | Ok _ -> true
-  | Error err ->
-    print_endline (show_error err);
-    raise Test_failed
-;;
-
-let%test _ =
-  print_endline "";
-  print_endline "Factorial demo";
-  match parse_and_run factorial_algorithm with
-  | Ok _ -> true
-  | Error err ->
-    print_endline (show_error err);
-    raise Test_failed
-;;
