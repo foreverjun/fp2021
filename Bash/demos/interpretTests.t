@@ -1,20 +1,3 @@
-Recursive functions with parameters: factorial computation
-  $ ./demoInterpret.exe <<-"EOF"
-  > factorial () {
-  >   n=$1
-  >   if (( n <= 1 )); then
-  >     echo 1
-  >   else {
-  >     last=$( factorial $(( n - 1 )) )
-  >     echo $(( n * last ))
-  >   }; fi
-  > }
-  > 
-  > factorial 5
-  > EOF
-  120
-  Interpretation finished with return code: 0
-
 External script call
   $ echo "echo hello from another script" > another_script.sh
   $ ./demoInterpret.exe <<-"EOF"
@@ -31,12 +14,36 @@ Pipelines and redirections:
   > echo printing | cat >testfile | cat
   > EOF
   Interpretation finished with return code: 0
-Here the system's shell is run to check that testfile was actually written to
-  $ cat testfile
+The first echo call doesn't print to stdout but writes to testfile
+  $ ./demoInterpret.exe <<-"EOF"
+  > cat <testfile
+  > echo appending >>testfile
+  > EOF
   printing
+  Interpretation finished with return code: 0
+The second echo call doesn't print to stdout but appends to testfile
+  $ ./demoInterpret.exe <<-"EOF"
+  > cat <testfile
+  > EOF
+  printing
+  appending
+  Interpretation finished with return code: 0
+cat receives an argument (which is not yet supported) and produces a error message which
+is redirected from stderr to another_testfile (return code 1 is intentional)
+  $ ./demoInterpret.exe <<-"EOF"
+  > cat unsupported_argument >another_testfile 2>&1
+  > EOF
+  Interpretation finished with return code: 1
+Another cat call shows the contents of another_testfile that were produced by the previous
+cat call
+  $ ./demoInterpret.exe <<-"EOF"
+  > cat <another_testfile
+  > EOF
+  cat: additional arguments are not yet supported
+  Interpretation finished with return code: 0
 
-Pipeline lists: with && the left side is computated only if the left side is true, with
-|| the right side is computated only if the left side is false
+Pipeline lists: with && the left side is computed only if the left side is true, with
+|| the right side is computed only if the left side is false
   $ ./demoInterpret.exe <<-"EOF"
   > (( 2 > 3 )) && echo should not be printed
   > (( 2 > 3 )) || echo should be printed 1
@@ -100,6 +107,23 @@ Compounds and patterns
   yes
   -------------------
   right!
+  Interpretation finished with return code: 0
+
+Recursive functions with parameters: factorial computation
+  $ ./demoInterpret.exe <<-"EOF"
+  > factorial () {
+  >   n=$1
+  >   if (( n <= 1 )); then
+  >     echo 1
+  >   else {
+  >     last=$( factorial $(( n - 1 )) )
+  >     echo $(( n * last ))
+  >   }; fi
+  > }
+  > 
+  > factorial 5
+  > EOF
+  120
   Interpretation finished with return code: 0
 
 Expansions
