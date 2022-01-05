@@ -95,7 +95,7 @@ and expression =
       (** Строки string, не заключенные в кавычки, преставляются как VarIdentifier ("string") *)
   | This (** Специальное выражение для вызова this внутри объекта *)
   | AnonymousFunctionDeclaration of (string * typename) list * statement
-      (** \{ (string * typename) list -> statement \}. Например: \{elem: Int -> elem * elem\} *)
+      (** \{ (string * typename) list -> statement \}. Например: \{elem: Int -> elem * elem\} - анонимная функция для возведения числа в квадрат*)
   | FunctionCall of string * expression list
       (** Например: foo(bar) <=> FunctionCall ("foo", \[VarIdentifier "bar"\])*)
   | Println of expression (** println(expression) *)
