@@ -266,7 +266,10 @@ end = struct
     parens (sep_by expression (token ","))
     >>= fun args ->
     if String.equal identifier "println"
-    then if List.length args = 1 then return (Println (List.hd args)) else mzero
+    then (
+      match args with
+      | [ arg ] -> return (Println arg)
+      | _ -> mzero)
     else return (FunctionCall (identifier, args)))
       input
 
@@ -290,7 +293,9 @@ end = struct
              >>= fun var_typename -> return (parse_var_identifier, var_typename))
              (token ","))
        >>= fun args ->
-       (if List.length args > 0 then token "->" else token "")
+       (match args with
+       | [] -> token ""
+       | _ -> token "->")
        >> sep_by Statement.statement (skip_many (exactly ' ') >> newline)
        >>= fun statements -> return (args, statements))
     >>= fun (args, statements) ->

@@ -729,35 +729,36 @@ let%test _ =
   | Error _ -> raise Test_failed
   | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
-;;
 
-let ctx =
-  let obj_class = { constructor_args = []; super_call = None; statements = [] } in
-  interpret_expression
-    ctx_with_standard_classes
-    (Equal
-       ( Const
-           (Object
-              { identity_code = 1
-              ; classname = "foo"
-              ; super = None
-              ; obj_class
-              ; fields = []
-              ; methods = []
-              })
-       , Const
-           (Object
-              { identity_code = 2
-              ; classname = "foo"
-              ; super = None
-              ; obj_class
-              ; fields = []
-              ; methods = []
-              }) ))
-in
-match ctx with
-| Error _ -> raise Test_failed
-| Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
+let%test _ =
+  let ctx =
+    let obj_class = { constructor_args = []; super_call = None; statements = [] } in
+    interpret_expression
+      ctx_with_standard_classes
+      (Equal
+         ( Const
+             (Object
+                { identity_code = 1
+                ; classname = "foo"
+                ; super = None
+                ; obj_class
+                ; fields = []
+                ; methods = []
+                })
+         , Const
+             (Object
+                { identity_code = 2
+                ; classname = "foo"
+                ; super = None
+                ; obj_class
+                ; fields = []
+                ; methods = []
+                }) ))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
+;;
 
 let%test _ =
   let ctx =

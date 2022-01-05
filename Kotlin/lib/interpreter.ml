@@ -149,42 +149,42 @@ module Interpret (M : MONAD_FAIL) = struct
       | _ -> failwith "Should not reach here")
   ;;
 
-  let rec get_field_from_object (this_flag : bool) obj name =
+  let rec get_from_object finder this_flag obj name =
     let open Option.Let_syntax in
-    match
-      List.find_map obj.fields ~f:(fun r ->
-          if String.equal r.name name then Some r else None)
-    with
-    | Some field ->
-      if (check_record_is_private field || check_record_is_protected field)
-         && not this_flag
-      then None
-      else Some field
+    match finder obj with
+    | Some field
+      when ((check_record_is_private field || check_record_is_protected field)
+           && this_flag)
+           || not (check_record_is_private field && check_record_is_protected field) ->
+      Some field
     | None ->
       let%bind super = obj.super in
-      let%bind field = get_field_from_object true super name in
+      let%bind field = get_from_object finder true super name in
       if check_record_is_private field
          || (check_record_is_protected field && not this_flag)
       then None
       else Some field
+    | _ -> None
+  ;;
+
+  let get_field_from_object this_flag obj name =
+    get_from_object
+      (fun obj ->
+        List.find_map obj.fields ~f:(fun r ->
+            if String.equal r.name name then Some r else None))
+      this_flag
+      obj
+      name
   ;;
 
   let rec get_method_from_object this_flag obj name =
-    let open Option.Let_syntax in
-    match
-      List.find_map obj.methods ~f:(fun r ->
-          if String.equal r.name name then Some r else None)
-    with
-    | Some meth ->
-      if (check_record_is_private meth || check_record_is_protected meth) && not this_flag
-      then None
-      else Some meth
-    | None ->
-      let%bind super = obj.super in
-      let%bind meth = get_method_from_object true super name in
-      if check_record_is_private meth || (check_record_is_protected meth && not this_flag)
-      then None
-      else Some meth
+    get_from_object
+      (fun obj ->
+        List.find_map obj.methods ~f:(fun r ->
+            if String.equal r.name name then Some r else None))
+      this_flag
+      obj
+      name
   ;;
 
   let define_in_object obj rc =
@@ -393,24 +393,19 @@ module Interpret (M : MONAD_FAIL) = struct
       interpret_expression ctx log_expr
       >>= fun eval_ctx ->
       (match eval_ctx.last_eval_expression with
-      | BooleanValue log_val ->
-        if log_val
-        then interpret_statement ctx if_statement
-        else (
-          match else_statement with
-          | None -> M.return ctx
-          | Some stat -> interpret_statement ctx stat)
+      | BooleanValue log_val when log_val -> interpret_statement ctx if_statement
+      | BooleanValue log_val when not log_val ->
+        (match else_statement with
+        | None -> M.return ctx
+        | Some stat -> interpret_statement ctx stat)
       | _ -> M.fail ExpectedBooleanValue)
     | While (log_expr, while_statement) ->
       interpret_expression ctx log_expr
       >>= fun eval_ctx ->
       (match eval_ctx.last_eval_expression with
-      | BooleanValue log_val ->
-        if log_val
-        then
-          interpret_statement ctx while_statement
-          >>= fun _ -> interpret_statement ctx stat
-        else M.return eval_ctx
+      | BooleanValue log_val when log_val ->
+        interpret_statement ctx while_statement >>= fun _ -> interpret_statement ctx stat
+      | BooleanValue log_val when not log_val -> M.return eval_ctx
       | _ -> M.fail ExpectedBooleanValue)
 
   and interpret_expression ctx expr =
@@ -590,10 +585,8 @@ module Interpret (M : MONAD_FAIL) = struct
                 (match expr with
                 | FunctionCall (identifier, _) ->
                   (match get_class_from_env ctx.environment identifier with
-                  | Some rc ->
-                    if check_record_is_open rc
-                    then M.return expr
-                    else M.fail (ClassNotOpen identifier)
+                  | Some rc when check_record_is_open rc -> M.return expr
+                  | Some _ -> M.fail (ClassNotOpen identifier)
                   | None -> M.fail (UnknownFunction identifier))
                 | _ -> M.fail ClassSuperConstructorNotValid)
                 >>= fun _ ->
@@ -731,14 +724,12 @@ module Interpret (M : MONAD_FAIL) = struct
       | Object obj ->
         let scope =
           match ctx.scope with
+          | (DereferencedObject (_, outer_ctx) | ThisDereferencedObject (_, outer_ctx))
+            when this_flag -> ThisDereferencedObject (obj, outer_ctx)
           | DereferencedObject (_, outer_ctx) | ThisDereferencedObject (_, outer_ctx) ->
-            if this_flag
-            then ThisDereferencedObject (obj, outer_ctx)
-            else DereferencedObject (obj, outer_ctx)
-          | _ ->
-            if this_flag
-            then ThisDereferencedObject (obj, ctx)
-            else DereferencedObject (obj, ctx)
+            DereferencedObject (obj, outer_ctx)
+          | _ when this_flag -> ThisDereferencedObject (obj, ctx)
+          | _ -> DereferencedObject (obj, ctx)
         in
         let obj_ctx = { ctx with scope } in
         (match der_expression with
