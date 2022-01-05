@@ -6,7 +6,7 @@ let () =
   match Parser.parse s with
   | Ok script ->
     (match Interpreter.interpret script with
-    | Ok n -> printf "\nInterpretation finished with return code: %i" n
+    | Ok n -> printf "Interpretation finished with return code: %i" n
     | Error e -> printf "Interpretation error: %s" e)
   | Error e -> printf "Parsing error: %s" e
 ;;
