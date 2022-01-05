@@ -10,7 +10,7 @@ open Kotlin_lib.Utils
     [1, 0, 0, 1],
     [0, 1, 1, 0]
   ]
-  Функция init_matrix захардкожена чтобы возвращать данную матриу смежности
+  Функция init_matrix захардкожена чтобы возвращать данную матрицу смежности
 
   Данный пример должен продемонстрировать, что тут есть какое никакое ООП и анонимные функции
 *)
@@ -98,9 +98,9 @@ let bfs_algorithm =
     val query: IntQuery = IntQuery()
     val visited: IntArrayList = IntArrayList(0)
     val distances: IntArrayList = IntArrayList(4)
-    distances.map({index: Int, old: Int -> 
+    distances.map {index: Int, old: Int -> 
       infinity
-    })
+    }
 
     query.push(0)
     distances.set(0, 0)
@@ -122,10 +122,10 @@ let bfs_algorithm =
     }
 
     println("answer")
-    distances.map({index: Int, old: Int ->
+    distances.map {index: Int, old: Int ->
       println(old)
       old
-    })
+    }
   }
 
 |}

@@ -261,9 +261,17 @@ end = struct
     (token "!" >> lexeme highest_prior_expression >>= fun x -> return (Not x)) input
 
   and function_call_expression input =
+    let anonymous_function_expression_as_list =
+      anonymous_function_expression >>= fun arg -> return [ arg ]
+    in
     (parse_identifier
     >>= fun identifier ->
     parens (sep_by expression (token ","))
+    >>= (fun args_in_brackets ->
+          option [] anonymous_function_expression_as_list
+          >>= fun anonymous_function_arg ->
+          return (args_in_brackets @ anonymous_function_arg))
+    <|> anonymous_function_expression_as_list
     >>= fun args ->
     if String.equal identifier "println"
     then (
@@ -341,7 +349,6 @@ end = struct
   and statement input =
     (choice
        [ block_statement
-       ; init_statement
        ; fun_declaration_statement
        ; class_declaration_statement
        ; var_declaration_statement
@@ -400,7 +407,11 @@ end = struct
     >>= fun constructor_args ->
     option
       None
-      (token ":" >> function_call_expression >>= fun fun_call -> return (Some fun_call))
+      (token ":"
+      >> parse_identifier
+      >>= fun super_identifier ->
+      parens (sep_by expression (token ","))
+      >>= fun args -> return (Some (FunctionCall (super_identifier, args))))
     >>= fun super_class_constructor ->
     class_block_statement
     >>= fun class_statement ->
