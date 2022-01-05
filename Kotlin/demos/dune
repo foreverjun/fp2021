@@ -1,0 +1,20 @@
+(executable
+ (name demoBFS)
+ (modules demoBFS)
+ (public_name demoBFS)
+ (libraries Kotlin.Lib))
+
+(executable
+ (name demoIteratorMap)
+ (modules demoIteratorMap)
+ (public_name demoIteratorMap)
+ (libraries Kotlin.Lib))
+
+(executable
+ (name demoFactorial)
+ (modules demoFactorial)
+ (public_name demoFactorial)
+ (libraries Kotlin.Lib))
+
+(cram
+ (deps ./demoBFS.exe ./demoIteratorMap.exe ./demoFactorial.exe))
