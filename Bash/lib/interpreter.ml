@@ -452,7 +452,15 @@ module Eval (M : MonadFail) = struct
       | None, Some f, _ -> return { env with retcode = f (cmd :: args) n_env.chs }
       | None, None, Some s ->
         (match Parser.parse s with
-        | Ok script -> ev_script n_env script >>| fun { retcode } -> { env with retcode }
+        | Ok script ->
+          Fun.protect
+            ~finally:(fun () -> Sys.catch_break false)
+            (fun () ->
+              Sys.catch_break true;
+              try ev_script n_env script with
+              (* 130: script terminated by Ctrl-C *)
+              | Sys.Break -> return { n_env with retcode = 130 })
+          >>| fun { retcode } -> { env with retcode }
         | Error e -> fail (Printf.sprintf "%s: syntax error %s" cmd e))
       | None, None, None -> fail (Printf.sprintf "%s: command not found" cmd))
     | Compound (c, rs) ->
