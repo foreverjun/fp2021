@@ -1,4 +1,4 @@
-Recursive funstions with parameters: factorial computation
+Recursive functions with parameters: factorial computation
   $ ./demoInterpret.exe <<-"EOF"
   > factorial () {
   >   n=$1
@@ -35,7 +35,7 @@ Here the system's shell is run to check that testfile was actually written to
   $ cat testfile
   printing
 
-Pipeline lists: with && the left side is computated onlu if the left side is true, with
+Pipeline lists: with && the left side is computated only if the left side is true, with
 || the right side is computated only if the left side is false
   $ ./demoInterpret.exe <<-"EOF"
   > (( 2 > 3 )) && echo should not be printed

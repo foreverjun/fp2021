@@ -20,17 +20,17 @@ type arithm =
 
 (** Parameter expansion *)
 type param_exp =
-  | Param of var (** [$name], [$\{name\}] *)
-  | Length of var (** [$\{#name\}] *)
-  | Substring of var * arithm * arithm option (** [$\{name:offset\[:length\]\}] *)
-  | CutMinBeg of var * string (** [$\{name#pattern\}] *)
-  | CutMaxBeg of var * string (** [$\{name##pattern\}] *)
-  | CutMinEnd of var * string (** [$\{name%pattern\}] *)
-  | CutMaxEnd of var * string (** [$\{name%%pattern\}] *)
-  | SubstOne of var * string * string (** [$\{name/pattern\[/string\]\}] *)
-  | SubstAll of var * string * string (** [$\{name//pattern\[/string\]\}] *)
-  | SubstBeg of var * string * string (** [$\{name/#pattern\[/string\]\}] *)
-  | SubstEnd of var * string * string (** [$\{name/%pattern\[/string\]\}] *)
+  | Param of var (** [$name], [${name}] *)
+  | Length of var (** [${#name}] *)
+  | Substring of var * arithm * arithm option (** [${name:offset\[:length\]}] *)
+  | CutMinBeg of var * string (** [${name#pattern}] *)
+  | CutMaxBeg of var * string (** [${name##pattern}] *)
+  | CutMinEnd of var * string (** [${name%pattern}] *)
+  | CutMaxEnd of var * string (** [${name%%pattern}] *)
+  | SubstOne of var * string * string (** [${name/pattern\[/string\]}] *)
+  | SubstAll of var * string * string (** [${name//pattern\[/string\]}] *)
+  | SubstBeg of var * string * string (** [${name/#pattern\[/string\]}] *)
+  | SubstEnd of var * string * string (** [${name/%pattern\[/string\]}] *)
 [@@deriving show { with_path = false }]
 
 (** Token that may be subject to expansions (here * means that the expansion may produce more than one word):
@@ -70,7 +70,7 @@ and redir =
 
 (** Compound command *)
 and compound =
-  | Group of pipe_list list (** { ... } *)
+  | Group of pipe_list list (** \{ ... \} *)
   | While of pipe_list * pipe_list (** [while list; do list; done] *)
   | ForList of string * word list * pipe_list
       (** [name in \[ word ... \]; do list ; done] *)

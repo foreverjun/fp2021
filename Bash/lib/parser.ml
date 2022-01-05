@@ -515,6 +515,7 @@ let parse = parse_string ~consume:All script_p
 
 (* -------------------- Other parser functions -------------------- *)
 
+(** Splits the given string on tokens separated by blanks and newlines *)
 let split_words =
   let is_sep c = is_blank c || c = '\n' in
   let sep = take_while is_sep in
