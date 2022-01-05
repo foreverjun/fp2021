@@ -7,7 +7,7 @@ type modifier =
   | Override
 [@@deriving show { with_path = false }]
 
-(** Модификатор, указывающий на изменяемость переменной (val - неизменяемая, var - изменяемая)*)
+(** Модификатор, указывающий на изменяемость переменной ([val] - неизменяемая, [var] - изменяемая)*)
 type variable_modifier =
   | Val
   | Var
@@ -95,9 +95,9 @@ and expression =
       (** Строки string, не заключенные в кавычки, преставляются как VarIdentifier ("string") *)
   | This (** Специальное выражение для вызова this внутри объекта *)
   | AnonymousFunctionDeclaration of (string * typename) list * statement
-      (** { (string * typename) list -> statement }. Например: {elem: Int -> elem * elem} *)
+      (** \{ (string * typename) list -> statement \}. Например: \{elem: Int -> elem * elem\} *)
   | FunctionCall of string * expression list
-      (** Например: foo(bar) <=> FunctionCall ("foo", [VarIdentifier "bar"])*)
+      (** Например: foo(bar) <=> FunctionCall ("foo", \[VarIdentifier "bar"\])*)
   | Println of expression (** println(expression) *)
   | Dereference of expression * expression
       (** expression.expression где expression = FunctionCall | VarIdentifier *)
@@ -116,14 +116,14 @@ and statement =
       (** modifiers variable_modifier string: typename = expression. Например: open val foo: String = "string" *)
   | FunDeclaration of
       modifier list * string * (string * typename) list * typename * statement
-      (** modifiers fun string((string * typename) list): typename statement. Например: private fun foo(bar: Int): Int { return bar } *)
+      (** modifiers fun string((string * typename) list): typename statement. Например: private fun foo(bar: Int): Int \{ return bar \} *)
   | ClassDeclaration of
       modifier list * string * (string * typename) list * expression option * statement
-      (** modifiers class string(string * typename list): expression option statement. Например: open class Foo(bar: Int): Baz(bar) { ... } *)
+      (** modifiers class string(string * typename list): expression option statement. Например: open class Foo(bar: Int): Baz(bar) \{ ... \} *)
   | Block of statement list
-      (** { statement list } - набор выражений, окруженных фигурными скобками *)
+      (** \{ statement list \} - набор выражений, окруженных фигурными скобками *)
   | InitializeBlock of statement list
       (** Вырожденный случай Block. Нужен только для функции parse_and_run, и по сути является Block без фигурных скобок вокруг *)
   | InitInClass of statement
-      (** init { ... }, причем данная конструкция должна встречаться только внутри классов *)
+      (** init \{ ... \}, причем данная конструкция должна встречаться только внутри классов *)
 [@@deriving show { with_path = false }]
