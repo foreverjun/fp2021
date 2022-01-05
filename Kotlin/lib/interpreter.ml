@@ -158,8 +158,10 @@ module Interpret = struct
            || not (check_record_is_private field && check_record_is_protected field) ->
       Some field
     | None ->
-      let%bind super = obj.super in
-      let%bind field = get_from_object finder true super name in
+      obj.super
+      >>= fun super ->
+      get_from_object finder true super name
+      >>= fun field ->
       if check_record_is_private field
          || (check_record_is_protected field && not this_flag)
       then None
