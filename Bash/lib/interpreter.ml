@@ -452,8 +452,7 @@ module Eval (M : MonadFail) = struct
       | None, Some f, _ -> return { env with retcode = f (cmd :: args) n_env.chs }
       | None, None, Some s ->
         (match Parser.parse s with
-        | Ok script ->
-          ev_script empty_env script >>| fun { retcode } -> { env with retcode }
+        | Ok script -> ev_script n_env script >>| fun { retcode } -> { env with retcode }
         | Error e -> fail (Printf.sprintf "%s: syntax error %s" cmd e))
       | None, None, None -> fail (Printf.sprintf "%s: command not found" cmd))
     | Compound (c, rs) ->
@@ -1431,21 +1430,22 @@ let test_file = "INTEPRETER_TEST_FILE"
 
 (*
 Important moments in these tests:
-1) Call to open_out is required to keep the fd open while comparing environments
+1) Call to open_out is required to open and keep the fd open while comparing environments
 2) It is pointless to change file descriptors 0-2 in the template environment as they are
 rewritten later in testing
 *)
 let with_test_file f =
   let oc = open_out test_file in
+  let ic = open_in test_file in
   Fun.protect
     ~finally:(fun () ->
       close_out oc;
       Sys.remove test_file)
-    (fun () -> f (Unix.descr_of_out_channel oc))
+    (fun () -> f ic oc)
 ;;
 
 let%test _ =
-  with_test_file (fun _ ->
+  with_test_file (fun _ _ ->
       succ_ev
         (RedirInp (0, Word test_file))
         empty_env
@@ -1453,7 +1453,7 @@ let%test _ =
 ;;
 
 let%test _ =
-  with_test_file (fun _ ->
+  with_test_file (fun _ _ ->
       succ_ev
         (RedirOtp (1, Word test_file))
         empty_env
@@ -1461,7 +1461,7 @@ let%test _ =
 ;;
 
 let%test _ =
-  with_test_file (fun _ ->
+  with_test_file (fun _ _ ->
       succ_ev
         (AppendOtp (1, Word test_file))
         empty_env
@@ -1469,7 +1469,8 @@ let%test _ =
 ;;
 
 let%test _ =
-  with_test_file (fun fd ->
+  with_test_file (fun ic _ ->
+      let fd = Unix.descr_of_in_channel ic in
       let tmpl = { empty_env with chs = IMap.add 4 fd empty_env.chs } in
       succ_ev
         ~tmpl
@@ -1479,7 +1480,8 @@ let%test _ =
 ;;
 
 let%test _ =
-  with_test_file (fun fd ->
+  with_test_file (fun _ oc ->
+      let fd = Unix.descr_of_out_channel oc in
       let tmpl = { empty_env with chs = IMap.add 4 fd empty_env.chs } in
       succ_ev
         ~tmpl
@@ -1514,8 +1516,6 @@ open TestMake (struct
   let ev = ev_cmd
   let cmp = cmp_envs
 end)
-
-(* May also test sourced scripts in the future *)
 
 let%test _ =
   succ_ev
@@ -1588,6 +1588,33 @@ let%test _ =
        , [ DuplOtp (1, Word "2") ] ))
     empty_env
     ~exp_stderr:"meow"
+;;
+
+let%test _ =
+  with_test_file (fun _ oc ->
+      output_string oc "echo sample!";
+      flush oc;
+      succ_ev (Simple ([], [ Word test_file ], [])) empty_env ~exp_stdout:"sample!")
+;;
+
+let%test _ =
+  with_test_file (fun _ oc ->
+      output_string oc "echo sample!";
+      flush oc;
+      succ_ev
+        (Simple ([], [ Word ("./" ^ test_file) ], []))
+        empty_env
+        ~exp_stdout:"sample!")
+;;
+
+let%test _ =
+  with_test_file (fun _ oc ->
+      output_string oc "echo sample!";
+      flush oc;
+      succ_ev
+        (Simple ([], [ Word test_file ], [ DuplOtp (1, Word "2") ]))
+        empty_env
+        ~exp_stderr:"sample!")
 ;;
 
 (* -------------------- Compound -------------------- *)
