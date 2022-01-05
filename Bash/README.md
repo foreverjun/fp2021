@@ -6,32 +6,34 @@ License: LGPL
 
 Author: Timofey Pushkin, pushkin.td@gmail.com
 
-Features done (append only):
-
-- AST
-- Parser
-
-Features in progress (and TODOs):
+Features done (for AST, parser and interpreter):
 
 - Commands
     - Simple commands
     - Pipelines
-    - Command lists
+    - Command lists (`&&` and `||`)
     - Compound commands
         - `while`
-        - `for` (two syntactic variants, without positional parameters)
-        - `if`, `case`
+        - `for` (two syntactic variants)
+        - `if`
+        - `case`
         - `((...))`
+        - `{...}`
 - Functions (with recursion)
-    - Because of `{ ... }` not being supported, function body may contain a simple command
-- Variables and parameters (out of positional and special parameters only numerical positional parameters are supported)
+- Variables and parameters
+    - Out of positional and special parameters only numerical positional parameters are supported
 - Expansions (expansions are not allowed to be nested)
     - Brace expansion
     - Shell Parameter Expansion
-    - Command Substitution (`$(...)` form) only
+    - Command Substitution (`$(...)` form only)
     - Word Splitting (partial, on <space>, <tab>, <newline> only)
     - Arithmetical expansion (with variables)
     - Filename Expansion
 - Pattern Matching
-- Redirections (`<`, `>`, `>>`, `<&`, `>&`, no descriptors from variables)
-- Arrays (indexed and associative in `name=(key1 value1 key2 value2 … )` form)
+- Redirections (`<`, `>`, `>>`, `<&`, `>&`)
+    - No checking for input/output availability
+    - No descriptors from variables
+- Arrays
+    - Indexed: `name=(value1 value2 value3 ...)`
+    - Associative: `name=(key1=value1 key2=value2 ...)`
+- External script calls
