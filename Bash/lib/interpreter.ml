@@ -60,21 +60,8 @@ end)
 
 (* -------------------- Helper functions -------------------- *)
 
-(** [read_all fd] read all contents of the file descriptor [fd] until EOF is reached and
-  close it *)
-let read_all fd =
-  let ic = Unix.in_channel_of_descr fd in
-  let try_read () =
-    try Some (input_line ic) with
-    | End_of_file -> None
-  in
-  let rec helper acc =
-    match try_read () with
-    | Some s -> helper (s :: acc)
-    | None -> List.rev acc
-  in
-  String.concat "" (helper [])
-;;
+(** [read_all fd] reads all contents of the file descriptor [fd] until EOF is reached *)
+let read_all fd = Stdio.In_channel.input_all (Unix.in_channel_of_descr fd)
 
 (* -------------------- Standard library -------------------- *)
 
@@ -1536,21 +1523,21 @@ let%test _ =
 ;;
 
 let%test _ =
-  succ_ev (Simple ([], [ Word "echo"; Word "123" ], [])) empty_env ~exp_stdout:"123"
+  succ_ev (Simple ([], [ Word "echo"; Word "123" ], [])) empty_env ~exp_stdout:"123\n"
 ;;
 
 let%test _ =
   succ_ev
     (Simple ([], [ Word "echo"; Word "123" ], [ DuplOtp (1, Word "2") ]))
     empty_env
-    ~exp_stderr:"123"
+    ~exp_stderr:"123\n"
 ;;
 
 let%test _ =
   succ_ev
     (Simple ([], [ Word "echo"; Word "1"; BraceExp [ ArithmExp (Num 2); Word "3" ] ], []))
     empty_env
-    ~exp_stdout:"1 2 3"
+    ~exp_stdout:"1 2 3\n"
 ;;
 
 let%test _ =
@@ -1562,7 +1549,7 @@ let%test _ =
           (Group [ Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), []) ], [])
     }
   in
-  succ_ev ~tmpl (Simple ([], [ Word "say_meow" ], [])) tmpl ~exp_stdout:"meow"
+  succ_ev ~tmpl (Simple ([], [ Word "say_meow" ], [])) tmpl ~exp_stdout:"meow\n"
 ;;
 
 let%test _ =
@@ -1574,7 +1561,7 @@ let%test _ =
           (Group [ Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), []) ], [])
     }
   in
-  succ_ev ~tmpl (Simple ([], [ Word "cat" ], [])) tmpl ~exp_stdout:"meow"
+  succ_ev ~tmpl (Simple ([], [ Word "cat" ], [])) tmpl ~exp_stdout:"meow\n"
 ;;
 
 let%test _ =
@@ -1587,7 +1574,7 @@ let%test _ =
           , [ DuplOtp (1, Word "2") ] )
     }
   in
-  succ_ev ~tmpl (Simple ([], [ Word "say_meow" ], [])) tmpl ~exp_stderr:"meow"
+  succ_ev ~tmpl (Simple ([], [ Word "say_meow" ], [])) tmpl ~exp_stderr:"meow\n"
 ;;
 
 let%test _ =
@@ -1599,14 +1586,14 @@ let%test _ =
            , None )
        , [ DuplOtp (1, Word "2") ] ))
     empty_env
-    ~exp_stderr:"meow"
+    ~exp_stderr:"meow\n"
 ;;
 
 let%test _ =
   with_test_file (fun _ oc ->
       output_string oc "echo sample!";
       flush oc;
-      succ_ev (Simple ([], [ Word test_file ], [])) empty_env ~exp_stdout:"sample!")
+      succ_ev (Simple ([], [ Word test_file ], [])) empty_env ~exp_stdout:"sample!\n")
 ;;
 
 let%test _ =
@@ -1616,7 +1603,7 @@ let%test _ =
       succ_ev
         (Simple ([], [ Word ("./" ^ test_file) ], []))
         empty_env
-        ~exp_stdout:"sample!")
+        ~exp_stdout:"sample!\n")
 ;;
 
 let%test _ =
@@ -1626,7 +1613,7 @@ let%test _ =
       succ_ev
         (Simple ([], [ Word test_file ], [ DuplOtp (1, Word "2") ]))
         empty_env
-        ~exp_stderr:"sample!")
+        ~exp_stderr:"sample!\n")
 ;;
 
 (* -------------------- Compound -------------------- *)
@@ -1713,7 +1700,7 @@ let%test _ =
        , Pipe (false, Simple ([], [ Word "echo"; ParamExp (Param ("i", "0")) ], []), [])
        ))
     { empty_env with vars = SMap.singleton "i" (IndArray (IMap.singleton 0 "d")) }
-    ~exp_stdout:"abcd"
+    ~exp_stdout:"a\nb\nc\nd\n"
 ;;
 
 (* For loop (expression form) *)
@@ -1738,7 +1725,7 @@ let%test _ =
        , Pipe (false, Simple ([], [ Word "echo"; ParamExp (Param ("i", "0")) ], []), [])
        ))
     { empty_env with vars = SMap.singleton "i" (IndArray (IMap.singleton 0 "5")) }
-    ~exp_stdout:"01234"
+    ~exp_stdout:"0\n1\n2\n3\n4\n"
 ;;
 
 (* If statement *)
@@ -1771,7 +1758,7 @@ let%test _ =
        , Pipe (false, Simple ([], [ Word "echo"; Word "yes" ], []), [])
        , Some (Pipe (false, Simple ([], [ Word "echo"; Word "no" ], []), [])) ))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "abc")) }
-    ~exp_stdout:"no"
+    ~exp_stdout:"no\n"
 ;;
 
 (* Case statement *)
@@ -1796,7 +1783,7 @@ let%test _ =
            , Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), []) )
          ] ))
     empty_env
-    ~exp_stdout:"meow"
+    ~exp_stdout:"meow\n"
 ;;
 
 let%test _ =
@@ -1816,7 +1803,7 @@ let%test _ =
          ; [ Word "a" ], Pipe (false, Simple ([], [ Word "echo"; Word "meow2" ], []), [])
          ] ))
     empty_env
-    ~exp_stdout:"meow1"
+    ~exp_stdout:"meow1\n"
 ;;
 
 let%test _ =
@@ -1899,7 +1886,7 @@ let%test _ =
     , Simple ([], [ Word "echo"; Word "meow" ], [])
     , [ Simple ([], [ Word "cat" ], [ DuplOtp (1, Word "2") ]) ] )
     empty_env
-    ~exp_stderr:"meow"
+    ~exp_stderr:"meow\n"
 ;;
 
 let%test _ =
@@ -1908,8 +1895,8 @@ let%test _ =
     , Simple ([], [ Word "echo"; Word "meow1" ], [ DuplOtp (1, Word "2") ])
     , [ Simple ([], [ Word "echo"; Word "meow2" ], []) ] )
     empty_env
-    ~exp_stdout:"meow2"
-    ~exp_stderr:"meow1"
+    ~exp_stdout:"meow2\n"
+    ~exp_stderr:"meow1\n"
 ;;
 
 let%test _ =
@@ -1918,6 +1905,7 @@ let%test _ =
     , Simple ([ SimpleAssignt (("X", "0"), Word "1") ], [], [])
     , [ Simple ([], [ Word "echo"; ParamExp (Param ("X", "0")) ], []) ] )
     empty_env
+    ~exp_stdout:"\n"
 ;;
 
 (* -------------------- Pipeline list -------------------- *)
@@ -1939,7 +1927,7 @@ let%test _ =
        , Pipe (false, Simple ([], [ Word "echo"; ParamExp (Param ("X", "0")) ], []), [])
        ))
     { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "a")) }
-    ~exp_stdout:"a"
+    ~exp_stdout:"a\n"
 ;;
 
 let%test _ =
@@ -2053,7 +2041,7 @@ f
                 , Some (Pipe (false, Simple ([], [ Word "echo"; Word "no" ], []), [])) )
             , [] )
       }
-      ~exp_stdout:"yesno"
+      ~exp_stdout:"yes\nno\n"
   | Error _ -> false
 ;;
 
@@ -2083,7 +2071,7 @@ f a b
                 ]
             , [] )
       }
-      ~exp_stdout:"a b"
+      ~exp_stdout:"a b\n"
   | Error _ -> false
 ;;
 
@@ -2096,6 +2084,6 @@ ABC=5 echo $ABC
     succ_ev
       ast
       { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "10")) }
-      ~exp_stdout:"5"
+      ~exp_stdout:"5\n"
   | Error _ -> false
 ;;

@@ -2,7 +2,7 @@
  (name bash_lib)
  (public_name Bash.Lib)
  (modules Ast Parser Interpreter)
- (libraries angstrom base re unix)
+ (libraries angstrom base re unix stdio)
  (preprocess
   (pps ppx_expect ppx_deriving.show))
  (inline_tests))
