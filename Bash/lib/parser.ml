@@ -184,10 +184,11 @@ and brace_exp () =
     let range_by f s e i = List.map f (range s e i) in
     elems_by (any_char >>| Char.code)
     >>= (function
-          | s, e -> incr >>| range_by (fun c -> String.make 1 (Char.chr c)) s e)
+          | s, e ->
+            incr <* char '}' >>| range_by (fun c -> String.make 1 (Char.chr c)) s e)
     <|> (elems_by int_p
         >>= function
-        | s, e -> incr >>| range_by (fun n -> string_of_int n) s e)
+        | s, e -> incr <* char '}' >>| range_by (fun n -> string_of_int n) s e)
   in
   let strs =
     let str =
@@ -197,6 +198,7 @@ and brace_exp () =
           | _ -> true)
     in
     sep_by1 (char ',') str
+    <* char '}'
     >>= function
     | [ _ ] -> fail "Single string"
     | strs -> return strs
@@ -209,7 +211,6 @@ and brace_exp () =
   option "" prefix
   >>= fun pre ->
   char '{' *> (seq <|> strs)
-  <* char '}'
   >>= fun body ->
   option "" postfix
   >>= fun post ->
@@ -646,6 +647,7 @@ let%test _ =
   succ_brace_exp "1a{1..3}b5" (BraceExp [ Word "1a1b5"; Word "1a2b5"; Word "1a3b5" ])
 ;;
 
+let%test _ = succ_brace_exp "a{1..-1}b" (BraceExp [ Word "a1b"; Word "a0b"; Word "a-1b" ])
 let%test _ = succ_brace_exp "1a{1..1}b5" (BraceExp [ Word "1a1b5" ])
 let%test _ = succ_brace_exp "1a{1..4..2}b5" (BraceExp [ Word "1a1b5"; Word "1a3b5" ])
 let%test _ = succ_brace_exp "1a{1..4..-2}b5" (BraceExp [ Word "1a1b5"; Word "1a3b5" ])

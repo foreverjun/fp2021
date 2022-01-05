@@ -101,7 +101,7 @@ end = struct
 
   let echo argv chs =
     match IMap.find_opt 1 chs, argv with
-    | Some stdout, _ :: args when try_wr stdout (String.concat " " args) -> 0
+    | Some stdout, _ :: args when try_wr stdout (String.concat " " args ^ "\n") -> 0
     | _ -> 1
   ;;
 
@@ -588,7 +588,11 @@ module Eval (M : MonadFail) = struct
             env
             ws
           >>= fun (env, ptrns) ->
-          (match List.filter (fun p -> Re.(execp (compile (Glob.glob p)) s)) ptrns with
+          (match
+             List.filter
+               (fun p -> Re.(execp (Glob.glob p |> whole_string |> compile) s))
+               ptrns
+           with
           | [] -> helper env tl
           | _ -> ev_pipe_list env item)
         | [] -> return { env with retcode = 0 }
@@ -1793,6 +1797,15 @@ let%test _ =
          ] ))
     empty_env
     ~exp_stdout:"meow"
+;;
+
+let%test _ =
+  succ_ev
+    (Case
+       ( Word "abacab"
+       , [ [ Word "cab" ], Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), [])
+         ] ))
+    empty_env
 ;;
 
 let%test _ =
