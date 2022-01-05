@@ -86,18 +86,44 @@ end = struct
     | Unix.Unix_error (Unix.EBADF, "write", "") -> false
   ;;
 
+  let print_err chs s =
+    match IMap.find_opt 2 chs with
+    | Some stderr when try_wr stderr (s ^ "\n") -> ()
+    | _ -> ()
+  ;;
+
   let echo argv chs =
     match IMap.find_opt 1 chs, argv with
     | Some stdout, _ :: args when try_wr stdout (String.concat " " args ^ "\n") -> 0
-    | _ -> 1
+    | Some _, _ :: _ ->
+      print_err chs "echo: failed to write to stdout";
+      1
+    | None, _ ->
+      print_err chs "echo: stdout is absent";
+      1
+    | Some _, [] ->
+      print_err chs "echo: no arguments (not even a command name)";
+      1
   ;;
 
   let cat argv chs =
     match argv, IMap.find_opt 0 chs, IMap.find_opt 1 chs with
-    | _, None, _ | _, _, None -> 1
-    | _ :: _ :: _, _, _ -> 1 (* Not implemented *)
     | [ _ ], Some stdin, Some stdout when try_wr stdout (try_read stdin) -> 0
-    | _ -> 1
+    | [ _ ], Some _, Some _ ->
+      print_err chs "cat: failed to write to stdout from stdin";
+      1
+    | [ _ ], None, Some _ ->
+      print_err chs "cat: no additional arguments are provided and stdin is absent";
+      1
+    | _ :: _ :: _, _, Some _ ->
+      print_err chs "cat: additional arguments are not yet supported";
+      1
+    | _, _, None ->
+      print_err chs "cat: stdout is absent";
+      1
+    | [], _, _ ->
+      print_err chs "cat: no arguments (not even a command name)";
+      1
   ;;
 
   let find : string -> t option = function
@@ -379,7 +405,8 @@ module Eval (M : MonadFail) = struct
       >>= fun (env, f) -> env_add_fd env n Unix.(openfile f [ O_CREAT; O_WRONLY ] perm)
     | AppendOtp (n, w) ->
       to_str env w
-      >>= fun (env, f) -> env_add_fd env n Unix.(openfile f [ O_CREAT; O_APPEND ] perm)
+      >>= fun (env, f) ->
+      env_add_fd env n Unix.(openfile f [ O_CREAT; O_WRONLY; O_APPEND ] perm)
     | DuplInp (n, w) -> to_str env w >>= fun (env, s) -> env_dup_fd env n s
     | DuplOtp (n, w) -> to_str env w >>= fun (env, s) -> env_dup_fd env n s
 
