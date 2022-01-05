@@ -2,7 +2,7 @@ open Base
 open Stdio
 open Kotlin_lib.Ast
 open Kotlin_lib.Utils
-open Kotlin_lib.Interpreter.Interpret (Result)
+open Kotlin_lib.Interpreter.Interpret
 open Kotlin_lib.Parser
 open Kotlin_lib.Parser.Statement
 

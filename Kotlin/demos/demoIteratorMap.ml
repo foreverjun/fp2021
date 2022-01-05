@@ -16,13 +16,13 @@ let iterator_map_algorithm =
     protected var curIndex: Int = 0
 
     public fun hasNext(): Boolean {
-      return this.list.get(this.curIndex) != null
+      return list.get(curIndex) != null
     }
 
     public open fun next(): Int? {
-      val cur: Int? = this.list.get(this.curIndex)
+      val cur: Int? = list.get(curIndex)
       if(cur != null) {
-        this.curIndex = this.curIndex + 1
+        curIndex = curIndex + 1
         return cur
       }
       else return null
@@ -35,10 +35,10 @@ let iterator_map_algorithm =
     private val mapf: (Int, Int) -> Int = mapf
 
     override fun next(): Int? {
-      val cur: Int? = this.list.get(this.curIndex)
+      val cur: Int? = list.get(curIndex)
       if(cur != null) {
-        this.curIndex = this.curIndex + 1
-        return this.mapf(this.curIndex - 1, cur)
+        curIndex = curIndex + 1
+        return mapf(curIndex - 1, cur)
       }
       else return null
     }

@@ -319,7 +319,7 @@ exception Test_failed
 
 open Utils
 open Interpreter
-open Interpreter.Interpret (Base.Result)
+open Interpreter.Interpret
 
 let ctx_with_standard_classes =
   Base.Option.value_exn (Base.Result.ok (load_standard_classes empty_ctx))

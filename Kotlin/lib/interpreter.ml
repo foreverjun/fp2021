@@ -3,8 +3,8 @@ open Utils
 open Parser
 open Ast
 
-module Interpret (M : MONAD_FAIL) = struct
-  open M
+module Interpret = struct
+  open Result
 
   type scope_type =
     | Initialize
@@ -256,40 +256,40 @@ module Interpret (M : MONAD_FAIL) = struct
     | Block statements ->
       let exception Return_exception of context in
       (try
-         List.fold statements ~init:(M.return ctx) ~f:(fun monadic_ctx inner_stat ->
+         List.fold statements ~init:(return ctx) ~f:(fun monadic_ctx inner_stat ->
              monadic_ctx
              >>= fun checked_ctx ->
              interpret_statement checked_ctx inner_stat
              >>= fun eval_ctx ->
              match inner_stat with
              | Return _ -> raise (Return_exception eval_ctx)
-             | If _ -> M.return eval_ctx
-             | _ -> M.return eval_ctx)
+             | If _ -> return eval_ctx
+             | _ -> return eval_ctx)
          >>= fun ret_ctx ->
          match ctx.scope with
          | AnonymousFunction _ ->
            raise
              (Return_exception
                 { ret_ctx with last_return_value = ret_ctx.last_eval_expression })
-         | _ -> M.return ret_ctx
+         | _ -> return ret_ctx
        with
       | Return_exception returned_ctx ->
         (match ctx.scope with
-        | Method _ | AnonymousFunction _ | Function -> M.return returned_ctx
-        | _ -> M.fail ReturnNotInFunction))
+        | Method _ | AnonymousFunction _ | Function -> return returned_ctx
+        | _ -> fail ReturnNotInFunction))
     | InitializeBlock statements ->
-      List.fold statements ~init:(M.return ctx) ~f:(fun monadic_ctx stat ->
+      List.fold statements ~init:(return ctx) ~f:(fun monadic_ctx stat ->
           monadic_ctx >>= fun checked_ctx -> interpret_statement checked_ctx stat)
     | Return expression ->
       interpret_expression ctx expression
       >>= fun ret_ctx ->
-      M.return { ctx with last_return_value = ret_ctx.last_eval_expression }
+      return { ctx with last_return_value = ret_ctx.last_eval_expression }
     | Expression expression -> interpret_expression ctx expression
     | ClassDeclaration
         (modifiers, name, constructor_args, super_call_option, class_statement) ->
       (match class_statement with
-      | Block statements -> M.return statements
-      | _ -> M.fail ClassBodyExpected)
+      | Block statements -> return statements
+      | _ -> fail ClassBodyExpected)
       >>= fun statements ->
       let super_call =
         match super_call_option with
@@ -306,12 +306,12 @@ module Interpret (M : MONAD_FAIL) = struct
            ; content = Class { constructor_args; super_call; statements }
            }
        with
-      | None -> M.fail (Redeclaration name)
-      | Some new_ctx -> M.return new_ctx)
+      | None -> fail (Redeclaration name)
+      | Some new_ctx -> return new_ctx)
     | FunDeclaration (modifiers, name, arguments, fun_typename, fun_statement) ->
       (match fun_statement with
-      | Block _ -> M.return fun_statement
-      | _ -> M.fail FunctionBodyExpected)
+      | Block _ -> return fun_statement
+      | _ -> fail FunctionBodyExpected)
       >>= fun statement ->
       (match
          define_in_ctx
@@ -329,14 +329,14 @@ module Interpret (M : MONAD_FAIL) = struct
                  }
            }
        with
-      | None -> M.fail (Redeclaration name)
-      | Some new_ctx -> M.return new_ctx)
+      | None -> fail (Redeclaration name)
+      | Some new_ctx -> return new_ctx)
     | VarDeclaration (modifiers, var_modifier, name, var_typename, init_expression) ->
       (match init_expression with
-      | None -> M.return (Unitialized None)
+      | None -> return (Unitialized None)
       | Some expr ->
         interpret_expression ctx expr
-        >>= fun interpreted_ctx -> M.return interpreted_ctx.last_eval_expression)
+        >>= fun interpreted_ctx -> return interpreted_ctx.last_eval_expression)
       >>= fun value ->
       (match
          define_in_ctx
@@ -353,16 +353,16 @@ module Interpret (M : MONAD_FAIL) = struct
                  }
            }
        with
-      | None -> M.fail (Redeclaration name)
-      | Some new_ctx -> M.return new_ctx)
+      | None -> fail (Redeclaration name)
+      | Some new_ctx -> return new_ctx)
     | Assign (var_identifier_expression, assign_expression) ->
       interpret_expression ctx var_identifier_expression
       >>= fun identifier_ctx ->
       (match identifier_ctx.last_derefered_variable with
-      | None -> M.fail ExpectedVarIdentifer
+      | None -> fail ExpectedVarIdentifer
       | Some rc ->
         (match rc.content with
-        | Variable v -> M.return v
+        | Variable v -> return v
         | _ -> failwith "should not reach here")
         >>= fun var ->
         interpret_expression ctx assign_expression
@@ -378,15 +378,15 @@ module Interpret (M : MONAD_FAIL) = struct
           rc.clojure := identifier_ctx.environment;
           rc.enclosing_object := get_enclosing_object ctx;
           var.value := assign_value_ctx.last_eval_expression;
-          M.return assign_value_ctx
+          return assign_value_ctx
         | true, _, _ when var.mutable_status ->
           rc.clojure := identifier_ctx.environment;
           rc.enclosing_object := get_enclosing_object ctx;
           var.value := assign_value_ctx.last_eval_expression;
-          M.return assign_value_ctx
-        | true, _, _ -> M.fail (VariableNotMutable rc.name)
+          return assign_value_ctx
+        | true, _, _ -> fail (VariableNotMutable rc.name)
         | false, _, _ ->
-          M.fail
+          fail
             (VariableValueTypeMismatch
                (rc.name, var.var_typename, assign_value_ctx.last_eval_expression))))
     | If (log_expr, if_statement, else_statement) ->
@@ -396,17 +396,17 @@ module Interpret (M : MONAD_FAIL) = struct
       | BooleanValue log_val when log_val -> interpret_statement ctx if_statement
       | BooleanValue log_val when not log_val ->
         (match else_statement with
-        | None -> M.return ctx
+        | None -> return ctx
         | Some stat -> interpret_statement ctx stat)
-      | _ -> M.fail ExpectedBooleanValue)
+      | _ -> fail ExpectedBooleanValue)
     | While (log_expr, while_statement) ->
       interpret_expression ctx log_expr
       >>= fun eval_ctx ->
       (match eval_ctx.last_eval_expression with
       | BooleanValue log_val when log_val ->
         interpret_statement ctx while_statement >>= fun _ -> interpret_statement ctx stat
-      | BooleanValue log_val when not log_val -> M.return eval_ctx
-      | _ -> M.fail ExpectedBooleanValue)
+      | BooleanValue log_val when not log_val -> return eval_ctx
+      | _ -> fail ExpectedBooleanValue)
 
   and interpret_expression ctx expr =
     let eval_bin_args l r =
@@ -429,7 +429,7 @@ module Interpret (M : MONAD_FAIL) = struct
       | NullValue | Unitialized _ -> Stdio.print_endline "null"
       | Object obj -> Stdlib.Printf.printf "%s@%x\n" obj.classname obj.identity_code
       | _ -> failwith "Unsupported argument for println");
-      M.return { ctx with last_eval_expression = NullValue }
+      return { ctx with last_eval_expression = NullValue }
     | AnonymousFunctionDeclaration (arguments, statement) ->
       let func =
         { identity_code = get_unique_identity_code ()
@@ -438,7 +438,7 @@ module Interpret (M : MONAD_FAIL) = struct
         ; statement
         }
       in
-      M.return { ctx with last_eval_expression = AnonymousFunction func }
+      return { ctx with last_eval_expression = AnonymousFunction func }
     | FunctionCall (identifier, arg_expressions) ->
       let define_args define_ctx args exprs =
         let args_ctx =
@@ -450,7 +450,7 @@ module Interpret (M : MONAD_FAIL) = struct
         List.fold2
           args
           exprs
-          ~init:(M.return define_ctx)
+          ~init:(return define_ctx)
           ~f:(fun monadic_ctx (arg_name, arg_typename) arg_expr ->
             monadic_ctx
             >>= fun monadic_ctx ->
@@ -474,9 +474,9 @@ module Interpret (M : MONAD_FAIL) = struct
                         }
                   }
               with
-              | None -> M.fail (Redeclaration arg_name)
-              | Some defined_ctx -> M.return defined_ctx)
-            else M.fail (VariableTypeMismatch arg_name))
+              | None -> fail (Redeclaration arg_name)
+              | Some defined_ctx -> return defined_ctx)
+            else fail (VariableTypeMismatch arg_name))
       in
       let eval_function new_ctx func =
         match define_args new_ctx func.arguments arg_expressions with
@@ -492,20 +492,30 @@ module Interpret (M : MONAD_FAIL) = struct
           then
             if (not (Poly.( = ) func.fun_typename Unit))
                && Poly.( = ) func_eval_ctx.last_return_value (Unitialized None)
-            then M.fail (ExpectedReturnInFunction identifier)
+            then fail (ExpectedReturnInFunction identifier)
             else
-              M.return
+              return
                 { ctx with
                   last_eval_expression = func_eval_ctx.last_return_value
                 ; last_return_value = Unitialized None
                 }
           else
-            M.fail
+            fail
               (FunctionReturnTypeMismatch
                  (identifier, func.fun_typename, func_eval_ctx.last_return_value))
-        | _ -> M.fail FunctionArgumentsCountMismatch
+        | _ -> fail FunctionArgumentsCountMismatch
       in
       (match ctx.scope with
+      | ObjectInitialization { contents = obj }
+      | Method obj
+      | AnonymousFunction (Some obj) ->
+        (match
+           interpret_expression
+             { ctx with scope = ThisDereferencedObject (obj, ctx) }
+             expr
+         with
+        | Ok ctx -> return ctx
+        | Error _ -> interpret_expression { ctx with scope = Initialize } expr)
       | DereferencedObject (obj, _) | ThisDereferencedObject (obj, _) ->
         let this_flag =
           match ctx.scope with
@@ -516,13 +526,13 @@ module Interpret (M : MONAD_FAIL) = struct
         (match get_method_from_object this_flag obj identifier with
         | None ->
           (match get_field_from_object this_flag obj identifier with
-          | None -> M.fail (UnknownMethod (obj.classname, identifier))
+          | None -> fail (UnknownMethod (obj.classname, identifier))
           | Some rc ->
             (match rc.content with
             | Variable content ->
               (match !(content.value) with
-              | AnonymousFunction f -> M.return f
-              | _ -> M.fail (UnknownFunction identifier))
+              | AnonymousFunction f -> return f
+              | _ -> fail (UnknownFunction identifier))
               >>= fun func ->
               let new_ctx =
                 { ctx with
@@ -544,13 +554,13 @@ module Interpret (M : MONAD_FAIL) = struct
         (match get_function_or_class_from_env ctx.environment identifier with
         | None ->
           (match get_var_from_env ctx.environment identifier with
-          | None -> M.fail (UnknownFunction identifier)
+          | None -> fail (UnknownFunction identifier)
           | Some rc ->
             (match rc.content with
             | Variable content ->
               (match !(content.value) with
-              | AnonymousFunction f -> M.return f
-              | _ -> M.fail (UnknownFunction identifier))
+              | AnonymousFunction f -> return f
+              | _ -> fail (UnknownFunction identifier))
               >>= fun func ->
               let new_ctx =
                 { ctx with
@@ -580,31 +590,31 @@ module Interpret (M : MONAD_FAIL) = struct
               constructor_ctx
               >>= fun class_ctx ->
               (match class_data.super_call with
-              | None -> M.return class_ctx
+              | None -> return class_ctx
               | Some expr ->
                 (match expr with
                 | FunctionCall (identifier, _) ->
                   (match get_class_from_env ctx.environment identifier with
-                  | Some rc when check_record_is_open rc -> M.return expr
-                  | Some _ -> M.fail (ClassNotOpen identifier)
-                  | None -> M.fail (UnknownFunction identifier))
-                | _ -> M.fail ClassSuperConstructorNotValid)
+                  | Some rc when check_record_is_open rc -> return expr
+                  | Some _ -> fail (ClassNotOpen identifier)
+                  | None -> fail (UnknownFunction identifier))
+                | _ -> fail ClassSuperConstructorNotValid)
                 >>= fun _ ->
                 interpret_expression class_ctx expr
                 >>= fun sup_ctx ->
-                M.return sup_ctx.last_eval_expression
+                return sup_ctx.last_eval_expression
                 >>= (function
                 | Object super_object ->
                   new_object := { !new_object with super = Some super_object };
-                  M.return class_ctx
-                | _ -> M.fail ClassSuperConstructorNotValid))
+                  return class_ctx
+                | _ -> fail ClassSuperConstructorNotValid))
               >>= fun evaluated_constructor_ctx ->
-              M.return
+              return
                 { evaluated_constructor_ctx with scope = ObjectInitialization new_object }
               >>= fun class_inner_ctx ->
               List.fold
                 class_data.statements
-                ~init:(M.return class_inner_ctx)
+                ~init:(return class_inner_ctx)
                 ~f:(fun monadic_ctx stat ->
                   monadic_ctx
                   >>= fun checked_ctx ->
@@ -612,11 +622,11 @@ module Interpret (M : MONAD_FAIL) = struct
                   | VarDeclaration
                       (modifiers, var_modifier, name, var_typename, init_expression) ->
                     (match init_expression with
-                    | None -> M.return (Unitialized (Some new_object))
+                    | None -> return (Unitialized (Some new_object))
                     | Some expr ->
                       interpret_expression class_inner_ctx expr
                       >>= fun interpreted_ctx ->
-                      M.return interpreted_ctx.last_eval_expression)
+                      return interpreted_ctx.last_eval_expression)
                     >>= fun value ->
                     (match
                        define_in_object
@@ -633,15 +643,15 @@ module Interpret (M : MONAD_FAIL) = struct
                                }
                          }
                      with
-                    | None -> M.fail (Redeclaration name)
+                    | None -> fail (Redeclaration name)
                     | Some updated_obj ->
                       new_object := updated_obj;
-                      M.return class_inner_ctx)
+                      return class_inner_ctx)
                   | FunDeclaration
                       (modifiers, name, arguments, fun_typename, fun_statement) ->
                     (match fun_statement with
-                    | Block _ -> M.return fun_statement
-                    | _ -> M.fail FunctionBodyExpected)
+                    | Block _ -> return fun_statement
+                    | _ -> fail FunctionBodyExpected)
                     >>= fun statement ->
                     (match
                        define_in_object
@@ -659,21 +669,31 @@ module Interpret (M : MONAD_FAIL) = struct
                                }
                          }
                      with
-                    | None -> M.fail (Redeclaration name)
+                    | None -> fail (Redeclaration name)
                     | Some updated_obj ->
                       new_object := updated_obj;
-                      M.return class_inner_ctx)
+                      return class_inner_ctx)
                   | InitInClass block -> interpret_statement checked_ctx block
                   | _ -> failwith "should not reach here")
-              >>= fun _ -> M.return { ctx with last_eval_expression = Object !new_object }
-            | _ -> M.fail FunctionArgumentsCountMismatch)
+              >>= fun _ -> return { ctx with last_eval_expression = Object !new_object }
+            | _ -> fail FunctionArgumentsCountMismatch)
           | Function func ->
             let new_ctx = { ctx with environment = !(rc.clojure); scope = Function } in
             eval_function new_ctx func)))
-    | Const x -> M.return { ctx with last_eval_expression = x }
-    | This -> M.fail ThisExpressionError
+    | Const x -> return { ctx with last_eval_expression = x }
+    | This -> fail ThisExpressionError
     | VarIdentifier identifier ->
       (match ctx.scope with
+      | ObjectInitialization { contents = obj }
+      | Method obj
+      | AnonymousFunction (Some obj) ->
+        (match
+           interpret_expression
+             { ctx with scope = ThisDereferencedObject (obj, ctx) }
+             expr
+         with
+        | Ok ctx -> return ctx
+        | Error _ -> interpret_expression { ctx with scope = Initialize } expr)
       | DereferencedObject (obj, _) | ThisDereferencedObject (obj, _) ->
         let this_flag =
           match ctx.scope with
@@ -682,25 +702,25 @@ module Interpret (M : MONAD_FAIL) = struct
           | _ -> failwith "should not reach here"
         in
         (match get_field_from_object this_flag obj identifier with
-        | None -> M.fail (UnknownField (obj.classname, identifier))
+        | None -> fail (UnknownField (obj.classname, identifier))
         | Some rc ->
           let field_content =
             match rc.content with
             | Variable v -> v
             | _ -> failwith "should not reach here"
           in
-          M.return
+          return
             { ctx with
               last_eval_expression = !(field_content.value)
             ; last_derefered_variable = Some rc
             })
       | _ ->
         (match get_var_from_env ctx.environment identifier with
-        | None -> M.fail (UnknownVariable identifier)
+        | None -> fail (UnknownVariable identifier)
         | Some rc ->
           (match rc.content with
           | Variable var ->
-            M.return
+            return
               { ctx with
                 last_eval_expression = !(var.value)
               ; last_derefered_variable = Some rc
@@ -714,11 +734,11 @@ module Interpret (M : MONAD_FAIL) = struct
         | Method obj
         | ObjectInitialization { contents = obj }
         | AnonymousFunction (Some obj) ->
-          M.return ({ ctx with last_eval_expression = Object obj }, true)
-        | _ -> M.fail ThisExpressionError)
+          return ({ ctx with last_eval_expression = Object obj }, true)
+        | _ -> fail ThisExpressionError)
       | _ ->
         interpret_expression ctx obj_expression
-        >>= fun obj_expr_eval_ctx -> M.return (obj_expr_eval_ctx, false))
+        >>= fun obj_expr_eval_ctx -> return (obj_expr_eval_ctx, false))
       >>= fun (eval_ctx, this_flag) ->
       (match eval_ctx.last_eval_expression with
       | Object obj ->
@@ -736,70 +756,69 @@ module Interpret (M : MONAD_FAIL) = struct
         | VarIdentifier _ | FunctionCall _ | Dereference _ ->
           interpret_expression obj_ctx der_expression
           >>= fun ctx_with_eval_dereference ->
-          M.return { ctx_with_eval_dereference with scope = ctx.scope }
-        | _ -> M.fail DereferenceError)
+          return { ctx_with_eval_dereference with scope = ctx.scope }
+        | _ -> fail DereferenceError)
       | NullValue | Unitialized _ ->
         (match expr with
-        | ElvisDereference _ -> M.return { ctx with last_eval_expression = NullValue }
-        | _ -> M.fail ExpectedObjectToDereference)
-      | _ -> M.fail ExpectedObjectToDereference)
+        | ElvisDereference _ -> return { ctx with last_eval_expression = NullValue }
+        | _ -> fail ExpectedObjectToDereference)
+      | _ -> fail ExpectedObjectToDereference)
     | Add (l, r) ->
       eval_bin_args l r
       >>= (function
       | IntValue x, IntValue y ->
-        M.return { ctx with last_eval_expression = IntValue (x + y) }
+        return { ctx with last_eval_expression = IntValue (x + y) }
       | StringValue x, StringValue y ->
-        M.return { ctx with last_eval_expression = StringValue (x ^ y) }
-      | _ -> M.fail (UnsupportedOperandTypes expr))
+        return { ctx with last_eval_expression = StringValue (x ^ y) }
+      | _ -> fail (UnsupportedOperandTypes expr))
     | Mul (l, r) ->
       eval_bin_args l r
       >>= (function
       | IntValue x, IntValue y ->
-        M.return { ctx with last_eval_expression = IntValue (x * y) }
-      | _ -> M.fail (UnsupportedOperandTypes expr))
+        return { ctx with last_eval_expression = IntValue (x * y) }
+      | _ -> fail (UnsupportedOperandTypes expr))
     | Sub (l, r) ->
       eval_bin_args l r
       >>= (function
       | IntValue x, IntValue y ->
-        M.return { ctx with last_eval_expression = IntValue (x - y) }
-      | _ -> M.fail (UnsupportedOperandTypes expr))
+        return { ctx with last_eval_expression = IntValue (x - y) }
+      | _ -> fail (UnsupportedOperandTypes expr))
     | And (l, r) ->
       eval_bin_args l r
       >>= (function
       | BooleanValue x, BooleanValue y ->
-        M.return { ctx with last_eval_expression = BooleanValue (x && y) }
-      | _ -> M.fail (UnsupportedOperandTypes expr))
+        return { ctx with last_eval_expression = BooleanValue (x && y) }
+      | _ -> fail (UnsupportedOperandTypes expr))
     | Or (l, r) ->
       eval_bin_args l r
       >>= (function
       | BooleanValue x, BooleanValue y ->
-        M.return { ctx with last_eval_expression = BooleanValue (x || y) }
-      | _ -> M.fail (UnsupportedOperandTypes expr))
+        return { ctx with last_eval_expression = BooleanValue (x || y) }
+      | _ -> fail (UnsupportedOperandTypes expr))
     | Not x ->
       eval_un_arg x
       >>= (function
-      | BooleanValue x ->
-        M.return { ctx with last_eval_expression = BooleanValue (not x) }
-      | _ -> M.fail (UnsupportedOperandTypes expr))
+      | BooleanValue x -> return { ctx with last_eval_expression = BooleanValue (not x) }
+      | _ -> fail (UnsupportedOperandTypes expr))
     | Equal (l, r) ->
       eval_bin_args l r
       >>= (function
       | IntValue x, IntValue y ->
-        M.return { ctx with last_eval_expression = BooleanValue (x = y) }
+        return { ctx with last_eval_expression = BooleanValue (x = y) }
       | StringValue x, StringValue y ->
-        M.return { ctx with last_eval_expression = BooleanValue (String.equal x y) }
+        return { ctx with last_eval_expression = BooleanValue (String.equal x y) }
       | BooleanValue x, BooleanValue y ->
-        M.return
+        return
           { ctx with
             last_eval_expression = BooleanValue ((x && y) || ((not x) && not y))
           }
       | AnonymousFunction x, AnonymousFunction y ->
-        M.return
+        return
           { ctx with
             last_eval_expression = BooleanValue (x.identity_code = y.identity_code)
           }
       | Object x, Object y ->
-        M.return
+        return
           { ctx with
             last_eval_expression = BooleanValue (x.identity_code = y.identity_code)
           }
@@ -807,35 +826,32 @@ module Interpret (M : MONAD_FAIL) = struct
       | NullValue, Unitialized _
       | Unitialized _, NullValue
       | Unitialized _, Unitialized _ ->
-        M.return { ctx with last_eval_expression = BooleanValue true }
+        return { ctx with last_eval_expression = BooleanValue true }
       | NullValue, _ | _, NullValue ->
-        M.return { ctx with last_eval_expression = BooleanValue false }
-      | _ -> M.return { ctx with last_eval_expression = BooleanValue false })
+        return { ctx with last_eval_expression = BooleanValue false }
+      | _ -> return { ctx with last_eval_expression = BooleanValue false })
     | Less (l, r) ->
       eval_bin_args l r
       >>= (function
       | IntValue x, IntValue y ->
-        M.return { ctx with last_eval_expression = BooleanValue (x < y) }
-      | _ -> M.fail (UnsupportedOperandTypes expr))
+        return { ctx with last_eval_expression = BooleanValue (x < y) }
+      | _ -> fail (UnsupportedOperandTypes expr))
     | Div (l, r) ->
       eval_bin_args l r
       >>= (function
       | IntValue x, IntValue y ->
-        M.return { ctx with last_eval_expression = IntValue (x / y) }
-      | _ -> M.fail (UnsupportedOperandTypes expr))
+        return { ctx with last_eval_expression = IntValue (x / y) }
+      | _ -> fail (UnsupportedOperandTypes expr))
     | Mod (l, r) ->
       eval_bin_args l r
       >>= (function
       | IntValue x, IntValue y ->
-        M.return { ctx with last_eval_expression = IntValue (x % y) }
-      | _ -> M.fail (UnsupportedOperandTypes expr))
+        return { ctx with last_eval_expression = IntValue (x % y) }
+      | _ -> fail (UnsupportedOperandTypes expr))
   ;;
 
   let load_standard_classes ctx =
-    List.fold
-      Std.standard_classes
-      ~init:(M.return ctx)
-      ~f:(fun monadic_ctx class_string ->
+    List.fold Std.standard_classes ~init:(return ctx) ~f:(fun monadic_ctx class_string ->
         monadic_ctx
         >>= fun cur_ctx ->
         let class_statement =
@@ -847,7 +863,7 @@ end
 
 let parse_and_run input =
   let open Statement in
-  let open Interpret (Result) in
+  let open Interpret in
   let ctx_with_standard_classes =
     Base.Option.value_exn (Base.Result.ok (load_standard_classes empty_ctx))
   in

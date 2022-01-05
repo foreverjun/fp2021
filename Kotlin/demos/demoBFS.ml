@@ -22,17 +22,17 @@ let bfs_algorithm =
     private var lastIndex: Int = -1
 
     public fun push(value: Int) {
-      this.lastIndex = this.lastIndex + 1
-      this.list.append(value)
+      lastIndex = lastIndex + 1
+      list.append(value)
     }
 
     public fun pop(): Int? {
-      this.lastIndex = this.lastIndex - 1
-      return this.list.get(this.lastIndex + 1)
+      lastIndex = lastIndex - 1
+      return list.get(lastIndex + 1)
     }
 
     public fun isEmpty(): Boolean {
-      return this.lastIndex < 0
+      return lastIndex < 0
     }
   }
 
@@ -42,15 +42,15 @@ let bfs_algorithm =
     private val list: IntArrayList = IntArrayList(n * m)
 
     public fun get(i: Int, j: Int): Int? {
-      if(j < this.n && j >= 0) return this.list.get(i * this.m + j)
+      if(j < n && j >= 0) return list.get(i * m + j)
       else return null
     }
 
     public fun set(i: Int, j: Int, value: Int): Int? {
-      val oldValue: Int? = this.list.get(i * this.m + j)
+      val oldValue: Int? = list.get(i * m + j)
       if(oldValue == null) return null
       else {
-        this.list.set(i * this.m + j, value)
+        list.set(i * m + j, value)
         return oldValue
       }
     }
@@ -108,7 +108,7 @@ let bfs_algorithm =
       val cur: Int? = query.pop()
       
       if(cur != null && !checkInList(visited, cur)) {
-        distances.map({index: Int, old: Int -> 
+        distances.map {index: Int, old: Int -> 
           val weight: Int? = mat.get(cur, index)
           val curDistance: Int? = distances.get(cur)
           if(weight != null && curDistance != null && weight != 0 && weight + curDistance < old) {
@@ -116,7 +116,7 @@ let bfs_algorithm =
             weight + curDistance
           }
           else old
-        })
+        }
         visited.append(cur)
       }
     }
