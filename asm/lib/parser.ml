@@ -52,91 +52,25 @@ let is_register = function
       true
   | _ -> false
 
-(** [is_mnemonic] accepts string and returns whether it's assembler instruction. *)
-let is_mnemonic = function
-  (* --- Movement --- *)
-  | "MOV"
-  (*
-      mov <reg>,<reg>
-      mov <reg>,<mem>
-      mov <reg>,<con>
-  *)
-   |"PUSH"
-  (*
-      push <label> 
-  *)
-   |"POP"
-  (*
-      pop <reg32>
-  *)
-  (* --- Arithmetic and Logic --- *)
-   |"ADD" | "SUB"
-  (*
-      add/sub <reg>,<reg>
-      add/sub <reg>,<mem>
-      add/sub <reg>,<con>
-  *)
-   |"INC" | "DEC"
-  (*
-      inc/dec <reg>
-  *)
-   |"IMUL"
-  (*
-      imul <reg32>,<reg32>
-      imul <reg32>,<mem>
-  *)
-   |"AND" | "OR" | "XOR"
-  (*
-      and/or/xor <reg>,<reg>
-      and/or/xor <reg>,<mem>
-      and/or/xor <reg>,<con>
-  *)
-   |"NOT" | "NEG"
-  (*
-      not/neg <reg>
-  *)
-   |"SHL" | "SHR"
-  (*
-      shl/shr <reg>,<con8>
-  *)
-  (* --- Control Flow --- *)
-   |"JMP"
-  (*
-      jmp <label>
-  *)
-   |"JE" | "JNE" | "JG" | "JGE" | "JL" | "JLE"
-  (*
-      j* <label>
-  *)
-   |"CMP"
-  (*
-      cmp <reg>,<reg>
-      cmp <reg>,<mem>
-      cmp <reg>,<con>
-  *)
-   |"CALL"
-  (*
-      call <label>
-  *)
-   |"RET"
-  (*
-      ret
-  *)
-   |"SYSCALL"
-  (*
-      syscall
-  *)
-  (* --- SSE --- *)
-   |"ADDPD" | "SUBPD" | "MULPD"
-   |"MOVAPD"
-    (*
-       movapd <regSSE>,<regSSE>
-       movapd <regSSE>,<mem>
-       movapd <regSSE>,<con>
-  *)
-    ->
+(** [is_arg0] accepts assembler command, returns true if the command expects no arguments. *)
+let is_arg0 = function "RET" | "SYSCALL" -> true | _ -> false
+
+(** [is_arg1] accepts assembler command, returns true if command takes 1 argument. *)
+let is_arg1 = function
+  | "PUSH" | "POP" | "INC" | "DEC" | "NOT" | "NEG" | "JMP" | "JE" | "JNE"
+   |"JG" | "JGE" | "JL" | "JLE" | "CALL" ->
       true
   | _ -> false
+
+(** [is_arg2] accepts assembler command, returns true if command takes 2 arguments. *)
+let is_arg2 = function
+  | "MOV" | "ADD" | "SUB" | "IMUL" | "AND" | "OR" | "XOR" | "SHL" | "SHR"
+   |"CMP" | "ADDPD" | "SUBPD" | "MULPD" | "MOVAPD" ->
+      true
+  | _ -> false
+
+(** [is_mnemonic] accepts string and returns whether it's assembler instruction. *)
+let is_mnemonic s = is_arg0 s || is_arg1 s || is_arg2 s
 
 (** [is_section] accepts string and returns whether it's assembler section name. *)
 let is_section = function
@@ -146,7 +80,7 @@ let is_section = function
 (** [is_data_decl] accepts string and returns whether it's assembler data type. *)
 let is_data_decl = function "DB" | "DW" | "DD" | "DQ" -> true | _ -> false
 
-(** [take_id] accepts input returns [string] if it is assembler label otherwise fails. *)
+(** [take_id] accepts input returns [string] if it is assembler label or register otherwise fails. *)
 let take_id =
   let check_fst = function
     | 'a' .. 'z' | 'A' .. 'Z' | '_' | '@' | '$' | '?' -> true
@@ -156,9 +90,9 @@ let take_id =
   >>= fun fst ->
   take_while check_inner <* string ":" <|> take_while check_inner
   >>= fun inner ->
-  let s = Char.escaped fst ^ inner in
-  if is_register s || is_mnemonic s || is_data_decl s then fail "Invalid label"
-  else return s
+  let s = String.uppercase_ascii (Char.escaped fst ^ inner) in
+  if is_mnemonic s || is_data_decl s then fail "Invalid label"
+  else return (Char.escaped fst ^ inner)
 
 (** [expr_p] parses [Ast.Add], [Ast.Sub], [Ast.Mul], [Ast.Div], [Ast.Mod], [Ast.Shl], [Ast.Shr], [Ast.Reg], [Ast.Label] and [Ast.Const]. *)
 let expr_p =
@@ -184,10 +118,10 @@ let expr_p =
         hexNumber <|> decNumber >>| fun x -> Const x in
       let label =
         take_id
-        >>| fun s ->
-        if is_register (String.uppercase_ascii s) then
-          Reg (String.uppercase_ascii s)
-        else Label s in
+        >>| function
+        | s when is_register (String.uppercase_ascii s) ->
+            Reg (String.uppercase_ascii s)
+        | s -> Label s in
       let factor = parens expr <|> trim digit <|> trim label in
       let add = char '+' *> return (fun x y -> Add (x, y)) in
       let sub = char '-' *> return (fun x y -> Sub (x, y)) in
@@ -223,36 +157,38 @@ let mnemonic_p =
       return (Mnemonic (String.uppercase_ascii s))
   | _ -> fail "Invalid command"
 
-(** [in_segment_dir_p] parses [Ast.Instruction] and [Ast.DataDecl]. *)
-let in_segment_dir_p =
+let in_sec_dir_p =
+  let id_p =
+    take_id
+    >>= function
+    | s when is_register s ->
+        fail "label or instruction expected at start of line"
+    | s -> return (Id s) in
+  let take_cmd (Mnemonic cmd) = cmd in
   let separators = spaces *> char ',' *> spaces in
-  let data_dir =
+  let instruction id =
+    mnemonic_p
+    >>= fun cmd ->
+    spaces *> sep_by separators expr_p
+    <* spaces
+    >>= fun exprs ->
+    match List.length exprs with
+    | 0 when is_arg0 (take_cmd cmd) -> return (Instr (id, Arg0 cmd))
+    | 1 when is_arg1 (take_cmd cmd) ->
+        return (Instr (id, Arg1 (cmd, List.hd exprs)))
+    | 2 when is_arg2 (take_cmd cmd) ->
+        return (Instr (id, Arg2 (cmd, List.hd exprs, List.nth exprs 1)))
+    | _ -> fail "Invalid combination of opcode and operands" in
+  let data_dir id =
     take_till is_blank
     >>= function
     | s when is_data_decl (String.uppercase_ascii s) ->
         spaces *> sep_by separators init_value_p
         <* spaces
-        >>= fun values -> return @@ DataDecl (String.uppercase_ascii s, values)
+        >>= fun values ->
+        return (DataDecl (id, String.uppercase_ascii s, values))
     | _ -> fail "Invalid declaration" in
-  let instruction =
-    mnemonic_p
-    >>= fun cmd ->
-    spaces *> sep_by separators expr_p
-    <* spaces
-    >>| fun exprs -> Instruction (cmd, exprs) in
-  instruction <|> data_dir
-
-(** [in_sec_dir_p] parses [Ast.InDir], [Ast.EquDir] and [Ast.EqualDir]. *)
-let in_sec_dir_p =
-  let id_p = take_id >>| fun s -> Id s in
-  let in_sec_dir = in_segment_dir_p >>| fun isd -> InDir (None, isd) in
-  let in_sec_dir_label =
-    spaces *> id_p <* eol
-    >>= fun id -> spaces *> in_segment_dir_p >>| fun isd -> InDir (Some id, isd)
-  in
-  let general_dir =
-    spaces *> id_p
-    >>= fun id ->
+  let general_dir id =
     spaces
     *> ( string "equ" *> spaces *> expr_p
        <* spaces
@@ -261,7 +197,13 @@ let in_sec_dir_p =
         *> ( string "=" *> spaces *> expr_p
            <* spaces
            >>| fun exp -> EqualDir (id, exp) ) in
-  in_sec_dir <|> in_sec_dir_label <|> general_dir
+  option None (id_p >>| fun id -> Some id)
+  >>= fun id ->
+  spaces
+  *> ( data_dir id <|> instruction id
+     <|>
+     match id with Some id -> general_dir id | _ -> fail "Invalid instruction"
+     )
 
 (** [sec_dir_p] parses [Ast.Section]. *)
 let sec_dir_p =
@@ -273,9 +215,14 @@ let sec_dir_p =
   >>= fun s ->
   let f sep sec =
     eol *> sep eol in_sec_dir_p
-    >>= fun values -> eol *> return (Section (sec, values)) in
+    >>= fun values ->
+    eol
+    *>
+    match sec with
+    | "CODE" | "TEXT" -> return (Code values)
+    | _ -> return (Data values) in
   match s with
-  | str when is_section str -> f sep_by s
+  | s when is_section s -> f sep_by s
   | n when n = "none" -> f sep_by1 "TEXT"
   | _ -> fail "Invalid section"
 
@@ -294,12 +241,13 @@ let parse_test p s = parse_string ~consume:All p s
 
 let parse_test_suc pp p s exp =
   match parse_test p s with
-  | Error _ -> false
+  | Error e -> print_string e; flush stdout; false
   | Ok res when exp = res -> true
   | Ok res ->
       let open Format in
       print_string "\nActual is:\n";
       pp std_formatter res;
+      flush stdout;
       false
 
 let parse_test_fail pp p s =
@@ -374,33 +322,27 @@ let%test _ =
   init_value_test_suc "  6 + 1 DUP \'5\'    "
     (Dup (Add (Const 6L, Const 1L), "5"))
 
-let in_segment_dir_test_suc = parse_test_suc pp_in_segment_dir in_segment_dir_p
-
-let in_segment_dir_test_fail =
-  parse_test_fail pp_in_segment_dir in_segment_dir_p
-
-let%test _ =
-  in_segment_dir_test_suc "add rax,rax1"
-    (Instruction (Mnemonic "ADD", [Reg "RAX"; Label "rax1"]))
-
 let%test _ = parse_test_fail pp_mnemonic mnemonic_p "addq"
-
-let%test _ =
-  in_segment_dir_test_suc "db \"fgfg\"" (DataDecl ("DB", [Str "fgfg"]))
-
-let%test _ =
-  in_segment_dir_test_suc "MOv rax,      5"
-    (Instruction (Mnemonic "MOV", [Reg "RAX"; Const 5L]))
 
 let in_sec_dir_test_suc = parse_test_suc pp_in_sec_dir in_sec_dir_p
 let in_sec_dir_test_fail = parse_test_fail pp_in_sec_dir in_sec_dir_p
 
 let%test _ =
-  in_sec_dir_test_suc "der  add"
-    (InDir (Some (Id "der"), Instruction (Mnemonic "ADD", [])))
+  in_sec_dir_test_suc "add rax,rax1"
+    (Instr (None, Arg2 (Mnemonic "ADD", Reg "RAX", Label "rax1")))
 
 let%test _ =
-  in_sec_dir_test_suc "add" (InDir (None, Instruction (Mnemonic "ADD", [])))
+  in_sec_dir_test_suc "db \"fgfg\"" (DataDecl (None, "DB", [Str "fgfg"]))
+
+let%test _ =
+  in_sec_dir_test_suc "MOv rax,      5"
+    (Instr (None, Arg2 (Mnemonic "MOV", Reg "RAX", Const 5L)))
+
+let%test _ =
+  in_sec_dir_test_suc "der  Syscall"
+    (Instr (Some (Id "der"), Arg0 (Mnemonic "SYSCALL")))
+
+let%test _ = in_sec_dir_test_suc "ret" (Instr (None, Arg0 (Mnemonic "RET")))
 
 let%test _ =
   in_sec_dir_test_suc "l:   = 1+1 " (EqualDir (Id "l", Add (Const 1L, Const 1L)))
@@ -411,27 +353,21 @@ let sec_dir_test_suc = parse_test_suc pp_sec_dir sec_dir_p
 let sec_dir_test_fail = parse_test_fail pp_sec_dir sec_dir_p
 
 let%test _ =
-  sec_dir_test_suc "SecTion .text \nadd"
-    (Section ("TEXT", [InDir (None, Instruction (Mnemonic "ADD", []))]))
+  sec_dir_test_suc "SecTion .text \nRet"
+    (Code [Instr (None, Arg0 (Mnemonic "RET"))])
 
-let%test _ = sec_dir_test_fail "SecTion .ttext \nadd"
+let%test _ = sec_dir_test_fail "SecTion .ttext \nret"
 
 let directive_suc = parse_test_suc pp_directive directive_p
 
 let%test _ =
-  directive_suc "SecTion .text \n\n   \nadd"
-    (Directive
-       [Section ("TEXT", [InDir (None, Instruction (Mnemonic "ADD", []))])] )
+  directive_suc "SecTion .text \n\n   \nret"
+    (Directive [Code [Instr (None, Arg0 (Mnemonic "RET"))]])
 
 let%test _ =
-  directive_suc "\nadd; comment"
-    (Directive
-       [Section ("TEXT", [InDir (None, Instruction (Mnemonic "ADD", []))])] )
+  directive_suc "\nret; comment"
+    (Directive [Code [Instr (None, Arg0 (Mnemonic "RET"))]])
 
 let%test _ =
   directive_suc "section .text\nmov rax,0x001"
-    (Directive
-       [ Section
-           ( "TEXT"
-           , [InDir (None, Instruction (Mnemonic "MOV", [Reg "RAX"; Const 1L]))]
-           ) ] )
+    (Directive [Code [Instr (None, Arg2 (Mnemonic "MOV", Reg "RAX", Const 1L))]])

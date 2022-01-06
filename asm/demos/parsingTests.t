@@ -13,7 +13,6 @@ answer is correct
   > 
   > 
   > section .text
-  > _: 
   > 
   > mov     rax,0x001
   >     mov     rdi,rax
@@ -34,41 +33,26 @@ answer is correct
   > 
   > EOF
   (Directive
-     [(Section ("DATA", []));
-       (Section ("DATA",
+     [(Data []);
+       (Data
           [(EquDir ((Id "@messae2"), (Const -17578L)));
-            (InDir (None,
-               (Instruction ((Mnemonic "MOV"), [(Reg "RAX"); (Const 1L)]))))
-            ]
-          ));
-       (Section ("TEXT",
-          [(InDir ((Some (Id "_")),
-              (Instruction ((Mnemonic "MOV"), [(Reg "RAX"); (Const 1L)]))));
-            (InDir (None,
-               (Instruction ((Mnemonic "MOV"), [(Reg "RDI"); (Reg "RAX")]))));
-            (InDir (None,
-               (Instruction ((Mnemonic "MOV"), [(Reg "RSI"); (Label "message")]
-                  ))
-               ));
-            (InDir (None,
-               (Instruction ((Mnemonic "MOV"), [(Reg "RDX"); (Const 14L)]))))
-            ]
-          ));
-       (Section ("DATA",
-          [(InDir ((Some (Id "message")),
-              (DataDecl ("DB",
-                 [(Dup ((Add ((Const 6L), (Const 1L))), "2")); (Str "r");
-                   (Expr (Const 10L))]
-                 ))
+            (Instr (None, (Arg2 ((Mnemonic "MOV"), (Reg "RAX"), (Const 1L)))))]);
+       (Code
+          [(Instr (None, (Arg2 ((Mnemonic "MOV"), (Reg "RAX"), (Const 1L)))));
+            (Instr (None, (Arg2 ((Mnemonic "MOV"), (Reg "RDI"), (Reg "RAX")))));
+            (Instr (None,
+               (Arg2 ((Mnemonic "MOV"), (Reg "RSI"), (Label "message")))));
+            (Instr (None, (Arg2 ((Mnemonic "MOV"), (Reg "RDX"), (Const 14L)))))
+            ]);
+       (Data
+          [(DataDecl ((Some (Id "message")), "DB",
+              [(Dup ((Add ((Const 6L), (Const 1L))), "2")); (Str "r");
+                (Expr (Const 10L))]
               ))
-            ]
-          ));
-       (Section ("TEXT",
-          [(InDir (None, (Instruction ((Mnemonic "SYSCALL"), []))));
-            (InDir (None,
-               (Instruction ((Mnemonic "MOV"), [(Reg "RAX"); (Const 60L)]))));
-            (InDir (None,
-               (Instruction ((Mnemonic "XOR"), [(Reg "RDI"); (Reg "RDI")]))));
-            (InDir (None, (Instruction ((Mnemonic "SYSCALL"), []))))]
-          ))
+            ]);
+       (Code
+          [(Instr (None, (Arg0 (Mnemonic "SYSCALL"))));
+            (Instr (None, (Arg2 ((Mnemonic "MOV"), (Reg "RAX"), (Const 60L)))));
+            (Instr (None, (Arg2 ((Mnemonic "XOR"), (Reg "RDI"), (Reg "RDI")))));
+            (Instr (None, (Arg0 (Mnemonic "SYSCALL"))))])
        ])

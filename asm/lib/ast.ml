@@ -24,33 +24,28 @@ type expr =
 type init_value = Expr of expr | Str of string | Dup of expr * string
 [@@deriving show {with_path= false}]
 
-(** [in_segment_dir] divides the section into data and code segments. *)
-type in_segment_dir =
-  | Instruction of mnemonic * expr list
-  | DataDecl of string * init_value list
+(** [command] contains the assembler instruction and the allowed number of arguments. *)
+type command =
+  | Arg0 of mnemonic
+  | Arg1 of mnemonic * expr
+  | Arg2 of mnemonic * expr * expr
 [@@deriving show {with_path= false}]
 
-(** [in_sec_dir] separates out the special assembler section elements: [EQU] and [EQUAL]. *)
+(** [in_sec_dir] divides the section into data and code segments. *)
 type in_sec_dir =
-  | InDir of id option * in_segment_dir
+  | Instr of id option * command
+  | DataDecl of id option * string * init_value list
   | EquDir of id * expr
   | EqualDir of id * expr
 [@@deriving show {with_path= false}]
 
 (** [sec_dir] splits [directive] into sections, which begin with the keyword [SECTION] and the section type [.CODE], [.TEXT], [.DATA] or [.CONST]. *)
-type sec_dir = Section of string * in_sec_dir list
+type sec_dir = Code of in_sec_dir list | Data of in_sec_dir list
 [@@deriving show {with_path= false}]
 
 (** The main type for assembler AST. *)
 type directive = Directive of sec_dir list
 [@@deriving show {with_path= false}]
 
-(** [command] contains the assembler instruction and the allowed number of arguments. *)
-type command =
-  | Arg0 of id option * mnemonic
-  | Arg1 of id option * mnemonic * expr
-  | Arg2 of id option * mnemonic * expr * expr
-[@@deriving show {with_path= false}]
-
 (** [simpl_dir] contains a list of all commands for the interpreter. The list is generated at the interpreter. *)
-type simpl_dir = command list [@@deriving show {with_path= false}]
+type simpl_dir = (id option * command) list [@@deriving show {with_path= false}]
