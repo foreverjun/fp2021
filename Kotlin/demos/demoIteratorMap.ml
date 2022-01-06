@@ -30,7 +30,7 @@ let iterator_map_algorithm =
 
   }
 
-  class IteratorMap(mapf: (Int, Int) -> Int, list: IntArrayList): Iterator(list) {
+  class IteratorMap(list: IntArrayList, mapf: (Int, Int) -> Int): Iterator(list) {
 
     private val mapf: (Int, Int) -> Int = mapf
 
@@ -47,13 +47,13 @@ let iterator_map_algorithm =
 
   fun main() {
     val list: IntArrayList = IntArrayList(5)
-    list.map({index: Int, old: Int -> index + 1})
+    list.map {index: Int, old: Int -> index + 1}
     val it: Iterator = Iterator(list)
 
     println("Initial collection")
     while(it.hasNext()) println(it.next())
 
-    val itmap: IteratorMap = IteratorMap({index: Int, old: Int -> old * old}, list)
+    val itmap: IteratorMap = IteratorMap(list) {index: Int, old: Int -> old * old}
 
     println("IteratorMap-ed collection")
     while(itmap.hasNext()) println(itmap.next())
