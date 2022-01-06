@@ -825,13 +825,15 @@ let%test _ =
 ;;
 
 let%test _ =
+  let content =
+    { var_typename = Int; mutable_status = false; value = ref (IntValue 1) }
+  in
   let rc =
     { name = "foo"
     ; modifiers = []
     ; clojure = ref []
     ; enclosing_object = ref None
-    ; content =
-        Variable { var_typename = Int; mutable_status = false; value = ref (IntValue 1) }
+    ; content = Variable content
     }
   in
   let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
@@ -840,7 +842,7 @@ let%test _ =
   | Error _ -> raise Test_failed
   | Ok eval_ctx ->
     eval_ctx.last_eval_expression = IntValue 1
-    && eval_ctx.last_derefered_variable = Some rc
+    && eval_ctx.last_derefered_variable = Some (rc, content)
 ;;
 
 let%test _ =

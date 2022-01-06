@@ -22,7 +22,7 @@ module Interpret = struct
           (** Данная переменная используется для сохранения значения последленного исполненого Ast.expression (по умолчанию Unitialized) *)
     ; last_return_value : value
           (** Данная переменная используется для сохранения значения последнего исполненого return (по умолчанию Unitialized) *)
-    ; last_derefered_variable : record_t option
+    ; last_derefered_variable : (record_t * variable_t) option
           (** Данная переменная используется для сохранения последней переменной, к которой обратились через VarIdentifier (по умолчанию None) *)
     ; scope : scope_type
     }
@@ -62,37 +62,24 @@ module Interpret = struct
   let check_record_is_override rc = check_record_contains_modifier rc Override
 
   let get_var_from_env env name =
-    let filtered_env =
-      List.filter env ~f:(fun r ->
-          match r.content with
-          | Variable _ -> true
-          | _ -> false)
-    in
-    List.find_map filtered_env ~f:(fun r ->
-        if String.equal r.name name then Some r else None)
+    List.find_map env ~f:(fun r ->
+        match r.name, r.content with
+        | r_name, Variable content when String.equal r_name name -> Some (r, content)
+        | _ -> None)
   ;;
 
-  let get_function_or_class_from_env env name =
-    let filtered_env =
-      List.filter env ~f:(fun r ->
-          match r.content with
-          | Function _ -> true
-          | Class _ -> true
-          | _ -> false)
-    in
-    List.find_map filtered_env ~f:(fun r ->
-        if String.equal r.name name then Some r else None)
+  let get_function_from_env env name =
+    List.find_map env ~f:(fun r ->
+        match r.name, r.content with
+        | r_name, Function content when String.equal r_name name -> Some (r, content)
+        | _ -> None)
   ;;
 
   let get_class_from_env env name =
-    let filtered_env =
-      List.filter env ~f:(fun r ->
-          match r.content with
-          | Class _ -> true
-          | _ -> false)
-    in
-    List.find_map filtered_env ~f:(fun r ->
-        if String.equal r.name name then Some r else None)
+    List.find_map env ~f:(fun r ->
+        match r.name, r.content with
+        | r_name, Class content when String.equal r_name name -> Some (r, content)
+        | _ -> None)
   ;;
 
   let define_in_ctx ctx rc =
@@ -141,31 +128,28 @@ module Interpret = struct
   let set_var_in_ctx ctx name value =
     match get_var_from_env ctx.environment name with
     | None -> None
-    | Some rc ->
-      (match rc.content with
-      | Variable content ->
-        content.value := value;
-        Some rc
-      | _ -> failwith "Should not reach here")
+    | Some (rc, var) ->
+      var.value := value;
+      Some rc
   ;;
 
   let rec get_from_object finder this_flag obj name =
     let open Option.Let_syntax in
     match finder obj with
-    | Some field
+    | Some (field, content)
       when ((check_record_is_private field || check_record_is_protected field)
            && this_flag)
            || not (check_record_is_private field && check_record_is_protected field) ->
-      Some field
+      Some (field, content)
     | None ->
       obj.super
       >>= fun super ->
       get_from_object finder true super name
-      >>= fun field ->
+      >>= fun (field, content) ->
       if check_record_is_private field
          || (check_record_is_protected field && not this_flag)
       then None
-      else Some field
+      else Some (field, content)
     | _ -> None
   ;;
 
@@ -173,7 +157,9 @@ module Interpret = struct
     get_from_object
       (fun obj ->
         List.find_map obj.fields ~f:(fun r ->
-            if String.equal r.name name then Some r else None))
+            match r.name, r.content with
+            | r_name, Variable content when String.equal r_name name -> Some (r, content)
+            | _ -> None))
       this_flag
       obj
       name
@@ -183,7 +169,9 @@ module Interpret = struct
     get_from_object
       (fun obj ->
         List.find_map obj.methods ~f:(fun r ->
-            if String.equal r.name name then Some r else None))
+            match r.name, r.content with
+            | r_name, Function content when String.equal r_name name -> Some (r, content)
+            | _ -> None))
       this_flag
       obj
       name
@@ -197,16 +185,16 @@ module Interpret = struct
     in
     match rc.content with
     | Variable _ ->
-      let defined_fields =
-        iter_from_obj_to_super (Some obj) (fun o ->
-            List.map o.fields ~f:(fun o -> o.name))
+      let defined_fields = iter_from_obj_to_super (Some obj) (fun o -> o.fields) in
+      let defined_field_with_rc_name =
+        List.find defined_fields ~f:(fun r -> String.equal r.name rc.name)
       in
-      if not (List.mem defined_fields rc.name ~equal:String.equal)
+      if Option.is_none defined_field_with_rc_name
       then (
         let new_fields = rc :: obj.fields in
         Some { obj with fields = new_fields })
       else (
-        let declared_field = Option.value_exn (get_field_from_object true obj rc.name) in
+        let declared_field = Option.value_exn defined_field_with_rc_name in
         if check_record_is_open declared_field && check_record_is_override rc
         then (
           let open_rc = { rc with modifiers = Open :: rc.modifiers } in
@@ -214,18 +202,16 @@ module Interpret = struct
           Some { obj with fields = new_fields })
         else None)
     | Function _ ->
-      let defined_methods =
-        iter_from_obj_to_super (Some obj) (fun o ->
-            List.map o.methods ~f:(fun o -> o.name))
+      let defined_methods = iter_from_obj_to_super (Some obj) (fun o -> o.methods) in
+      let defined_method_with_rc_name =
+        List.find defined_methods ~f:(fun r -> String.equal r.name rc.name)
       in
-      if not (List.mem defined_methods rc.name ~equal:String.equal)
+      if Option.is_none defined_method_with_rc_name
       then (
         let new_methods = rc :: obj.methods in
         Some { obj with methods = new_methods })
       else (
-        let declared_method =
-          Option.value_exn (get_method_from_object true obj rc.name)
-        in
+        let declared_method = Option.value_exn defined_method_with_rc_name in
         if check_record_is_open declared_method && check_record_is_override rc
         then (
           let open_rc = { rc with modifiers = Open :: rc.modifiers } in
@@ -362,11 +348,7 @@ module Interpret = struct
       >>= fun identifier_ctx ->
       (match identifier_ctx.last_derefered_variable with
       | None -> fail ExpectedVarIdentifer
-      | Some rc ->
-        (match rc.content with
-        | Variable v -> return v
-        | _ -> failwith "should not reach here")
-        >>= fun var ->
+      | Some (rc, var) ->
         interpret_expression ctx assign_expression
         >>= fun assign_value_ctx ->
         (match
@@ -430,7 +412,8 @@ module Interpret = struct
       | BooleanValue v -> Stdio.print_endline (if v then "true" else "false")
       | NullValue | Unitialized _ -> Stdio.print_endline "null"
       | Object obj -> Stdlib.Printf.printf "%s@%x\n" obj.classname obj.identity_code
-      | _ -> failwith "Unsupported argument for println");
+      | AnonymousFunction func ->
+        Stdlib.Printf.printf "AnonymousFunction@%x\n" func.identity_code);
       return { ctx with last_eval_expression = NullValue }
     | AnonymousFunctionDeclaration (arguments, statement) ->
       let func =
@@ -521,45 +504,39 @@ module Interpret = struct
       | DereferencedObject (obj, _) | ThisDereferencedObject (obj, _) ->
         let this_flag =
           match ctx.scope with
-          | DereferencedObject _ -> false
           | ThisDereferencedObject _ -> true
-          | _ -> failwith "should not reach here"
+          | _ -> false
         in
         (match get_method_from_object this_flag obj identifier with
         | None ->
           (match get_field_from_object this_flag obj identifier with
           | None -> fail (UnknownMethod (obj.classname, identifier))
-          | Some rc ->
-            (match rc.content with
-            | Variable content ->
-              (match !(content.value) with
-              | AnonymousFunction f -> return f
-              | _ -> fail (UnknownFunction identifier))
-              >>= fun func ->
-              let new_ctx =
-                { ctx with
-                  environment = !(rc.clojure)
-                ; scope = AnonymousFunction !(rc.enclosing_object)
-                }
-              in
-              eval_function new_ctx func
-            | _ -> failwith "should not reach here"))
-        | Some meth ->
-          let meth_content =
-            match meth.content with
-            | Function f -> f
-            | _ -> failwith "should not reach here"
-          in
+          | Some (rc, content) ->
+            (match !(content.value) with
+            | AnonymousFunction f -> return f
+            | _ -> fail (UnknownFunction identifier))
+            >>= fun func ->
+            let new_ctx =
+              { ctx with
+                environment = !(rc.clojure)
+              ; scope = AnonymousFunction !(rc.enclosing_object)
+              }
+            in
+            eval_function new_ctx func)
+        | Some (meth, meth_content) ->
           let new_ctx = { ctx with environment = !(meth.clojure); scope = Method obj } in
           eval_function new_ctx meth_content)
       | _ ->
-        (match get_function_or_class_from_env ctx.environment identifier with
+        (match get_class_from_env ctx.environment identifier with
         | None ->
-          (match get_var_from_env ctx.environment identifier with
-          | None -> fail (UnknownFunction identifier)
-          | Some rc ->
-            (match rc.content with
-            | Variable content ->
+          (match get_function_from_env ctx.environment identifier with
+          | Some (rc, func) ->
+            let new_ctx = { ctx with environment = !(rc.clojure); scope = Function } in
+            eval_function new_ctx func
+          | None ->
+            (match get_var_from_env ctx.environment identifier with
+            | None -> fail (UnknownFunction identifier)
+            | Some (rc, content) ->
               (match !(content.value) with
               | AnonymousFunction f -> return f
               | _ -> fail (UnknownFunction identifier))
@@ -570,118 +547,114 @@ module Interpret = struct
                 ; scope = AnonymousFunction !(rc.enclosing_object)
                 }
               in
-              eval_function new_ctx func
-            | _ -> failwith "should not reach here"))
-        | Some rc ->
-          (match rc.content with
-          | Variable _ -> failwith "should not reach here"
-          | Class class_data ->
-            let new_object =
-              ref
-                { identity_code = get_unique_identity_code ()
-                ; classname = rc.name
-                ; super = None
-                ; obj_class = class_data
-                ; fields = []
-                ; methods = []
-                }
-            in
-            let new_ctx = { ctx with environment = !(rc.clojure); scope = Function } in
-            (match define_args new_ctx class_data.constructor_args arg_expressions with
-            | Ok constructor_ctx ->
-              constructor_ctx
-              >>= fun class_ctx ->
-              (match class_data.super_call with
-              | None -> return class_ctx
-              | Some expr ->
-                (match expr with
-                | FunctionCall (identifier, _) ->
-                  (match get_class_from_env ctx.environment identifier with
-                  | Some rc when check_record_is_open rc -> return expr
-                  | Some _ -> fail (ClassNotOpen identifier)
-                  | None -> fail (UnknownFunction identifier))
-                | _ -> fail ClassSuperConstructorNotValid)
-                >>= fun _ ->
-                interpret_expression class_ctx expr
-                >>= fun sup_ctx ->
-                return sup_ctx.last_eval_expression
-                >>= (function
-                | Object super_object ->
-                  new_object := { !new_object with super = Some super_object };
-                  return class_ctx
-                | _ -> fail ClassSuperConstructorNotValid))
-              >>= fun evaluated_constructor_ctx ->
-              return
-                { evaluated_constructor_ctx with scope = ObjectInitialization new_object }
-              >>= fun class_inner_ctx ->
-              List.fold
-                class_data.statements
-                ~init:(return class_inner_ctx)
-                ~f:(fun monadic_ctx stat ->
-                  monadic_ctx
-                  >>= fun checked_ctx ->
-                  match stat with
-                  | VarDeclaration
-                      (modifiers, var_modifier, name, var_typename, init_expression) ->
-                    (match init_expression with
-                    | None -> return (Unitialized (Some new_object))
-                    | Some expr ->
-                      interpret_expression class_inner_ctx expr
-                      >>= fun interpreted_ctx ->
-                      return interpreted_ctx.last_eval_expression)
-                    >>= fun value ->
-                    (match
-                       define_in_object
-                         !new_object
-                         { name
-                         ; modifiers
-                         ; clojure = ref ctx.environment
-                         ; enclosing_object = ref (get_enclosing_object class_inner_ctx)
-                         ; content =
-                             Variable
-                               { var_typename
-                               ; mutable_status = Poly.( = ) var_modifier Var
-                               ; value = ref value
-                               }
-                         }
-                     with
-                    | None -> fail (Redeclaration name)
-                    | Some updated_obj ->
-                      new_object := updated_obj;
-                      return class_inner_ctx)
-                  | FunDeclaration
-                      (modifiers, name, arguments, fun_typename, fun_statement) ->
-                    (match fun_statement with
-                    | Block _ -> return fun_statement
-                    | _ -> fail FunctionBodyExpected)
-                    >>= fun statement ->
-                    (match
-                       define_in_object
-                         !new_object
-                         { name
-                         ; modifiers
-                         ; clojure = ref ctx.environment
-                         ; enclosing_object = ref (get_enclosing_object class_inner_ctx)
-                         ; content =
-                             Function
-                               { identity_code = get_unique_identity_code ()
-                               ; fun_typename
-                               ; arguments
-                               ; statement
-                               }
-                         }
-                     with
-                    | None -> fail (Redeclaration name)
-                    | Some updated_obj ->
-                      new_object := updated_obj;
-                      return class_inner_ctx)
-                  | InitInClass block -> interpret_statement checked_ctx block
-                  | _ -> failwith "should not reach here")
-              >>= fun _ -> return { ctx with last_eval_expression = Object !new_object }
-            | _ -> fail FunctionArgumentsCountMismatch)
-          | Function func ->
-            let new_ctx = { ctx with environment = !(rc.clojure); scope = Function } in
-            eval_function new_ctx func)))
+              eval_function new_ctx func))
+        | Some (rc, class_data) ->
+          let new_object =
+            ref
+              { identity_code = get_unique_identity_code ()
+              ; classname = rc.name
+              ; super = None
+              ; obj_class = class_data
+              ; fields = []
+              ; methods = []
+              }
+          in
+          let new_ctx = { ctx with environment = !(rc.clojure); scope = Function } in
+          (match define_args new_ctx class_data.constructor_args arg_expressions with
+          | Ok constructor_ctx ->
+            constructor_ctx
+            >>= fun class_ctx ->
+            (match class_data.super_call with
+            | None -> return class_ctx
+            | Some expr ->
+              (match expr with
+              | FunctionCall (identifier, _) ->
+                (match get_class_from_env ctx.environment identifier with
+                | Some (rc, _) when check_record_is_open rc -> return expr
+                | Some _ -> fail (ClassNotOpen identifier)
+                | None -> fail (UnknownFunction identifier))
+              | _ -> fail ClassSuperConstructorNotValid)
+              >>= fun _ ->
+              interpret_expression class_ctx expr
+              >>= fun sup_ctx ->
+              return sup_ctx.last_eval_expression
+              >>= (function
+              | Object super_object ->
+                new_object := { !new_object with super = Some super_object };
+                return class_ctx
+              | _ -> fail ClassSuperConstructorNotValid))
+            >>= fun evaluated_constructor_ctx ->
+            return
+              { evaluated_constructor_ctx with scope = ObjectInitialization new_object }
+            >>= fun class_inner_ctx ->
+            List.fold
+              class_data.statements
+              ~init:(return class_inner_ctx)
+              ~f:(fun monadic_ctx stat ->
+                monadic_ctx
+                >>= fun checked_ctx ->
+                match stat with
+                | VarDeclaration
+                    (modifiers, var_modifier, name, var_typename, init_expression) ->
+                  (match init_expression with
+                  | None -> return (Unitialized (Some new_object))
+                  | Some expr ->
+                    interpret_expression class_inner_ctx expr
+                    >>= fun interpreted_ctx -> return interpreted_ctx.last_eval_expression)
+                  >>= fun value ->
+                  (match
+                     define_in_object
+                       !new_object
+                       { name
+                       ; modifiers
+                       ; clojure = ref ctx.environment
+                       ; enclosing_object = ref (get_enclosing_object class_inner_ctx)
+                       ; content =
+                           Variable
+                             { var_typename
+                             ; mutable_status = Poly.( = ) var_modifier Var
+                             ; value = ref value
+                             }
+                       }
+                   with
+                  | None -> fail (Redeclaration name)
+                  | Some updated_obj ->
+                    new_object := updated_obj;
+                    return class_inner_ctx)
+                | FunDeclaration (modifiers, name, arguments, fun_typename, fun_statement)
+                  ->
+                  (match fun_statement with
+                  | Block _ -> return fun_statement
+                  | _ -> fail FunctionBodyExpected)
+                  >>= fun statement ->
+                  (match
+                     define_in_object
+                       !new_object
+                       { name
+                       ; modifiers
+                       ; clojure = ref ctx.environment
+                       ; enclosing_object = ref (get_enclosing_object class_inner_ctx)
+                       ; content =
+                           Function
+                             { identity_code = get_unique_identity_code ()
+                             ; fun_typename
+                             ; arguments
+                             ; statement
+                             }
+                       }
+                   with
+                  | None -> fail (Redeclaration name)
+                  | Some updated_obj ->
+                    new_object := updated_obj;
+                    return class_inner_ctx)
+                | InitInClass block -> interpret_statement checked_ctx block
+                | _ ->
+                  failwith
+                    ("should not reach here. Parser must not parse with statement inside \
+                      class: "
+                    ^ show_statement stat))
+            >>= fun _ -> return { ctx with last_eval_expression = Object !new_object }
+          | _ -> fail FunctionArgumentsCountMismatch)))
     | Const x -> return { ctx with last_eval_expression = x }
     | This -> fail ThisExpressionError
     | VarIdentifier identifier ->
@@ -699,35 +672,26 @@ module Interpret = struct
       | DereferencedObject (obj, _) | ThisDereferencedObject (obj, _) ->
         let this_flag =
           match ctx.scope with
-          | DereferencedObject _ -> false
           | ThisDereferencedObject _ -> true
-          | _ -> failwith "should not reach here"
+          | _ -> false
         in
         (match get_field_from_object this_flag obj identifier with
         | None -> fail (UnknownField (obj.classname, identifier))
-        | Some rc ->
-          let field_content =
-            match rc.content with
-            | Variable v -> v
-            | _ -> failwith "should not reach here"
-          in
+        | Some (rc, field_content) ->
           return
             { ctx with
               last_eval_expression = !(field_content.value)
-            ; last_derefered_variable = Some rc
+            ; last_derefered_variable = Some (rc, field_content)
             })
       | _ ->
         (match get_var_from_env ctx.environment identifier with
         | None -> fail (UnknownVariable identifier)
-        | Some rc ->
-          (match rc.content with
-          | Variable var ->
-            return
-              { ctx with
-                last_eval_expression = !(var.value)
-              ; last_derefered_variable = Some rc
-              }
-          | _ -> failwith "should not reach here")))
+        | Some (rc, var) ->
+          return
+            { ctx with
+              last_eval_expression = !(var.value)
+            ; last_derefered_variable = Some (rc, var)
+            }))
     | Dereference (obj_expression, der_expression)
     | ElvisDereference (obj_expression, der_expression) ->
       (match obj_expression with
