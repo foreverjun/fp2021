@@ -179,7 +179,7 @@ module Interpret = struct
       name
   ;;
 
-  let rec get_method_from_object this_flag obj name =
+  let get_method_from_object this_flag obj name =
     get_from_object
       (fun obj ->
         List.find_map obj.methods ~f:(fun r ->
