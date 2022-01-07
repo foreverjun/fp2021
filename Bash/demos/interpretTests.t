@@ -6,6 +6,28 @@ External script call
   hello from another script
   Interpretation finished with return code: 0
 
+Quoting
+  $ ./demoInterpret.exe <<-"EOF"
+  > echo "$( echo this should be a command substitution )"
+  > echo "\$( echo this should be just a string in parentheses )"
+  > echo '$( echo this should be just a string in parentheses too )'
+  > 
+  > echo -------------------
+  > 
+  > X="$((2 + 2))"
+  > echo "X equals $X"
+  > echo "X doesn't equal \$X"
+  > echo 'X does not equal $X neither'
+  > EOF
+  this should be a command substitution
+  $( echo this should be just a string in parentheses )
+  $( echo this should be just a string in parentheses too )
+  -------------------
+  X equals 4
+  X doesn't equal $X
+  X does not equal $X neither
+  Interpretation finished with return code: 0
+
 Pipelines and redirections:
 (1) echo's output is redirected to the first cat's input
 (2) the first cat prints its input to testfile
