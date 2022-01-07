@@ -413,7 +413,16 @@ module Interpret = struct
       | NullValue | Unitialized _ -> Stdio.print_endline "null"
       | Object obj -> Stdlib.Printf.printf "%s@%x\n" obj.classname obj.identity_code
       | AnonymousFunction func ->
-        Stdlib.Printf.printf "AnonymousFunction@%x\n" func.identity_code);
+        let args_count = List.length func.arguments in
+        let args_string =
+          List.fold func.arguments ~init:"" ~f:(fun acc (_, arg_typename) ->
+              Stdlib.Printf.sprintf "%s%s, " acc (show_typename arg_typename))
+        in
+        Stdlib.Printf.printf
+          "Function%d<%s%s>\n"
+          args_count
+          args_string
+          (show_typename func.fun_typename));
       return { ctx with last_eval_expression = NullValue }
     | AnonymousFunctionDeclaration (arguments, statement) ->
       let func =
