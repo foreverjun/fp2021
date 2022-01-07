@@ -125,14 +125,6 @@ module Interpret = struct
       else None
   ;;
 
-  let set_var_in_ctx ctx name value =
-    match get_var_from_env ctx.environment name with
-    | None -> None
-    | Some (rc, var) ->
-      var.value := value;
-      Some rc
-  ;;
-
   let rec get_from_object finder this_flag obj name =
     let open Option.Let_syntax in
     match finder obj with
@@ -236,6 +228,43 @@ module Interpret = struct
     let code = !last_identity in
     last_identity := code + 1;
     code
+  ;;
+
+  let get_var_from_ctx ctx identifier =
+    let get_var_from_dereference_helper obj this_flag =
+      match get_field_from_object this_flag obj identifier with
+      | None -> fail (UnknownField (obj.classname, identifier))
+      | Some (rc, field_content) ->
+        return
+          { ctx with
+            last_eval_expression = !(field_content.value)
+          ; last_derefered_variable = Some (rc, field_content)
+          }
+    in
+    let get_var_from_environment_helper () =
+      match get_var_from_env ctx.environment identifier with
+      | None -> fail (UnknownVariable identifier)
+      | Some (rc, var) ->
+        return
+          { ctx with
+            last_eval_expression = !(var.value)
+          ; last_derefered_variable = Some (rc, var)
+          }
+    in
+    match ctx.scope with
+    | ObjectInitialization { contents = obj } | Method obj | AnonymousFunction (Some obj)
+      ->
+      (match get_var_from_dereference_helper obj true with
+      | Ok ctx -> return ctx
+      | Error _ -> get_var_from_environment_helper ())
+    | DereferencedObject (obj, _) | ThisDereferencedObject (obj, _) ->
+      let this_flag =
+        match ctx.scope with
+        | ThisDereferencedObject _ -> true
+        | _ -> false
+      in
+      get_var_from_dereference_helper obj this_flag
+    | _ -> get_var_from_environment_helper ()
   ;;
 
   let rec interpret_statement ctx stat =
@@ -666,41 +695,7 @@ module Interpret = struct
           | _ -> fail FunctionArgumentsCountMismatch)))
     | Const x -> return { ctx with last_eval_expression = x }
     | This -> fail ThisExpressionError
-    | VarIdentifier identifier ->
-      (match ctx.scope with
-      | ObjectInitialization { contents = obj }
-      | Method obj
-      | AnonymousFunction (Some obj) ->
-        (match
-           interpret_expression
-             { ctx with scope = ThisDereferencedObject (obj, ctx) }
-             expr
-         with
-        | Ok ctx -> return ctx
-        | Error _ -> interpret_expression { ctx with scope = Initialize } expr)
-      | DereferencedObject (obj, _) | ThisDereferencedObject (obj, _) ->
-        let this_flag =
-          match ctx.scope with
-          | ThisDereferencedObject _ -> true
-          | _ -> false
-        in
-        (match get_field_from_object this_flag obj identifier with
-        | None -> fail (UnknownField (obj.classname, identifier))
-        | Some (rc, field_content) ->
-          return
-            { ctx with
-              last_eval_expression = !(field_content.value)
-            ; last_derefered_variable = Some (rc, field_content)
-            })
-      | _ ->
-        (match get_var_from_env ctx.environment identifier with
-        | None -> fail (UnknownVariable identifier)
-        | Some (rc, var) ->
-          return
-            { ctx with
-              last_eval_expression = !(var.value)
-            ; last_derefered_variable = Some (rc, var)
-            }))
+    | VarIdentifier identifier -> get_var_from_ctx ctx identifier
     | Dereference (obj_expression, der_expression)
     | ElvisDereference (obj_expression, der_expression) ->
       (match obj_expression with
