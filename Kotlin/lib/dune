@@ -2,7 +2,7 @@
  (name kotlin_lib)
  (public_name Kotlin.Lib)
  (modules Std Ast Interpreter Parser utils Tests)
- (libraries base stdio opal ppx_show.runtime)
+ (libraries base stdio opal)
  (preprocess
   (pps ppx_expect ppx_deriving.show))
  (inline_tests))
