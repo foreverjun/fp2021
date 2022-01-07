@@ -6,28 +6,6 @@ External script call
   hello from another script
   Interpretation finished with return code: 0
 
-Quoting
-  $ ./demoInterpret.exe <<-"EOF"
-  > echo "$( echo this should be a command substitution )"
-  > echo "\$( echo this should be just a string in parentheses )"
-  > echo '$( echo this should be just a string in parentheses too )'
-  > 
-  > echo -------------------
-  > 
-  > X="$((2 + 2))"
-  > echo "X equals $X"
-  > echo "X doesn't equal \$X"
-  > echo 'X does not equal $X neither'
-  > EOF
-  this should be a command substitution
-  $( echo this should be just a string in parentheses )
-  $( echo this should be just a string in parentheses too )
-  -------------------
-  X equals 4
-  X doesn't equal $X
-  X does not equal $X neither
-  Interpretation finished with return code: 0
-
 Pipelines and redirections:
 (1) echo's output is redirected to the first cat's input
 (2) the first cat prints its input to testfile
@@ -64,6 +42,28 @@ cat call
   cat: additional arguments are not yet supported
   Interpretation finished with return code: 0
 
+Quoting
+  $ ./demoInterpret.exe <<-"EOF"
+  > echo "$( echo this should be a command substitution )"
+  > echo "\$( echo this should be just a string in parentheses )"
+  > echo '$( echo this should be just a string in parentheses too )'
+  > 
+  > echo -------------------
+  > 
+  > X="$((2 + 2))"
+  > echo "X equals $X"
+  > echo "X doesn't equal \$X"
+  > echo 'X does not equal $X neither'
+  > EOF
+  this should be a command substitution
+  $( echo this should be just a string in parentheses )
+  $( echo this should be just a string in parentheses too )
+  -------------------
+  X equals 4
+  X doesn't equal $X
+  X does not equal $X neither
+  Interpretation finished with return code: 0
+
 Pipeline lists: with && the left side is computed only if the left side is true, with
 || the right side is computed only if the left side is false
   $ ./demoInterpret.exe <<-"EOF"
@@ -83,7 +83,7 @@ Pipeline lists: with && the left side is computed only if the left side is true,
   should be printed 3
   Interpretation finished with return code: 0
 
-Compounds and patterns
+Compounds and pattern matching
   $ ./demoInterpret.exe <<-"EOF"
   > ABC=5
   > while (( ABC < 10)); do {
@@ -131,7 +131,8 @@ Compounds and patterns
   right!
   Interpretation finished with return code: 0
 
-Recursive functions with parameters: factorial computation
+Functions with parameters:
+1) Recursive factorial computation
   $ ./demoInterpret.exe <<-"EOF"
   > factorial () {
   >   n=$1
@@ -146,6 +147,65 @@ Recursive functions with parameters: factorial computation
   > factorial 5
   > EOF
   120
+  Interpretation finished with return code: 0
+2) Iterative fibonacci series computation
+  $ ./demoInterpret.exe <<-"EOF"
+  > frst=0
+  > scnd=1
+  > 
+  > function fib {
+  >   a=$frst
+  >   b=$scnd
+  >   n=$1
+  >   
+  >   echo $a
+  >   
+  >   for (( i = 1; i < n; i = i + 1 )); do {
+  >     a=$(( a + b ))
+  >     echo $a
+  >     b=$(( a - b ))
+  >   }; done
+  > }
+  > 
+  > fib 10
+  > EOF
+  0
+  1
+  1
+  2
+  3
+  5
+  8
+  13
+  21
+  34
+  Interpretation finished with return code: 0
+
+Variables
+  $ ./demoInterpret.exe <<-"EOF"
+  > X="first value"
+  > echo $X
+  > X="second value"
+  > echo $X
+  > X=(now it is "an array")
+  > echo "the third value is" ${X[3]}
+  > echo "the zero value is" $X
+  > X[10]="let's assign it another value"
+  > echo "and here it is:"  ${X[10]}
+  > 
+  > echo -------------------
+  > 
+  > Y="this will only be visible in this command call" echo "Y equals \"$Y\""
+  > echo "Y equals $Y"
+  > EOF
+  first value
+  second value
+  the third value is an array
+  the zero value is now
+  and here it is: let's assign it another value
+  -------------------
+  Y equals "this will only be visible in this command call"
+  Y equals 
   Interpretation finished with return code: 0
 
 Expansions
@@ -162,7 +222,8 @@ Expansions
   > 
   > echo -------------------
   > 
-  > echo command substitution: $(if (( 1 == 1 )); then echo result; fi)
+  > echo command substitution 1: $(if (( 1 == 1 )); then echo result 1; fi)
+  > echo command substitution 2: `if (( 1 == 1 )); then echo result 2; fi`
   > 
   > echo -------------------
   > 
@@ -179,7 +240,8 @@ Expansions
   -------------------
   parameter expansion: something-long 14 thing thing-long _mething-_ng ...
   -------------------
-  command substitution: result
+  command substitution 1: result 1
+  command substitution 2: result 2
   -------------------
   arithmetic expansion: 42
   -------------------

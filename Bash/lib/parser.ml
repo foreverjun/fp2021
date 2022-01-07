@@ -379,7 +379,7 @@ and inn_compound_p () =
     let d = blank1 <|> sc_delim1 in
     many d *> p <* many d
   in
-  char '{' *> td (sep_by1 sc_delim1 (trim (inn_pipe_list_p ())))
+  char '{' *> td (sep_by1 (many (blank1 <|> sc_delim1)) (inn_pipe_list_p ()))
   <* char '}'
   >>| (fun pl -> Group pl)
   <|> (inn_while_loop_p () >>| fun (cnd, act) -> While (cnd, act))
