@@ -8,6 +8,7 @@ Author: Timofey Pushkin, pushkin.td@gmail.com
 
 Features done (for AST, parser and interpreter):
 
+- Quoting
 - Commands
     - Simple commands
     - Pipelines
@@ -25,7 +26,7 @@ Features done (for AST, parser and interpreter):
 - Expansions (expansions are not allowed to be nested)
     - Brace expansion
     - Shell Parameter Expansion
-    - Command Substitution (`$(...)` form only)
+    - Command Substitution (both forms behave in the new-fashioned way)
     - Word Splitting (partial, on <space>, <tab>, <newline> only)
     - Arithmetical expansion (with variables)
     - Filename Expansion

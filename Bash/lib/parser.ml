@@ -150,10 +150,22 @@ let arithm_p =
 (* -------------------- Word and expansions -------------------- *)
 
 (** Word parser. Parameters determine which expansions may be performed. *)
-let rec word_p ?(brc = true) ?(prm = true) ?(cmd = true) ?(ari = true) ?(fln = true) () =
+let rec word_p
+    ?(dqu = true)
+    ?(brc = true)
+    ?(prm = true)
+    ?(cmd = true)
+    ?(ari = true)
+    ?(fln = true)
+    ()
+  =
   fix (fun _ ->
       let skip = fail "Expansion not requested" in
-      (if brc then brace_exp () else skip)
+      char '\'' *> take_till (( = ) '\'')
+      <* char '\''
+      >>| (fun s -> Word s)
+      <|> (if dqu then inn_double_qoutes_p () else skip)
+      <|> (if brc then brace_exp () else skip)
       <|> (if prm then param_exp_p >>| fun p -> ParamExp p else skip)
       <|> (if cmd then inn_cmd_subst () else skip)
       <|> (if ari then arithm_exp else skip)
@@ -162,6 +174,28 @@ let rec word_p ?(brc = true) ?(prm = true) ?(cmd = true) ?(ari = true) ?(fln = t
           >>= function
           | s when List.mem s reserved -> fail "Reserved string"
           | s -> return (Word s)))
+
+(** Double quotes *)
+and inn_double_qoutes_p () =
+  let word = word_p ~dqu:false ~brc:false ~fln:false in
+  let escape =
+    char '\\' *> choice [ char '$'; char '`'; char '\"'; char '\\' ]
+    >>| (fun c -> Word (String.make 1 c))
+    <|> string "\\\n" *> return (Word "")
+    <|> char '\\' *> return (Word "\\")
+    <|> (peek_char_fail
+        >>= function
+        | '$' | '`' -> word ()
+        | _ -> fail "Expected a quoted $ or `")
+  in
+  let non_escape =
+    take_while1 (function
+        | '\"' | '$' | '`' | '\\' -> false
+        | _ -> true)
+    >>| fun s -> Word s
+  in
+  let part = escape <|> non_escape in
+  char '\"' *> many part <* char '\"' >>| fun ws -> DoubleQuotes ws
 
 (** Brace expansion *)
 and brace_exp () =
@@ -284,7 +318,10 @@ and param_exp_p =
          <* char '}'))
 
 (** Command substitution *)
-and inn_cmd_subst () = char '$' *> parens (inn_cmd_p ()) >>| fun cmd -> CmdSubst cmd
+and inn_cmd_subst () =
+  char '$' *> parens (inn_cmd_p ())
+  <|> (char '`' *> inn_cmd_p () <* char '`')
+  >>| fun cmd -> CmdSubst cmd
 
 (** Arithmetic expansion *)
 and arithm_exp = string "$((" *> trim arithm_p <* string "))" >>| fun a -> ArithmExp a
@@ -773,24 +810,59 @@ let%test _ = fail_filename_exp "abc.ml"
 
 (* -------------------- Word with expansions -------------------- *)
 
-let succ_word_p ?(b = true) ?(p = true) ?(c = true) ?(a = true) ?(f = true) =
-  succ_p pp_word (word_p ~brc:b ~prm:p ~cmd:c ~ari:a ~fln:f ())
+let succ_word_p ?(d = true) ?(b = true) ?(p = true) ?(c = true) ?(a = true) ?(f = true) =
+  succ_p pp_word (word_p ~dqu:d ~brc:b ~prm:p ~cmd:c ~ari:a ~fln:f ())
 ;;
 
-let fail_word_p ?(b = true) ?(p = true) ?(c = true) ?(a = true) ?(f = true) =
-  fail_p pp_word (word_p ~brc:b ~prm:p ~cmd:c ~ari:a ~fln:f ())
+let fail_word_p ?(d = true) ?(b = true) ?(p = true) ?(c = true) ?(a = true) ?(f = true) =
+  fail_p pp_word (word_p ~dqu:d ~brc:b ~prm:p ~cmd:c ~ari:a ~fln:f ())
 ;;
 
 let%test _ = succ_word_p "something" (Word "something")
+let%test _ = succ_word_p {|"something"|} (DoubleQuotes [ Word "something" ])
 let%test _ = succ_word_p "1{a,b}2" (BraceExp [ Word "1a2"; Word "1b2" ])
+let%test _ = succ_word_p {|"1{a,b}2"|} (DoubleQuotes [ Word "1{a,b}2" ])
 let%test _ = succ_word_p "$A" (ParamExp (Param ("A", "0")))
+let%test _ = succ_word_p {|"$A"|} (DoubleQuotes [ ParamExp (Param ("A", "0")) ])
 
 let%test _ =
   succ_word_p "$(cmd arg)" (CmdSubst (Simple ([], [ Word "cmd"; Word "arg" ], [])))
 ;;
 
+let%test _ =
+  succ_word_p
+    {|"$(cmd arg)"|}
+    (DoubleQuotes [ CmdSubst (Simple ([], [ Word "cmd"; Word "arg" ], [])) ])
+;;
+
 let%test _ = succ_word_p "$((3 / 1))" (ArithmExp (Div (Num 3, Num 1)))
+
+let%test _ =
+  succ_word_p {|"$((3 / 1))"|} (DoubleQuotes [ ArithmExp (Div (Num 3, Num 1)) ])
+;;
+
 let%test _ = succ_word_p "?.a" (FilenameExp "?.a")
+let%test _ = succ_word_p {|"?.a"|} (DoubleQuotes [ Word "?.a" ])
+let%test _ = succ_word_p {|'"$A"'|} (Word {|"$A"|})
+let%test _ = succ_word_p {|'1{a,b}2'|} (Word "1{a,b}2")
+let%test _ = succ_word_p {|'$A'|} (Word "$A")
+let%test _ = succ_word_p {|'$(cmd arg)'|} (Word "$(cmd arg)")
+let%test _ = succ_word_p {|'$((3 / 1))'|} (Word "$((3 / 1))")
+let%test _ = succ_word_p {|'?.a'|} (Word "?.a")
+let%test _ = succ_word_p {|"\$A"|} (DoubleQuotes [ Word "$"; Word "A" ])
+let%test _ = succ_word_p {|"\$(cmd arg)"|} (DoubleQuotes [ Word "$"; Word "(cmd arg)" ])
+let%test _ = succ_word_p {|"\$((3 / 1))"|} (DoubleQuotes [ Word "$"; Word "((3 / 1))" ])
+
+let%test _ =
+  succ_word_p
+    {|"abc$(echo)$((3 / 1))"|}
+    (DoubleQuotes
+       [ Word "abc"
+       ; CmdSubst (Simple ([], [ Word "echo" ], []))
+       ; ArithmExp (Div (Num 3, Num 1))
+       ])
+;;
+
 let%test _ = fail_word_p " something"
 let%test _ = fail_word_p "something "
 let%test _ = fail_word_p " something "

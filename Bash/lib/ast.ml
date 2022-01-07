@@ -42,12 +42,13 @@ type param_exp =
   Assignment: ParameterExp, CommandSubst, ArithmExp, QuoteRem
 *)
 type word =
+  | DoubleQuotes of word list (** A string that was quoted with [""] *)
   | BraceExp of word list (** Brace expansion *)
   | ParamExp of param_exp (** Parameter expansion *)
   | CmdSubst of cmd (** [$(command)] *)
   | ArithmExp of arithm (** [$((...))] *)
   | FilenameExp of string (** A string that includes [*], [?] or [\[] *)
-  | Word of string (** If none of the expansions above are applicable *)
+  | Word of string (** If none of the expansions above are applicable or [''] were used *)
 [@@deriving show { with_path = false }]
 
 (** Assignment (differs from the original Bash not to depend on the declare built-in) *)

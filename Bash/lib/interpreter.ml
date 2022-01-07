@@ -213,18 +213,17 @@ module Eval (M : MonadFail) = struct
 
   (** Evaluate word *)
   let rec ev_word env = function
+    | DoubleQuotes ws -> ev_words env ws >>| fun (env, ss) -> env, [ String.concat "" ss ]
     | BraceExp ws -> ev_words env ws
     | ParamExp p -> ev_param_exp env p >>| fun (env, s) -> env, [ s ]
     | CmdSubst c ->
       let rd, wr = Unix.pipe () in
       ev_cmd { env with chs = IMap.add 1 wr env.chs } c
-      >>= fun { retcode } ->
+      >>| fun { retcode } ->
       Unix.close wr;
-      let parsed = Parser.split_words (read_all rd) in
+      let s = read_all rd in
       Unix.close rd;
-      (match parsed with
-      | Ok ss -> return ({ env with retcode }, ss)
-      | Error e -> fail e)
+      { env with retcode }, [ Base.String.rstrip s ]
     | ArithmExp a -> ev_arithm env a >>| fun (env, n) -> env, [ string_of_int n ]
     | FilenameExp s -> ev_filename_exp env s >>| fun ss -> env, ss
     | Word s -> return (env, [ s ])
@@ -1255,7 +1254,7 @@ let%test _ =
   succ_ev
     ~tmpl:empty_env
     (CmdSubst (Simple ([], [ Word "echo"; Word "123 45" ], [])))
-    (empty_env, [ "123"; "45" ])
+    (empty_env, [ "123 45" ])
 ;;
 
 let%test _ = succ_ev (ArithmExp (Num 5)) (empty_env, [ "5" ])
@@ -1266,6 +1265,23 @@ let%test _ =
 ;;
 
 let%test _ = succ_ev (Word "hey") (empty_env, [ "hey" ])
+
+let%test _ =
+  succ_ev
+    (DoubleQuotes
+       [ Word "a"; CmdSubst (Simple ([], [ Word "echo"; Word "b c" ], [])); Word "d" ])
+    (empty_env, [ "ab cd" ])
+;;
+
+let%test _ =
+  succ_ev
+    (DoubleQuotes
+       [ Word "a"
+       ; CmdSubst (Simple ([], [ Word "echo"; Word "b c" ], []))
+       ; ArithmExp (Plus (Num 1, Num 2))
+       ])
+    (empty_env, [ "ab c3" ])
+;;
 
 (* -------------------- Assignment -------------------- *)
 
