@@ -267,6 +267,50 @@ module Interpret = struct
     | _ -> get_var_from_environment_helper ()
   ;;
 
+  let get_function_from_ctx ctx identifier =
+    let get_function_from_dereference_helper obj this_flag =
+      match get_method_from_object this_flag obj identifier with
+      | None ->
+        (match get_field_from_object this_flag obj identifier with
+        | None -> fail (UnknownMethod (obj.classname, identifier))
+        | Some (rc, content) ->
+          (match !(content.value) with
+          | AnonymousFunction f -> return f
+          | _ -> fail (UnknownFunction identifier))
+          >>= fun func -> return (`AnonymousFunction (rc, func)))
+      | Some (meth, meth_content) -> return (`Method (obj, meth, meth_content))
+    in
+    let get_function_from_environment_helper () =
+      match get_class_from_env ctx.environment identifier with
+      | None ->
+        (match get_function_from_env ctx.environment identifier with
+        | Some (rc, func) -> return (`Function (rc, func))
+        | None ->
+          (match get_var_from_env ctx.environment identifier with
+          | None -> fail (UnknownFunction identifier)
+          | Some (rc, content) ->
+            (match !(content.value) with
+            | AnonymousFunction f -> return f
+            | _ -> fail (UnknownFunction identifier))
+            >>= fun func -> return (`AnonymousFunction (rc, func))))
+      | Some (rc, class_data) -> return (`Class (rc, class_data))
+    in
+    match ctx.scope with
+    | ObjectInitialization { contents = obj } | Method obj | AnonymousFunction (Some obj)
+      ->
+      (match get_function_from_dereference_helper obj true with
+      | Ok ctx -> return ctx
+      | Error _ -> get_function_from_environment_helper ())
+    | DereferencedObject (obj, _) | ThisDereferencedObject (obj, _) ->
+      let this_flag =
+        match ctx.scope with
+        | ThisDereferencedObject _ -> true
+        | _ -> false
+      in
+      get_function_from_dereference_helper obj this_flag
+    | _ -> get_function_from_environment_helper ()
+  ;;
+
   let rec interpret_statement ctx stat =
     match stat with
     | InitInClass statement_block -> interpret_statement ctx statement_block
@@ -528,171 +572,129 @@ module Interpret = struct
                  (identifier, func.fun_typename, func_eval_ctx.last_return_value))
         | _ -> fail FunctionArgumentsCountMismatch
       in
-      (match ctx.scope with
-      | ObjectInitialization { contents = obj }
-      | Method obj
-      | AnonymousFunction (Some obj) ->
-        (match
-           interpret_expression
-             { ctx with scope = ThisDereferencedObject (obj, ctx) }
-             expr
-         with
-        | Ok ctx -> return ctx
-        | Error _ -> interpret_expression { ctx with scope = Initialize } expr)
-      | DereferencedObject (obj, _) | ThisDereferencedObject (obj, _) ->
-        let this_flag =
-          match ctx.scope with
-          | ThisDereferencedObject _ -> true
-          | _ -> false
+      get_function_from_ctx ctx identifier
+      >>= (function
+      | `AnonymousFunction (rc, func) ->
+        let new_ctx =
+          { ctx with
+            environment = !(rc.clojure)
+          ; scope = AnonymousFunction !(rc.enclosing_object)
+          }
         in
-        (match get_method_from_object this_flag obj identifier with
-        | None ->
-          (match get_field_from_object this_flag obj identifier with
-          | None -> fail (UnknownMethod (obj.classname, identifier))
-          | Some (rc, content) ->
-            (match !(content.value) with
-            | AnonymousFunction f -> return f
-            | _ -> fail (UnknownFunction identifier))
-            >>= fun func ->
-            let new_ctx =
-              { ctx with
-                environment = !(rc.clojure)
-              ; scope = AnonymousFunction !(rc.enclosing_object)
-              }
-            in
-            eval_function new_ctx func)
-        | Some (meth, meth_content) ->
-          let new_ctx = { ctx with environment = !(meth.clojure); scope = Method obj } in
-          eval_function new_ctx meth_content)
-      | _ ->
-        (match get_class_from_env ctx.environment identifier with
-        | None ->
-          (match get_function_from_env ctx.environment identifier with
-          | Some (rc, func) ->
-            let new_ctx = { ctx with environment = !(rc.clojure); scope = Function } in
-            eval_function new_ctx func
-          | None ->
-            (match get_var_from_env ctx.environment identifier with
-            | None -> fail (UnknownFunction identifier)
-            | Some (rc, content) ->
-              (match !(content.value) with
-              | AnonymousFunction f -> return f
-              | _ -> fail (UnknownFunction identifier))
-              >>= fun func ->
-              let new_ctx =
-                { ctx with
-                  environment = !(rc.clojure)
-                ; scope = AnonymousFunction !(rc.enclosing_object)
-                }
-              in
-              eval_function new_ctx func))
-        | Some (rc, class_data) ->
-          let new_object =
-            ref
-              { identity_code = get_unique_identity_code ()
-              ; classname = rc.name
-              ; super = None
-              ; obj_class = class_data
-              ; fields = []
-              ; methods = []
-              }
-          in
-          let new_ctx = { ctx with environment = !(rc.clojure); scope = Function } in
-          (match define_args new_ctx class_data.constructor_args arg_expressions with
-          | Ok constructor_ctx ->
-            constructor_ctx
-            >>= fun class_ctx ->
-            (match class_data.super_call with
-            | None -> return class_ctx
-            | Some expr ->
-              (match expr with
-              | FunctionCall (identifier, _) ->
-                (match get_class_from_env ctx.environment identifier with
-                | Some (rc, _) when check_record_is_open rc -> return expr
-                | Some _ -> fail (ClassNotOpen identifier)
-                | None -> fail (UnknownFunction identifier))
-              | _ -> fail ClassSuperConstructorNotValid)
-              >>= fun _ ->
-              interpret_expression class_ctx expr
-              >>= fun sup_ctx ->
-              return sup_ctx.last_eval_expression
-              >>= (function
-              | Object super_object ->
-                new_object := { !new_object with super = Some super_object };
-                return class_ctx
-              | _ -> fail ClassSuperConstructorNotValid))
-            >>= fun evaluated_constructor_ctx ->
-            return
-              { evaluated_constructor_ctx with scope = ObjectInitialization new_object }
-            >>= fun class_inner_ctx ->
-            List.fold
-              class_data.statements
-              ~init:(return class_inner_ctx)
-              ~f:(fun monadic_ctx stat ->
-                monadic_ctx
-                >>= fun checked_ctx ->
-                match stat with
-                | VarDeclaration
-                    (modifiers, var_modifier, name, var_typename, init_expression) ->
-                  (match init_expression with
-                  | None -> return (Unitialized (Some new_object))
-                  | Some expr ->
-                    interpret_expression class_inner_ctx expr
-                    >>= fun interpreted_ctx -> return interpreted_ctx.last_eval_expression)
-                  >>= fun value ->
-                  (match
-                     define_in_object
-                       !new_object
-                       { name
-                       ; modifiers
-                       ; clojure = ref ctx.environment
-                       ; enclosing_object = ref (get_enclosing_object class_inner_ctx)
-                       ; content =
-                           Variable
-                             { var_typename
-                             ; mutable_status = Poly.( = ) var_modifier Var
-                             ; value = ref value
-                             }
-                       }
-                   with
-                  | None -> fail (Redeclaration name)
-                  | Some updated_obj ->
-                    new_object := updated_obj;
-                    return class_inner_ctx)
-                | FunDeclaration (modifiers, name, arguments, fun_typename, fun_statement)
-                  ->
-                  (match fun_statement with
-                  | Block _ -> return fun_statement
-                  | _ -> fail FunctionBodyExpected)
-                  >>= fun statement ->
-                  (match
-                     define_in_object
-                       !new_object
-                       { name
-                       ; modifiers
-                       ; clojure = ref ctx.environment
-                       ; enclosing_object = ref (get_enclosing_object class_inner_ctx)
-                       ; content =
-                           Function
-                             { identity_code = get_unique_identity_code ()
-                             ; fun_typename
-                             ; arguments
-                             ; statement
-                             }
-                       }
-                   with
-                  | None -> fail (Redeclaration name)
-                  | Some updated_obj ->
-                    new_object := updated_obj;
-                    return class_inner_ctx)
-                | InitInClass block -> interpret_statement checked_ctx block
-                | _ ->
-                  failwith
-                    ("should not reach here. Parser must not parse with statement inside \
-                      class: "
-                    ^ show_statement stat))
-            >>= fun _ -> return { ctx with last_eval_expression = Object !new_object }
-          | _ -> fail FunctionArgumentsCountMismatch)))
+        eval_function new_ctx func
+      | `Class (rc, class_data) ->
+        let new_object =
+          ref
+            { identity_code = get_unique_identity_code ()
+            ; classname = rc.name
+            ; super = None
+            ; obj_class = class_data
+            ; fields = []
+            ; methods = []
+            }
+        in
+        let new_ctx = { ctx with environment = !(rc.clojure); scope = Function } in
+        (match define_args new_ctx class_data.constructor_args arg_expressions with
+        | Ok constructor_ctx ->
+          constructor_ctx
+          >>= fun class_ctx ->
+          (match class_data.super_call with
+          | None -> return class_ctx
+          | Some expr ->
+            (match expr with
+            | FunctionCall (identifier, _) ->
+              (match get_class_from_env ctx.environment identifier with
+              | Some (rc, _) when check_record_is_open rc -> return expr
+              | Some _ -> fail (ClassNotOpen identifier)
+              | None -> fail (UnknownFunction identifier))
+            | _ -> fail ClassSuperConstructorNotValid)
+            >>= fun _ ->
+            interpret_expression class_ctx expr
+            >>= fun sup_ctx ->
+            return sup_ctx.last_eval_expression
+            >>= (function
+            | Object super_object ->
+              new_object := { !new_object with super = Some super_object };
+              return class_ctx
+            | _ -> fail ClassSuperConstructorNotValid))
+          >>= fun evaluated_constructor_ctx ->
+          return
+            { evaluated_constructor_ctx with scope = ObjectInitialization new_object }
+          >>= fun class_inner_ctx ->
+          List.fold
+            class_data.statements
+            ~init:(return class_inner_ctx)
+            ~f:(fun monadic_ctx stat ->
+              monadic_ctx
+              >>= fun checked_ctx ->
+              match stat with
+              | VarDeclaration
+                  (modifiers, var_modifier, name, var_typename, init_expression) ->
+                (match init_expression with
+                | None -> return (Unitialized (Some new_object))
+                | Some expr ->
+                  interpret_expression class_inner_ctx expr
+                  >>= fun interpreted_ctx -> return interpreted_ctx.last_eval_expression)
+                >>= fun value ->
+                (match
+                   define_in_object
+                     !new_object
+                     { name
+                     ; modifiers
+                     ; clojure = ref ctx.environment
+                     ; enclosing_object = ref (get_enclosing_object class_inner_ctx)
+                     ; content =
+                         Variable
+                           { var_typename
+                           ; mutable_status = Poly.( = ) var_modifier Var
+                           ; value = ref value
+                           }
+                     }
+                 with
+                | None -> fail (Redeclaration name)
+                | Some updated_obj ->
+                  new_object := updated_obj;
+                  return class_inner_ctx)
+              | FunDeclaration (modifiers, name, arguments, fun_typename, fun_statement)
+                ->
+                (match fun_statement with
+                | Block _ -> return fun_statement
+                | _ -> fail FunctionBodyExpected)
+                >>= fun statement ->
+                (match
+                   define_in_object
+                     !new_object
+                     { name
+                     ; modifiers
+                     ; clojure = ref ctx.environment
+                     ; enclosing_object = ref (get_enclosing_object class_inner_ctx)
+                     ; content =
+                         Function
+                           { identity_code = get_unique_identity_code ()
+                           ; fun_typename
+                           ; arguments
+                           ; statement
+                           }
+                     }
+                 with
+                | None -> fail (Redeclaration name)
+                | Some updated_obj ->
+                  new_object := updated_obj;
+                  return class_inner_ctx)
+              | InitInClass block -> interpret_statement checked_ctx block
+              | _ ->
+                failwith
+                  ("should not reach here. Parser must not parse with statement inside \
+                    class: "
+                  ^ show_statement stat))
+          >>= fun _ -> return { ctx with last_eval_expression = Object !new_object }
+        | _ -> fail FunctionArgumentsCountMismatch)
+      | `Function (rc, func) ->
+        let new_ctx = { ctx with environment = !(rc.clojure); scope = Function } in
+        eval_function new_ctx func
+      | `Method (obj, rc, meth) ->
+        let new_ctx = { ctx with environment = !(rc.clojure); scope = Method obj } in
+        eval_function new_ctx meth)
     | Const x -> return { ctx with last_eval_expression = x }
     | This -> fail ThisExpressionError
     | VarIdentifier identifier -> get_var_from_ctx ctx identifier
