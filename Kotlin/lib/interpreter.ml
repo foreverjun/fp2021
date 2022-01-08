@@ -3,8 +3,14 @@ open Utils
 open Parser
 open Ast
 
+module InterpreterResult = struct
+  include Base.Result
+
+  let ( let* ) x f = x >>= f
+end
+
 module Interpret = struct
-  open Result
+  open InterpreterResult
 
   type scope_type =
     | Initialize
@@ -18,6 +24,7 @@ module Interpret = struct
 
   and context =
     { environment : record_t list
+    ; not_nullable_records : record_t list
     ; last_eval_expression : value
           (** Данная переменная используется для сохранения значения последленного исполненого Ast.expression (по умолчанию Unitialized) *)
     ; last_return_value : value
@@ -29,6 +36,7 @@ module Interpret = struct
 
   let empty_ctx =
     { environment = []
+    ; not_nullable_records = []
     ; last_eval_expression = Unitialized None
     ; last_return_value = Unitialized None
     ; last_derefered_variable = None
@@ -234,22 +242,12 @@ module Interpret = struct
     let get_var_from_dereference_helper obj this_flag =
       match get_field_from_object this_flag obj identifier with
       | None -> fail (UnknownField (obj.classname, identifier))
-      | Some (rc, field_content) ->
-        return
-          { ctx with
-            last_eval_expression = !(field_content.value)
-          ; last_derefered_variable = Some (rc, field_content)
-          }
+      | Some (rc, field_content) -> return (rc, field_content)
     in
     let get_var_from_environment_helper () =
       match get_var_from_env ctx.environment identifier with
       | None -> fail (UnknownVariable identifier)
-      | Some (rc, var) ->
-        return
-          { ctx with
-            last_eval_expression = !(var.value)
-          ; last_derefered_variable = Some (rc, var)
-          }
+      | Some (rc, var) -> return (rc, var)
     in
     match ctx.scope with
     | ObjectInitialization { contents = obj } | Method obj | AnonymousFunction (Some obj)
@@ -309,6 +307,26 @@ module Interpret = struct
       in
       get_function_from_dereference_helper obj this_flag
     | _ -> get_function_from_environment_helper ()
+  ;;
+
+  let check_expression_is_nullable ctx = function
+    | VarIdentifier identifier ->
+      let* rc, var = get_var_from_ctx ctx identifier in
+      if List.mem ctx.not_nullable_records rc ~equal:phys_equal
+      then return true
+      else (
+        match var.var_typename with
+        | Nullable _ -> return true
+        | _ -> return false)
+    | FunctionCall (identifier, _) ->
+      get_function_from_ctx ctx identifier
+      >>= (function
+      | `AnonymousFunction (_, func) | `Function (_, func) | `Method (_, _, func) ->
+        (match func.fun_typename with
+        | Nullable _ -> return true
+        | _ -> return false)
+      | `Class _ -> return false)
+    | _ -> return false
   ;;
 
   let rec interpret_statement ctx stat =
@@ -697,9 +715,23 @@ module Interpret = struct
         eval_function new_ctx meth)
     | Const x -> return { ctx with last_eval_expression = x }
     | This -> fail ThisExpressionError
-    | VarIdentifier identifier -> get_var_from_ctx ctx identifier
+    | VarIdentifier identifier ->
+      let* rc, var = get_var_from_ctx ctx identifier in
+      return
+        { ctx with
+          last_eval_expression = !(var.value)
+        ; last_derefered_variable = Some (rc, var)
+        }
     | Dereference (obj_expression, der_expression)
     | ElvisDereference (obj_expression, der_expression) ->
+      check_expression_is_nullable ctx obj_expression
+      >>= fun nullable_flag ->
+      (match expr with
+      | Dereference _ when nullable_flag ->
+        (* TODO: сделать обработку данного случая *)
+        return ""
+      | _ -> return "")
+      >>= fun _ ->
       (match obj_expression with
       | This ->
         (match ctx.scope with
@@ -725,7 +757,7 @@ module Interpret = struct
         in
         let obj_ctx = { ctx with scope } in
         (match der_expression with
-        | VarIdentifier _ | FunctionCall _ | Dereference _ ->
+        | VarIdentifier _ | FunctionCall _ | Dereference _ | ElvisDereference _ ->
           interpret_expression obj_ctx der_expression
           >>= fun ctx_with_eval_dereference ->
           return { ctx_with_eval_dereference with scope = ctx.scope }

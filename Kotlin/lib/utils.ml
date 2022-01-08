@@ -9,6 +9,7 @@ type error =
   | UnsupportedOperandTypes of expression
   | NullUnsafeAccessError
   | DereferenceError
+  | NullableDereferenceError
   | FunctionReturnTypeMismatch of string * typename * value
   | UnknownVariable of string
   | UnknownFunction of string
