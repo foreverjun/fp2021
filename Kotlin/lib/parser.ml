@@ -72,6 +72,16 @@ let rec parse_typename input =
     input
 ;;
 
+let parse_args =
+  sep_by
+    (parse_identifier
+    >>= fun parse_var_identifier ->
+    token ":"
+    >> parse_typename
+    >>= fun var_typename -> return (parse_var_identifier, var_typename))
+    (token ",")
+;;
+
 module rec Expression : sig
   val parse_var_identifier : char Opal.input -> (Ast.expression * char Opal.input) option
   val parse_int_value : char Opal.input -> (Ast.value * char Opal.input) option
@@ -291,15 +301,7 @@ end = struct
 
   and anonymous_function_expression input =
     (braces
-       (option
-          []
-          (sep_by
-             (parse_identifier
-             >>= fun parse_var_identifier ->
-             token ":"
-             >> parse_typename
-             >>= fun var_typename -> return (parse_var_identifier, var_typename))
-             (token ","))
+       (option [] parse_args
        >>= fun args ->
        (match args with
        | [] -> token ""
@@ -396,14 +398,7 @@ end = struct
     token "class"
     >> parse_identifier
     >>= fun identifier ->
-    parens
-      (sep_by
-         (parse_identifier
-         >>= fun parse_var_identifier ->
-         token ":"
-         >> parse_typename
-         >>= fun var_typename -> return (parse_var_identifier, var_typename))
-         (token ","))
+    parens parse_args
     >>= fun constructor_args ->
     option
       None
@@ -454,14 +449,7 @@ end = struct
     token "fun"
     >> parse_identifier
     >>= fun fun_identifier ->
-    parens
-      (sep_by
-         (parse_identifier
-         >>= fun parse_var_identifier ->
-         token ":"
-         >> parse_typename
-         >>= fun var_typename -> return (parse_var_identifier, var_typename))
-         (token ","))
+    parens parse_args
     >>= fun args ->
     option Unit (token ":" >> parse_typename)
     >>= fun fun_typename ->

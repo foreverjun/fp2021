@@ -424,6 +424,12 @@ module Interpret = struct
       | Some (rc, var) ->
         interpret_expression ctx assign_expression
         >>= fun assign_value_ctx ->
+        let update_rc_and_return_assign_value_ctx () =
+          rc.clojure := identifier_ctx.environment;
+          rc.enclosing_object := get_enclosing_object ctx;
+          var.value := assign_value_ctx.last_eval_expression;
+          return assign_value_ctx
+        in
         (match
            ( check_typename_value_correspondance
                (var.var_typename, assign_value_ctx.last_eval_expression)
@@ -431,16 +437,8 @@ module Interpret = struct
            , !(var.value) )
          with
         | true, ObjectInitialization obj, Unitialized (Some obj_of_field)
-          when phys_equal obj obj_of_field ->
-          rc.clojure := identifier_ctx.environment;
-          rc.enclosing_object := get_enclosing_object ctx;
-          var.value := assign_value_ctx.last_eval_expression;
-          return assign_value_ctx
-        | true, _, _ when var.mutable_status ->
-          rc.clojure := identifier_ctx.environment;
-          rc.enclosing_object := get_enclosing_object ctx;
-          var.value := assign_value_ctx.last_eval_expression;
-          return assign_value_ctx
+          when phys_equal obj obj_of_field -> update_rc_and_return_assign_value_ctx ()
+        | true, _, _ when var.mutable_status -> update_rc_and_return_assign_value_ctx ()
         | true, _, _ -> fail (VariableNotMutable rc.name)
         | false, _, _ ->
           fail
