@@ -236,13 +236,11 @@ let pack =
       trim
         ( chainl1 prim eapp
         <|> lift2 (fun id prim -> EConstr (id, prim)) constr_id prim ) in
-    let mul_op = helper mult_div app_op @@ d.key d in
-    let add_op = helper add_sub mul_op (d.key d) in
-    let cons_op = helper cons add_op @@ d.key d in
-    let cmp_op = helper cmp cons_op @@ d.key d in
-    let eq_op = helper eq_uneq cmp_op @@ d.key d in
-    let conj_op = helper conj eq_op @@ d.key d in
-    trim @@ helper disj conj_op @@ d.key d in
+    trim
+    @@ List.fold_right
+         [mult_div; add_sub; cons; cmp; eq_uneq; conj; disj]
+         ~f:(fun x y -> helper x y @@ d.key d)
+         ~init:app_op in
   {key; tuple; expr; op}
 
 let expr = pack.expr pack
@@ -455,3 +453,9 @@ let%test _ =
     [ DLet
         (false, PVar "x", ECons (EConst (CInt 1), ECons (EConst (CInt 2), ENil)))
     ]
+
+(* let%test _ = test_for_parser {|
+     let x = a / b / c
+   |} [ DLet
+         (false, PVar "x", E)
+       ] *)
