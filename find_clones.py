@@ -7,6 +7,7 @@ LANG=sys.argv[1]
 REPORTS_DIR="_reports"
 REPORT_FILE="jscpd_report.txt"
 def good_dir(d):
+  print(f"good_dir: {d}")
   return os.path.isdir(os.path.join(".", d)) and not d.startswith('.') and d != LANG and d != REPORTS_DIR
 
 if not os.path.exists("_reports"):
