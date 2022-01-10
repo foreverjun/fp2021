@@ -7,7 +7,6 @@ LANG=sys.argv[1]
 REPORTS_DIR="_reports"
 REPORT_FILE="jscpd_report.txt"
 def good_dir(d):
-  print(f"good_dir: {d}")
   return os.path.isdir(os.path.join(".", d)) and not d.startswith('.') and d != LANG and d != REPORTS_DIR
 
 if not os.path.exists("_reports"):
@@ -15,7 +14,6 @@ if not os.path.exists("_reports"):
 os.system("find . -iname _build -exec rm -fr {} \;")
 
 for x in [x for x in os.listdir(".") if good_dir(x)]:
-  print(f"x = {x}")
   cmd = f"jscpd --pattern '{LANG}/**/*.ml*' --pattern '{x}/**/*.ml*' -b -r consoleFull --skipLocal > _reports/vs_{x}.txt"
   print(cmd)
   os.system(cmd)
