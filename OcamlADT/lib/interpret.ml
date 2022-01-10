@@ -93,7 +93,7 @@ end = struct
           | hd :: tl -> pattern_bindings hd @ helper tl in
         helper pts
     | PCons (patt1, patt2) -> pattern_bindings patt1 @ pattern_bindings patt2
-    | PACase (pconstr, pcase) -> pconstr :: pattern_bindings pcase
+    | PACase (_, pcase) -> pattern_bindings pcase
 
   let rec pattern_decl_bindings pattern value =
     match (pattern, value) with
