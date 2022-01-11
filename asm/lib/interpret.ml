@@ -47,10 +47,10 @@ module Eval (M : MonadError) = struct
     | Ls of string
     (* labels whose call will cause an error *)
     | Er
-  [@@deriving show {with_path= false}]
+  [@@deriving show {with_path = false}]
 
   (** Enviroment variables. *)
-  type env = var_t MapString.t [@@deriving show {with_path= false}]
+  type env = var_t MapString.t [@@deriving show {with_path = false}]
 
   (** [modulo x y] returns the positive remainder of the [Int64] division. *)
   let modulo x y =
