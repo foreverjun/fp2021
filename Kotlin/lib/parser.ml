@@ -236,8 +236,8 @@ end = struct
           ]))
       input
 
-  and or_expression input = (chainl1 and_expression or_op) input
-  and and_expression input = (chainl1 compare_expression and_op) input
+  and or_expression input = (chainr1 and_expression or_op) input
+  and and_expression input = (chainr1 compare_expression and_op) input
   and add_expression input = (chainl1 mul_expression (choice [ add_op; sub_op ])) input
 
   and mul_expression input =

@@ -69,6 +69,11 @@ module Interpret = struct
   let check_record_is_open rc = check_record_contains_modifier rc Open
   let check_record_is_override rc = check_record_contains_modifier rc Override
 
+  let check_is_null = function
+    | NullValue | Unitialized _ -> true
+    | _ -> false
+  ;;
+
   let get_this_from_ctx ctx =
     match ctx.scope with
     | Method obj | ObjectInitialization { contents = obj } | AnonymousFunction (Some obj)
@@ -416,7 +421,7 @@ module Interpret = struct
     | VarIdentifier identifier ->
       let* rc, var = get_var_from_ctx ctx identifier in
       if List.mem ctx.not_nullable_records rc ~equal:phys_equal
-      then return true
+      then return false
       else (
         match var.var_typename with
         | Nullable _ -> return true
@@ -610,30 +615,40 @@ module Interpret = struct
       interpret_expression ctx log_expr
       >>= fun eval_ctx ->
       (match eval_ctx.last_eval_expression with
-      | BooleanValue log_val when log_val -> interpret_statement ctx if_statement
+      | BooleanValue log_val when log_val -> interpret_statement eval_ctx if_statement
       | BooleanValue log_val when not log_val ->
         (match else_statement with
         | None -> return ctx
-        | Some stat -> interpret_statement ctx stat)
+        | Some stat -> interpret_statement eval_ctx stat)
       | _ -> fail ExpectedBooleanValue)
     | While (log_expr, while_statement) ->
       interpret_expression ctx log_expr
       >>= fun eval_ctx ->
       (match eval_ctx.last_eval_expression with
       | BooleanValue log_val when log_val ->
-        interpret_statement ctx while_statement >>= fun _ -> interpret_statement ctx stat
+        interpret_statement eval_ctx while_statement
+        >>= fun _ -> interpret_statement ctx stat
       | BooleanValue log_val when not log_val -> return eval_ctx
       | _ -> fail ExpectedBooleanValue)
 
   and interpret_expression ctx expr =
-    let eval_bin_args l r =
+    let nullable_checker flag ctx expr =
+      if flag
+      then
+        let* flag = check_expression_is_nullable ctx expr in
+        if flag then fail (ExpectedToBeNotNull expr) else return ""
+      else return ""
+    in
+    let eval_bin_args ?(not_null = true) l r =
+      let* _ = nullable_checker not_null ctx l in
       interpret_expression ctx l
       >>= fun l_ctx ->
-      interpret_expression ctx r
-      >>= fun r_ctx -> return (l_ctx.last_eval_expression, r_ctx.last_eval_expression)
+      let* _ = nullable_checker not_null l_ctx r in
+      interpret_expression l_ctx r >>= fun r_ctx -> return (l_ctx, r_ctx)
     in
-    let eval_un_arg x =
-      interpret_expression ctx x >>= fun x_ctx -> return x_ctx.last_eval_expression
+    let eval_un_arg ?(not_null = true) x =
+      let* _ = nullable_checker not_null ctx x in
+      interpret_expression ctx x >>= fun x_ctx -> return x_ctx
     in
     match expr with
     | Println print_expr ->
@@ -878,8 +893,15 @@ module Interpret = struct
     | This -> fail ThisExpressionError
     | VarIdentifier identifier ->
       let* rc, var = get_var_from_ctx ctx identifier in
+      let ctx_with_updated_not_null =
+        if (not (check_is_null !(var.value)))
+           && Option.is_none
+                (List.find ctx.not_nullable_records ~f:(fun r -> phys_equal r rc))
+        then { ctx with not_nullable_records = rc :: ctx.not_nullable_records }
+        else ctx
+      in
       return
-        { ctx with
+        { ctx_with_updated_not_null with
           last_eval_expression = !(var.value)
         ; last_derefered_variable = Some (rc, var)
         }
@@ -890,7 +912,7 @@ module Interpret = struct
       (match expr with
       | Dereference _ when nullable_flag ->
         (* TODO: сделать обработку данного случая *)
-        return ""
+        fail DereferenceError
       | _ -> return "")
       >>= fun _ ->
       (match obj_expression with
@@ -926,86 +948,97 @@ module Interpret = struct
       | _ -> fail ExpectedObjectToDereference)
     | Add (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | IntValue x, IntValue y ->
-        return { ctx with last_eval_expression = IntValue (x + y) }
+        return { r_ctx with last_eval_expression = IntValue (x + y) }
       | StringValue x, StringValue y ->
-        return { ctx with last_eval_expression = StringValue (x ^ y) }
+        return { r_ctx with last_eval_expression = StringValue (x ^ y) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | Mul (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | IntValue x, IntValue y ->
-        return { ctx with last_eval_expression = IntValue (x * y) }
+        return { r_ctx with last_eval_expression = IntValue (x * y) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | Sub (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | IntValue x, IntValue y ->
-        return { ctx with last_eval_expression = IntValue (x - y) }
+        return { r_ctx with last_eval_expression = IntValue (x - y) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | And (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | BooleanValue x, BooleanValue y ->
-        return { ctx with last_eval_expression = BooleanValue (x && y) }
+        return { r_ctx with last_eval_expression = BooleanValue (x && y) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | Or (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | BooleanValue x, BooleanValue y ->
-        return { ctx with last_eval_expression = BooleanValue (x || y) }
+        return { r_ctx with last_eval_expression = BooleanValue (x || y) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | Not x ->
       eval_un_arg x
-      >>= (function
-      | BooleanValue x -> return { ctx with last_eval_expression = BooleanValue (not x) }
+      >>= fun x_ctx ->
+      (match x_ctx.last_eval_expression with
+      | BooleanValue x ->
+        return { x_ctx with last_eval_expression = BooleanValue (not x) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | Equal (l, r) ->
-      eval_bin_args l r
-      >>= (function
+      eval_bin_args l r ?not_null:(Some false)
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | IntValue x, IntValue y ->
-        return { ctx with last_eval_expression = BooleanValue (x = y) }
+        return { r_ctx with last_eval_expression = BooleanValue (x = y) }
       | StringValue x, StringValue y ->
-        return { ctx with last_eval_expression = BooleanValue (String.equal x y) }
+        return { r_ctx with last_eval_expression = BooleanValue (String.equal x y) }
       | BooleanValue x, BooleanValue y ->
         return
-          { ctx with
+          { r_ctx with
             last_eval_expression = BooleanValue ((x && y) || ((not x) && not y))
           }
       | AnonymousFunction x, AnonymousFunction y ->
         return
-          { ctx with
+          { r_ctx with
             last_eval_expression = BooleanValue (x.identity_code = y.identity_code)
           }
       | Object x, Object y ->
         return
-          { ctx with
+          { r_ctx with
             last_eval_expression = BooleanValue (x.identity_code = y.identity_code)
           }
       | NullValue, NullValue
       | NullValue, Unitialized _
       | Unitialized _, NullValue
       | Unitialized _, Unitialized _ ->
-        return { ctx with last_eval_expression = BooleanValue true }
+        return { r_ctx with last_eval_expression = BooleanValue true }
       | NullValue, _ | _, NullValue ->
-        return { ctx with last_eval_expression = BooleanValue false }
-      | _ -> return { ctx with last_eval_expression = BooleanValue false })
+        return { r_ctx with last_eval_expression = BooleanValue false }
+      | _ -> return { r_ctx with last_eval_expression = BooleanValue false })
     | Less (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | IntValue x, IntValue y ->
         return { ctx with last_eval_expression = BooleanValue (x < y) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | Div (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | IntValue x, IntValue y ->
         return { ctx with last_eval_expression = IntValue (x / y) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | Mod (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | IntValue x, IntValue y ->
         return { ctx with last_eval_expression = IntValue (x % y) }
       | _ -> fail (UnsupportedOperandTypes expr))

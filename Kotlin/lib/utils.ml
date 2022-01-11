@@ -10,6 +10,7 @@ type error =
   | NullUnsafeAccessError
   | DereferenceError
   | NullableDereferenceError
+  | ExpectedToBeNotNull of expression
   | FunctionReturnTypeMismatch of string * typename * value
   | UnknownVariable of string
   | UnknownFunction of string

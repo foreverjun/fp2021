@@ -1020,3 +1020,165 @@ let%test _ =
   | Ok flag when Bool.equal flag true -> true
   | _ -> raise Test_failed
 ;;
+
+let%test _ =
+  let rc =
+    { name = "foo"
+    ; modifiers = []
+    ; clojure = ref []
+    ; enclosing_object = ref None
+    ; content =
+        Function
+          { identity_code = 1
+          ; fun_typename = Int
+          ; arguments = []
+          ; statement = Block [ Return (Const (IntValue 1)) ]
+          }
+    }
+  in
+  let ctx_with_function = { ctx_with_standard_classes with environment = [ rc ] } in
+  match check_expression_is_nullable ctx_with_function (FunctionCall ("foo", [])) with
+  | Ok flag when Bool.equal flag false -> true
+  | _ -> raise Test_failed
+;;
+
+let%test _ =
+  let rc =
+    { name = "foo"
+    ; modifiers = []
+    ; clojure = ref []
+    ; enclosing_object = ref None
+    ; content =
+        Function
+          { identity_code = 1
+          ; fun_typename = Nullable Int
+          ; arguments = []
+          ; statement = Block [ Return (Const (IntValue 1)) ]
+          }
+    }
+  in
+  let ctx_with_function = { ctx_with_standard_classes with environment = [ rc ] } in
+  match check_expression_is_nullable ctx_with_function (FunctionCall ("foo", [])) with
+  | Ok flag when Bool.equal flag true -> true
+  | _ -> raise Test_failed
+;;
+
+let%test _ =
+  let my_class =
+    { classname = "MyClass"
+    ; constructor_args = []
+    ; super_constructor = None
+    ; field_initializers =
+        [ { modifiers = []
+          ; var_modifier = Val
+          ; identifier = "field"
+          ; var_typename = Int
+          ; init_expression = Some (Const (IntValue 1))
+          }
+        ]
+    ; method_initializers = []
+    ; init_statements = []
+    }
+  in
+  let rc =
+    { name = "myclass_instance"
+    ; modifiers = []
+    ; clojure = ref []
+    ; enclosing_object = ref None
+    ; content =
+        Variable
+          { var_typename = ClassIdentifier "MyClass"
+          ; mutable_status = false
+          ; value =
+              ref
+                (Object
+                   { identity_code = 1
+                   ; super = None
+                   ; obj_class = my_class
+                   ; fields =
+                       [ { name = "foo"
+                         ; modifiers = []
+                         ; clojure = ref []
+                         ; enclosing_object = ref None
+                         ; content =
+                             Variable
+                               { var_typename = Int
+                               ; mutable_status = false
+                               ; value = ref (IntValue 1)
+                               }
+                         }
+                       ]
+                   ; methods = []
+                   })
+          }
+    }
+  in
+  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ] } in
+  match
+    check_expression_is_nullable
+      ctx_with_object
+      (Dereference (VarIdentifier "myclass_instance", VarIdentifier "field"))
+  with
+  | Ok flag when Bool.equal flag false -> true
+  | _ -> raise Test_failed
+;;
+
+let%test _ =
+  let my_class =
+    { classname = "MyClass"
+    ; constructor_args = []
+    ; super_constructor = None
+    ; field_initializers =
+        [ { modifiers = []
+          ; var_modifier = Val
+          ; identifier = "field"
+          ; var_typename = Nullable Int
+          ; init_expression = Some (Const (IntValue 1))
+          }
+        ]
+    ; method_initializers = []
+    ; init_statements = []
+    }
+  in
+  let rc =
+    { name = "myclass_instance"
+    ; modifiers = []
+    ; clojure = ref []
+    ; enclosing_object = ref None
+    ; content =
+        Variable
+          { var_typename = ClassIdentifier "MyClass"
+          ; mutable_status = false
+          ; value =
+              ref
+                (Object
+                   { identity_code = 1
+                   ; super = None
+                   ; obj_class = my_class
+                   ; fields =
+                       [ { name = "foo"
+                         ; modifiers = []
+                         ; clojure = ref []
+                         ; enclosing_object = ref None
+                         ; content =
+                             Variable
+                               { var_typename = Nullable Int
+                               ; mutable_status = false
+                               ; value = ref (IntValue 1)
+                               }
+                         }
+                       ]
+                   ; methods = []
+                   })
+          }
+    }
+  in
+  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ] } in
+  match
+    check_expression_is_nullable
+      ctx_with_object
+      (Dereference (VarIdentifier "myclass_instance", VarIdentifier "field"))
+  with
+  | Ok flag when Bool.equal flag true -> true
+  | _ -> raise Test_failed
+;;
