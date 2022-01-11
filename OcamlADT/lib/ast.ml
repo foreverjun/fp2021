@@ -21,11 +21,14 @@ and const =
   | CString of string  (**  "qwe" *)
 [@@deriving eq, show {with_path= false}]
 
-and case = pattern * expr  (** | _ :: [] -> 1 *)
+(** | _ :: [] -> 1 *)
+and case = pattern * expr
 
-and acase = id * pattern  (** | Number 3      *)
+(** | Number 3      *)
+and acase = id * pattern
 
-and aconstr = id * tyexpr  (** | Number of int *)
+(** | Number of int *)
+and aconstr = id * tyexpr
 
 and pattern =
   | PWild  (** _        *)
@@ -53,8 +56,7 @@ and expr =
   | EConstr of id * expr
 [@@deriving eq, show {with_path= false}]
 
-and binding = bool * pattern * expr  (** let rec x e in e' *)
-[@@deriving eq, show {with_path= false}]
+and binding = bool * pattern * expr [@@deriving eq, show {with_path= false}]
 
 and decl =
   | DLet of binding  (** let x = 1                                 *)
@@ -70,7 +72,7 @@ and tyexpr =
   | TArrow of tyexpr * tyexpr  (** string -> string *)
   | TAdt of id
 
-and adt = id * aconstr list
 (** type person = Age of int | Name of string *)
+and adt = id * aconstr list
 
 and program = decl list [@@deriving eq, show {with_path= false}]
