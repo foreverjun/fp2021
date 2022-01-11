@@ -100,11 +100,12 @@ end = struct
     | PNil, VList [] -> return []
     | PWild, _ -> return []
     | PVar name, v -> return [(name, v)]
-    | PConst (CInt c), VInt v -> if c = v then return [] else fail Match_exhaust
-    | PConst (CString c), VString v ->
-        if c = v then return [] else fail Match_exhaust
-    | PConst (CBool c), VBool v ->
-        if c = v then return [] else fail Match_exhaust
+    | PConst (CInt c), VInt v when c = v -> return []
+    | PConst (CInt _), VInt _ -> fail Match_exhaust
+    | PConst (CString c), VString v when c = v -> return []
+    | PConst (CString _), VString _ -> fail Match_exhaust
+    | PConst (CBool c), VBool v when c = v -> return []
+    | PConst (CBool _), VBool _ -> fail Match_exhaust
     | PCons (patt1, patt2), VList (hd :: tl) ->
         pattern_decl_bindings patt1 hd
         >>= fun hd_match ->
@@ -234,8 +235,7 @@ end = struct
   let run program =
     let* binds, _ =
       List.fold_left
-        (fun acc decl ->
-          match decl with
+        (fun acc -> function
           | DAdt _ -> acc
           | DLet binding ->
               let* binds, env = acc in
