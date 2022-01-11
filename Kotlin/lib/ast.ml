@@ -65,7 +65,6 @@ and function_t =
 
 and object_t =
   { identity_code : int
-  ; classname : string
   ; super : object_t option
   ; obj_class : class_t
   ; fields : record_t list
@@ -73,7 +72,8 @@ and object_t =
   }
 
 and class_t =
-  { constructor_args : (string * typename) list
+  { classname : string
+  ; constructor_args : (string * typename) list
   ; super_constructor : (class_t * expression) option
   ; field_initializers : var_initializer list
   ; method_initializers : fun_initializer list

@@ -53,7 +53,7 @@ module Interpret = struct
     | Nullable _, NullValue -> true
     | Unit, Unitialized _ -> true
     | (ClassIdentifier identifier | Nullable (ClassIdentifier identifier)), Object obj
-      when String.equal obj.classname identifier -> true
+      when String.equal obj.obj_class.classname identifier -> true
     | _, _ -> false
   ;;
 
@@ -68,6 +68,13 @@ module Interpret = struct
   let check_record_is_protected rc = check_record_contains_modifier rc Protected
   let check_record_is_open rc = check_record_contains_modifier rc Open
   let check_record_is_override rc = check_record_contains_modifier rc Override
+
+  let get_this_from_ctx ctx =
+    match ctx.scope with
+    | Method obj | ObjectInitialization { contents = obj } | AnonymousFunction (Some obj)
+      -> return obj
+    | _ -> fail ThisExpressionError
+  ;;
 
   let get_var_from_env env name =
     List.find_map env ~f:(fun r ->
@@ -242,7 +249,7 @@ module Interpret = struct
   let get_var_from_ctx ctx identifier =
     let get_var_from_dereference_helper obj this_flag =
       match get_field_from_object this_flag obj identifier with
-      | None -> fail (UnknownField (obj.classname, identifier))
+      | None -> fail (UnknownField (obj.obj_class.classname, identifier))
       | Some (rc, field_content) -> return (rc, field_content)
     in
     let get_var_from_environment_helper () =
@@ -271,7 +278,7 @@ module Interpret = struct
       match get_method_from_object this_flag obj identifier with
       | None ->
         (match get_field_from_object this_flag obj identifier with
-        | None -> fail (UnknownMethod (obj.classname, identifier))
+        | None -> fail (UnknownMethod (obj.obj_class.classname, identifier))
         | Some (rc, content) ->
           (match !(content.value) with
           | AnonymousFunction f -> return f
@@ -310,17 +317,100 @@ module Interpret = struct
     | _ -> get_function_from_environment_helper ()
   ;;
 
+  (* TODO: поменять ошибки DereferenceError на что нибудь более осмысленное *)
   let rec check_expression_is_nullable ctx =
     let check_dereference_nullable obj_expression der_expression =
       check_expression_is_nullable ctx obj_expression
       >>= function
       | true -> return true
       | _ ->
-        let rec check_dereference_nullable_helper der_expression = function
-          | ClassIdentifier identifier -> failwith "not implemented"
-          | _ -> return false
+        let get_class_or_primitive_typename_of_method cur_class identifier =
+          match
+            List.find cur_class.method_initializers ~f:(fun meth ->
+                if String.equal meth.identifier identifier then true else false)
+          with
+          | None -> fail (UnknownMethod (cur_class.classname, identifier))
+          | Some meth ->
+            (match meth.fun_typename with
+            | Nullable _ | Dynamic -> return `Nullable
+            | ClassIdentifier identifier ->
+              (match get_class_from_env ctx.environment identifier with
+              | None -> fail (UnknownClass identifier)
+              | Some (_, class_data) -> return (`Class class_data))
+            | other -> return (`Primitive other))
         in
-        failwith "not implemented"
+        let get_class_or_primitive_typename_of_field cur_class identifier =
+          match
+            List.find cur_class.field_initializers ~f:(fun field ->
+                if String.equal field.identifier identifier then true else false)
+          with
+          | None -> fail (UnknownField (cur_class.classname, identifier))
+          | Some field ->
+            (match field.var_typename with
+            | Nullable _ | Dynamic -> return `Nullable
+            | ClassIdentifier identifier ->
+              (match get_class_from_env ctx.environment identifier with
+              | None -> fail (UnknownClass identifier)
+              | Some (_, class_data) -> return (`Class class_data))
+            | other -> return (`Primitive other))
+        in
+        let rec check_dereference_nullable_helper cur_class = function
+          | VarIdentifier identifier ->
+            get_class_or_primitive_typename_of_field cur_class identifier
+            >>= (function
+            | `Nullable -> return true
+            | _ -> return false)
+          | FunctionCall (identifier, _) ->
+            get_class_or_primitive_typename_of_method cur_class identifier
+            >>= (function
+            | `Nullable -> return true
+            | _ -> return false)
+          | Dereference (VarIdentifier identifier, der_expression)
+          | ElvisDereference (VarIdentifier identifier, der_expression) ->
+            get_class_or_primitive_typename_of_field cur_class identifier
+            >>= (function
+            | `Nullable -> return true
+            | `Class class_data ->
+              check_dereference_nullable_helper class_data der_expression
+            | `Primitive _ ->
+              failwith "Not implemented. Expected field of non-primitive class type")
+          | Dereference (FunctionCall (identifier, _), der_expression)
+          | ElvisDereference (FunctionCall (identifier, _), der_expression) ->
+            get_class_or_primitive_typename_of_method cur_class identifier
+            >>= (function
+            | `Nullable -> return true
+            | `Class class_data ->
+              check_dereference_nullable_helper class_data der_expression
+            | `Primitive _ ->
+              failwith "Not implemented. Expected method of non-primitive class type")
+          | _ -> fail DereferenceError
+        in
+        (* На данный момент поддерживаются только Dereference(obj_expression, der_expression) такого вида, что obj_expression = VarIdentifier | FunctionCall | This, причем VarIdentifier | FunctionCall должны производить объект класса не примитивного типа *)
+        (match obj_expression with
+        | VarIdentifier identifier ->
+          let* _, var = get_var_from_ctx ctx identifier in
+          (match !(var.value) with
+          | Object obj -> check_dereference_nullable_helper obj.obj_class der_expression
+          | _ -> failwith "Not implemented. Expected variable of non-primitive class type")
+        | FunctionCall (identifier, _) ->
+          get_function_from_ctx ctx identifier
+          >>= (function
+          | `AnonymousFunction (_, func) | `Function (_, func) | `Method (_, _, func) ->
+            (match func.fun_typename with
+            | Nullable _ -> return true
+            | ClassIdentifier identifier ->
+              (match get_class_from_env ctx.environment identifier with
+              | None -> fail (UnknownClass identifier)
+              | Some (_, class_data) ->
+                check_dereference_nullable_helper class_data der_expression)
+            | _ ->
+              failwith "Not implemented. Expected function of non-primitive class type")
+          | `Class (_, class_data) ->
+            check_dereference_nullable_helper class_data der_expression)
+        | This ->
+          let* this = get_this_from_ctx ctx in
+          check_dereference_nullable_helper this.obj_class der_expression
+        | _ -> fail DereferenceError)
     in
     function
     | VarIdentifier identifier ->
@@ -425,7 +515,8 @@ module Interpret = struct
            ; enclosing_object = ref (get_enclosing_object ctx)
            ; content =
                Class
-                 { constructor_args
+                 { classname = name
+                 ; constructor_args
                  ; super_constructor
                  ; field_initializers
                  ; method_initializers
@@ -553,7 +644,8 @@ module Interpret = struct
       | StringValue v -> Stdio.print_endline v
       | BooleanValue v -> Stdio.print_endline (if v then "true" else "false")
       | NullValue | Unitialized _ -> Stdio.print_endline "null"
-      | Object obj -> Stdlib.Printf.printf "%s@%x\n" obj.classname obj.identity_code
+      | Object obj ->
+        Stdlib.Printf.printf "%s@%x\n" obj.obj_class.classname obj.identity_code
       | AnonymousFunction func ->
         let args_count = List.length func.arguments in
         let args_string =
@@ -655,7 +747,6 @@ module Interpret = struct
         let new_object =
           ref
             { identity_code = get_unique_identity_code ()
-            ; classname = rc.name
             ; super = None
             ; obj_class = class_data
             ; fields = []
@@ -804,12 +895,8 @@ module Interpret = struct
       >>= fun _ ->
       (match obj_expression with
       | This ->
-        (match ctx.scope with
-        | Method obj
-        | ObjectInitialization { contents = obj }
-        | AnonymousFunction (Some obj) ->
-          return ({ ctx with last_eval_expression = Object obj }, true)
-        | _ -> fail ThisExpressionError)
+        let* this = get_this_from_ctx ctx in
+        return ({ ctx with last_eval_expression = Object this }, true)
       | _ ->
         interpret_expression ctx obj_expression
         >>= fun obj_expr_eval_ctx -> return (obj_expr_eval_ctx, false))

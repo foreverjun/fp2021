@@ -760,7 +760,8 @@ let%test _ =
 let%test _ =
   let ctx =
     let obj_class =
-      { constructor_args = []
+      { classname = "Foo"
+      ; constructor_args = []
       ; super_constructor = None
       ; field_initializers = []
       ; method_initializers = []
@@ -772,22 +773,11 @@ let%test _ =
       (Equal
          ( Const
              (Object
-                { identity_code = 1
-                ; classname = "foo"
-                ; super = None
-                ; obj_class
-                ; fields = []
-                ; methods = []
-                })
+                { identity_code = 1; super = None; obj_class; fields = []; methods = [] })
          , Const
              (Object
-                { identity_code = 2
-                ; classname = "foo"
-                ; super = None
-                ; obj_class
-                ; fields = []
-                ; methods = []
-                }) ))
+                { identity_code = 2; super = None; obj_class; fields = []; methods = [] })
+         ))
   in
   match ctx with
   | Error _ -> raise Test_failed
@@ -935,10 +925,10 @@ let%test _ =
               ref
                 (Object
                    { identity_code = 1
-                   ; classname = "MyClass"
                    ; super = None
                    ; obj_class =
-                       { constructor_args = []
+                       { classname = "MyClass"
+                       ; constructor_args = []
                        ; super_constructor = None
                        ; field_initializers = []
                        ; method_initializers = []
@@ -992,4 +982,41 @@ let%test _ =
   match ctx with
   | Error _ -> raise Test_failed
   | Ok eval_ctx -> eval_ctx.last_eval_expression = NullValue
+;;
+
+(*nullable тест*)
+let%test _ =
+  let content =
+    { var_typename = Int; mutable_status = false; value = ref (IntValue 1) }
+  in
+  let rc =
+    { name = "foo"
+    ; modifiers = []
+    ; clojure = ref []
+    ; enclosing_object = ref None
+    ; content = Variable content
+    }
+  in
+  let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
+  match check_expression_is_nullable ctx_with_variable (VarIdentifier "foo") with
+  | Ok flag when Bool.equal flag false -> true
+  | _ -> raise Test_failed
+;;
+
+let%test _ =
+  let content =
+    { var_typename = Nullable Int; mutable_status = false; value = ref (IntValue 1) }
+  in
+  let rc =
+    { name = "foo"
+    ; modifiers = []
+    ; clojure = ref []
+    ; enclosing_object = ref None
+    ; content = Variable content
+    }
+  in
+  let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
+  match check_expression_is_nullable ctx_with_variable (VarIdentifier "foo") with
+  | Ok flag when Bool.equal flag true -> true
+  | _ -> raise Test_failed
 ;;
