@@ -74,9 +74,26 @@ and object_t =
 
 and class_t =
   { constructor_args : (string * typename) list
-  ; super_call : expression option
-        (** Выражение, содержащее содержащее вызов конструктора супер класса. Например, для class Foo(): Bar() будет super_call = FunctionCall ("Bar", []) *)
-  ; statements : statement list
+  ; super_constructor : (class_t * expression) option
+  ; field_initializers : var_initializer list
+  ; method_initializers : fun_initializer list
+  ; init_statements : statement list
+  }
+
+and var_initializer =
+  { modifiers : modifier list
+  ; var_modifier : variable_modifier
+  ; identifier : string
+  ; var_typename : typename
+  ; init_expression : expression option
+  }
+
+and fun_initializer =
+  { modifiers : modifier list
+  ; identifier : string
+  ; args : (string * typename) list
+  ; fun_typename : typename
+  ; fun_statement : statement
   }
 
 and expression =
@@ -111,15 +128,17 @@ and statement =
       (** if(expression) statement else statement, причем statement = Block*)
   | While of expression * statement
       (** while(expression) statement, причем statement = Block *)
-  | VarDeclaration of
-      modifier list * variable_modifier * string * typename * expression option
+  | VarDeclaration of var_initializer
       (** modifiers variable_modifier string: typename = expression. Например: open val foo: String = "string" *)
-  | FunDeclaration of
-      modifier list * string * (string * typename) list * typename * statement
+  | FunDeclaration of fun_initializer
       (** modifiers fun string((string * typename) list): typename statement. Например: private fun foo(bar: Int): Int \{ return bar \} *)
   | ClassDeclaration of
-      modifier list * string * (string * typename) list * expression option * statement
-      (** modifiers class string(string * typename list): expression option statement. Например: open class Foo(bar: Int): Baz(bar) \{ ... \} *)
+      modifier list
+      * string
+      * (string * typename) list
+      * (string * expression list) option
+      * statement list
+      (** modifiers class string(string * typename list): string(expression list) {statement list}. Например: open class Foo(bar: Int): Baz(bar) \{ ... \} *)
   | Block of statement list
       (** \{ statement list \} - набор выражений, окруженных фигурными скобками *)
   | InitializeBlock of statement list

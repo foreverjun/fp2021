@@ -375,7 +375,7 @@ end = struct
   and class_block_statement input =
     (skip_many (exactly ' ')
     >> braces (sep_by class_inner_statement (skip_many (exactly ' ') >> newline))
-    >>= fun expressions -> return (Block expressions))
+    >>= fun statements -> return statements)
       input
 
   and initialize_block_statement input =
@@ -411,49 +411,48 @@ end = struct
       >> parse_identifier
       >>= fun super_identifier ->
       parens (sep_by expression (token ","))
-      >>= fun args -> return (Some (FunctionCall (super_identifier, args))))
-    >>= fun super_class_constructor ->
+      >>= fun args -> return (Some (super_identifier, args)))
+    >>= fun super_constructor ->
     class_block_statement
     >>= fun class_statement ->
     return
       (ClassDeclaration
-         ( modifier_list
-         , identifier
-         , constructor_args
-         , super_class_constructor
-         , class_statement )))
+         (modifier_list, identifier, constructor_args, super_constructor, class_statement))
+    )
       input
 
   and var_declaration_statement input =
     (parse_modifiers
-    >>= fun modifier_list ->
+    >>= fun modifiers ->
     parse_variable_type_modifier
-    >>= fun type_modifier ->
+    >>= fun var_modifier ->
     parse_identifier
     >>= fun identifier ->
     token ":"
     >> parse_typename
-    >>= fun parsed_typename ->
+    >>= fun var_typename ->
     option
-      (VarDeclaration (modifier_list, type_modifier, identifier, parsed_typename, None))
+      (VarDeclaration
+         { modifiers; var_modifier; identifier; var_typename; init_expression = None })
       (token "="
       >> expression
-      >>= fun parsed_expression ->
+      >>= fun init_expression ->
       return
         (VarDeclaration
-           ( modifier_list
-           , type_modifier
-           , identifier
-           , parsed_typename
-           , Some parsed_expression ))))
+           { modifiers
+           ; var_modifier
+           ; identifier
+           ; var_typename
+           ; init_expression = Some init_expression
+           })))
       input
 
   and fun_declaration_statement input =
     (parse_modifiers
-    >>= fun modifier_list ->
+    >>= fun modifiers ->
     token "fun"
     >> parse_identifier
-    >>= fun fun_identifier ->
+    >>= fun identifier ->
     parens
       (sep_by
          (parse_identifier
@@ -467,9 +466,7 @@ end = struct
     >>= fun fun_typename ->
     block_statement
     >>= fun fun_statement ->
-    return
-      (FunDeclaration (modifier_list, fun_identifier, args, fun_typename, fun_statement))
-    )
+    return (FunDeclaration { modifiers; identifier; args; fun_typename; fun_statement }))
       input
 
   and assign_statement input =

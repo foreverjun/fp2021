@@ -194,7 +194,14 @@ let%test _ =
   apply_parser statement {| fun main(): Int { 
     return 0
   } |}
-  = Some (FunDeclaration ([], "main", [], Int, Block [ Return (Const (IntValue 0)) ]))
+  = Some
+      (FunDeclaration
+         { modifiers = []
+         ; identifier = "main"
+         ; args = []
+         ; fun_typename = Int
+         ; fun_statement = Block [ Return (Const (IntValue 0)) ]
+         })
 ;;
 
 let%test _ =
@@ -203,11 +210,12 @@ let%test _ =
   } |}
   = Some
       (FunDeclaration
-         ( []
-         , "func_with_args"
-         , [ "x", Int; "y", Int ]
-         , Int
-         , Block [ Return (Const (IntValue 0)) ] ))
+         { modifiers = []
+         ; identifier = "func_with_args"
+         ; args = [ "x", Int; "y", Int ]
+         ; fun_typename = Int
+         ; fun_statement = Block [ Return (Const (IntValue 0)) ]
+         })
 ;;
 
 let%test _ =
@@ -218,42 +226,50 @@ let%test _ =
   } |}
   = Some
       (FunDeclaration
-         ( [ Protected; Open ]
-         , "func_with_modifiers"
-         , []
-         , Int
-         , Block [ Return (Const (IntValue 0)) ] ))
+         { modifiers = [ Protected; Open ]
+         ; identifier = "func_with_modifiers"
+         ; args = []
+         ; fun_typename = Int
+         ; fun_statement = Block [ Return (Const (IntValue 0)) ]
+         })
 ;;
 
 let%test _ =
   apply_parser statement {| val foo: Int |}
-  = Some (VarDeclaration ([], Val, "foo", Int, None))
-;;
-
-let%test _ =
-  apply_parser statement {| var foo: Int |}
-  = Some (VarDeclaration ([], Var, "foo", Int, None))
+  = Some
+      (VarDeclaration
+         { modifiers = []
+         ; var_modifier = Val
+         ; identifier = "foo"
+         ; var_typename = Int
+         ; init_expression = None
+         })
 ;;
 
 let%test _ =
   apply_parser statement {| open val foo: Int = 1 |}
-  = Some (VarDeclaration ([ Open ], Val, "foo", Int, Some (Const (IntValue 1))))
+  = Some
+      (VarDeclaration
+         { modifiers = [ Open ]
+         ; var_modifier = Val
+         ; identifier = "foo"
+         ; var_typename = Int
+         ; init_expression = Some (Const (IntValue 1))
+         })
 ;;
 
 let%test _ =
   apply_parser statement {| class MyClass() { 
     
   } |}
-  = Some (ClassDeclaration ([], "MyClass", [], None, Block []))
+  = Some (ClassDeclaration ([], "MyClass", [], None, []))
 ;;
 
 let%test _ =
   apply_parser statement {| open class MyClassWithSuper(): Foo() { 
     
   } |}
-  = Some
-      (ClassDeclaration
-         ([ Open ], "MyClassWithSuper", [], Some (FunctionCall ("Foo", [])), Block []))
+  = Some (ClassDeclaration ([ Open ], "MyClassWithSuper", [], Some ("Foo", []), []))
 ;;
 
 let%test _ =
@@ -271,10 +287,21 @@ let%test _ =
          , "MyClassWithContent"
          , []
          , None
-         , Block
-             [ VarDeclaration ([], Var, "foo", Int, Some (Const (IntValue 1)))
-             ; FunDeclaration ([], "bar", [], Int, Block [ Return (Const (IntValue 0)) ])
-             ] ))
+         , [ VarDeclaration
+               { modifiers = []
+               ; var_modifier = Var
+               ; identifier = "foo"
+               ; var_typename = Int
+               ; init_expression = Some (Const (IntValue 1))
+               }
+           ; FunDeclaration
+               { modifiers = []
+               ; identifier = "bar"
+               ; args = []
+               ; fun_typename = Int
+               ; fun_statement = Block [ Return (Const (IntValue 0)) ]
+               }
+           ] ))
 ;;
 
 let%test _ =
@@ -732,7 +759,14 @@ let%test _ =
 
 let%test _ =
   let ctx =
-    let obj_class = { constructor_args = []; super_call = None; statements = [] } in
+    let obj_class =
+      { constructor_args = []
+      ; super_constructor = None
+      ; field_initializers = []
+      ; method_initializers = []
+      ; init_statements = []
+      }
+    in
     interpret_expression
       ctx_with_standard_classes
       (Equal
@@ -904,7 +938,12 @@ let%test _ =
                    ; classname = "MyClass"
                    ; super = None
                    ; obj_class =
-                       { constructor_args = []; super_call = None; statements = [] }
+                       { constructor_args = []
+                       ; super_constructor = None
+                       ; field_initializers = []
+                       ; method_initializers = []
+                       ; init_statements = []
+                       }
                    ; fields =
                        [ { name = "field"
                          ; modifiers = []
