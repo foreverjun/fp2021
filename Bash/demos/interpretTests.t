@@ -6,6 +6,26 @@ External script call
   hello from another script
   Interpretation finished with return code: 0
 
+Interruption with Ctrl-C while executing an external script:
+(1) An external script with an infinite loop is written into another_script.sh
+(2) demoInterrupt.exe starts the script with an another_script.sh call in a forked process
+and waits for any output on stderr (which will be available after the infinite loop is
+started)
+(3) Ctrl-C signal is sent to the script
+(4) The another_script.sh call finishes and the whole script resumes its execution 
+  $ cat <<-"EOF" > another_script.sh
+  > echo "[external script] starting an infinite loop..."
+  > while (( 1 )); do echo "stderr message to signal the start of the loop" 1>&2; done
+  > EOF
+  $ ./demoInterrupt.exe <<-"EOF"
+  > echo "[main script] about to call the external script"
+  > echo $( ./another_script.sh )
+  > echo "[main script] finishing"
+  [main script] about to call the external script
+  [external script] starting an infinite loop...
+  [main script] finishing
+  Interpretation finished with return code: 0
+
 Pipelines and redirections:
 (1) echo's output is redirected to the first cat's input
 (2) the first cat prints its input to testfile
