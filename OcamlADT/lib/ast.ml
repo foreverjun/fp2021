@@ -21,14 +21,11 @@ and const =
   | CString of string  (**  "qwe" *)
 [@@deriving eq, show {with_path= false}]
 
-(** | _ :: [] -> 1 *)
-and case = pattern * expr
+and case = pattern * expr  (** | _ :: [] -> 1 *)
 
-(** | Number 3      *)
-and acase = id * pattern
+and acase = id * pattern  (** | Number 3      *)
 
-(** | Number of int *)
-and aconstr = id * tyexpr
+and aconstr = id * tyexpr  (** | Number of int *)
 
 and pattern =
   | PWild  (** _        *)
@@ -56,12 +53,12 @@ and expr =
   | EConstr of id * expr
 [@@deriving eq, show {with_path= false}]
 
-and binding = bool * pattern * expr (** let rec x e in e' *)
+and binding = bool * pattern * expr  (** let rec x e in e' *)
 [@@deriving eq, show {with_path= false}]
 
 and decl =
-  | DLet of binding (** let x = 1                                 *)
-  | DAdt of adt (** type person = Age of int | Name of string *)
+  | DLet of binding  (** let x = 1                                 *)
+  | DAdt of adt  (** type person = Age of int | Name of string *)
 [@@deriving eq, show {with_path= false}]
 
 and tyexpr =
@@ -70,7 +67,7 @@ and tyexpr =
   | TString
   | TList of tyexpr
   | TTuple of tyexpr list
-  | TArrow of tyexpr * tyexpr (** string -> string *)
+  | TArrow of tyexpr * tyexpr  (** string -> string *)
   | TAdt of id
 
 and adt = id * aconstr list
