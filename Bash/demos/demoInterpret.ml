@@ -1,12 +1,15 @@
 open Bash_lib
 
+let interpret script =
+  let open Interpreter.Eval (Interpreter.Result) in
+  match ev_script empty_env script with
+  | Ok env -> Printf.printf "Interpretation finished with return code: %i" env.retcode
+  | Error e -> Printf.printf "Interpretation error: %s" e
+;;
+
 let () =
-  let open Format in
   let s = Stdio.In_channel.input_all stdin in
   match Parser.parse s with
-  | Ok script ->
-    (match Interpreter.interpret script with
-    | Ok n -> printf "Interpretation finished with return code: %i" n
-    | Error e -> printf "Interpretation error: %s" e)
-  | Error e -> printf "Parsing error: %s" e
+  | Ok script -> interpret script
+  | Error e -> Printf.printf "Parsing error: %s" e
 ;;

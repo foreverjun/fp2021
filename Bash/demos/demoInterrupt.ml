@@ -1,13 +1,14 @@
 open Bash_lib
 
+let interpret script =
+  let open Interpreter.Eval (Interpreter.Result) in
+  match ev_script empty_env script with
+  | Ok env -> Printf.printf "Interpretation finished with return code: %i" env.retcode
+  | Error e -> Printf.printf "Interpretation error: %s" e
+;;
+
 let () =
-  let open Format in
   let s = Stdio.In_channel.input_all stdin in
-  let run script =
-    match Interpreter.interpret script with
-    | Ok n -> printf "Interpretation finished with return code: %i" n
-    | Error e -> printf "Interpretation error: %s" e
-  in
   match Parser.parse s with
   | Ok script ->
     let open Unix in
@@ -17,7 +18,7 @@ let () =
     then (
       (* Redirect stderr to the parent process *)
       dup2 wr stderr;
-      run script;
+      interpret script;
       close wr)
     else (
       (* Wait for the child process to print anything to stderr *)
@@ -27,5 +28,5 @@ let () =
       kill pid Sys.sigint;
       let (_ : int * process_status) = waitpid [] pid in
       close rd)
-  | Error e -> printf "Parsing error: %s" e
+  | Error e -> Printf.printf "Parsing error: %s" e
 ;;

@@ -634,14 +634,6 @@ module Eval (M : MonadFail) = struct
   ;;
 end
 
-(** Interprets the given Bash script AST as a Bash script *)
-let interpret script =
-  let open Eval (Result) in
-  match ev_script empty_env script with
-  | Ok env -> Ok env.retcode
-  | Error e -> Error e
-;;
-
 (* ----------------------------------------------- *)
 (* -------------------- Tests -------------------- *)
 (* ----------------------------------------------- *)
