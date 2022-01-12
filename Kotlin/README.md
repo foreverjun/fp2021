@@ -17,10 +17,45 @@ Features done (append only):
 - ООП: классы, публичные\приватные\protected методы\поля
 - ООП: наследование от open классов
 - REPL
+- Flow-sensitive typing: проверка может ли значение быть null-ом
+    * Запрет делать присваивания null в типы, не подразумевающие хранения null
+    <pre>
+    Kotlin REPL
+    Type @help for getting further information
+    >> val x: Int = null;;
+    Kotlin REPL # (Utils.ExpectedToBeNotNull (Const NullValue))
+    </pre>
+    * Запрет использовать nullable типы в качестве их обычных аналогов
+    <pre>
+    Kotlin REPL
+    Type @help for getting further information
+    >> fun fact(n: Int): Int {
+    >>      if(n > 1) return n * fact(n - 1)
+    >>      else return 1
+    >> };;
+    Kotlin REPL # &lt;REPL empty answer&gt;
+    >> val nullableVariable: Int? = 1;;
+    Kotlin REPL # &lt;REPL empty answer&gt;
+    >> fact(nullableVariable);;
+    Kotlin REPL # (Utils.ExpectedToBeNotNull (VarIdentifier "nullableVariable"))
+    </pre>
+    * Можно проверить nullable переменную на null (внутри if), и если его там нет, использовать переменную nullable типа в качестве not-nullable
+    <pre>
+    Kotlin REPL
+    Type @help for getting further information
+    >> fun fact(n: Int): Int {
+    >>      if(n > 1) return n * fact(n - 1)
+    >>      else return 1
+    >> };;
+    Kotlin REPL # &lt;REPL empty answer&gt;
+    >> val notNullVariable: Int? = 1;;
+    Kotlin REPL # &lt;REPL empty answer&gt;
+    >> if(notNullVariable != null) println(fact(notNullVariable));;
+    1
+    </pre>
 
 Features in progress (and TODOs):
 
-- Flow-sensitive typing: проверка может ли значение быть null-ом
 - Строгая типизация анонимных функций
 - Upcasting объектов
 - Pretty-printer
