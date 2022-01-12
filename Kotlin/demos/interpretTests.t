@@ -26,3 +26,14 @@ Use `dune promote` after you change things that should runned
   $ ./demoFactorial.exe
   Factorial of number 5:
   120
+
+  $ ./demoFlowSensitiveTyping.exe
+  |-> test flow_sensitive_typing1
+  Test failed: (Utils.ExpectedToBeNotNull (VarIdentifier "nullVariable"))
+  |-> test flow_sensitive_typing2
+  value of notNullVariable
+  1
+  |-> test flow_sensitive_typing3
+  Test failed: (Utils.ExpectedToBeNotNull (VarIdentifier "nullVariable"))
+  |-> test flow_sensitive_typing4
+  120

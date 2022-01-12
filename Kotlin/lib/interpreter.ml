@@ -74,6 +74,11 @@ module Interpret = struct
     | _ -> false
   ;;
 
+  let check_typename_is_nullable = function
+    | Nullable _ -> true
+    | _ -> false
+  ;;
+
   let get_this_from_ctx ctx =
     match ctx.scope with
     | Method obj | ObjectInitialization { contents = obj } | AnonymousFunction (Some obj)
@@ -441,6 +446,13 @@ module Interpret = struct
     | _ -> return false
   ;;
 
+  let test_typename_expression_nullable_correspondance ctx typename expr =
+    let* expression_nullable_flag = check_expression_is_nullable ctx expr in
+    if (not (check_typename_is_nullable typename)) && expression_nullable_flag
+    then fail (ExpectedToBeNotNull expr)
+    else return ctx
+  ;;
+
   let rec interpret_statement ctx stat =
     match stat with
     | InitInClass statement_block -> interpret_statement ctx statement_block
@@ -561,6 +573,7 @@ module Interpret = struct
       (match init_expression with
       | None -> return (Unitialized None)
       | Some expr ->
+        let* _ = test_typename_expression_nullable_correspondance ctx var_typename expr in
         interpret_expression ctx expr
         >>= fun interpreted_ctx -> return interpreted_ctx.last_eval_expression)
       >>= fun value ->
@@ -587,6 +600,12 @@ module Interpret = struct
       (match identifier_ctx.last_derefered_variable with
       | None -> fail ExpectedVarIdentifer
       | Some (rc, var) ->
+        let* _ =
+          test_typename_expression_nullable_correspondance
+            ctx
+            var.var_typename
+            assign_expression
+        in
         interpret_expression ctx assign_expression
         >>= fun assign_value_ctx ->
         (match
@@ -696,7 +715,13 @@ module Interpret = struct
           ~init:(return define_ctx)
           ~f:(fun monadic_ctx (arg_name, arg_typename) arg_expr ->
             monadic_ctx
-            >>= fun monadic_ctx ->
+            >>= fun checked_ctx ->
+            let* _ =
+              test_typename_expression_nullable_correspondance
+                args_ctx
+                arg_typename
+                arg_expr
+            in
             interpret_expression args_ctx arg_expr
             >>= fun eval_expr_ctx ->
             if check_typename_value_correspondance
@@ -704,7 +729,7 @@ module Interpret = struct
             then (
               match
                 define_in_ctx
-                  monadic_ctx
+                  checked_ctx
                   { name = arg_name
                   ; modifiers = []
                   ; clojure = ref args_ctx.environment
@@ -890,7 +915,13 @@ module Interpret = struct
         let new_ctx = { ctx with environment = !(rc.clojure); scope = Method obj } in
         eval_function new_ctx meth)
     | Const x -> return { ctx with last_eval_expression = x }
-    | This -> fail ThisExpressionError
+    | This ->
+      (match ctx.scope with
+      | ObjectInitialization { contents = obj }
+      | Method obj
+      | AnonymousFunction (Some obj) ->
+        return { ctx with last_eval_expression = Object obj }
+      | _ -> fail ThisExpressionError)
     | VarIdentifier identifier ->
       let* rc, var = get_var_from_ctx ctx identifier in
       let ctx_with_updated_not_null =
