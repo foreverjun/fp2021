@@ -3,8 +3,14 @@ open Utils
 open Parser
 open Ast
 
+module InterpreterResult = struct
+  include Base.Result
+
+  let ( let* ) x f = x >>= f
+end
+
 module Interpret = struct
-  open Result
+  open InterpreterResult
 
   type scope_type =
     | Initialize
@@ -18,6 +24,7 @@ module Interpret = struct
 
   and context =
     { environment : record_t list
+    ; not_nullable_records : record_t list
     ; last_eval_expression : value
           (** Данная переменная используется для сохранения значения последленного исполненого Ast.expression (по умолчанию Unitialized) *)
     ; last_return_value : value
@@ -29,6 +36,7 @@ module Interpret = struct
 
   let empty_ctx =
     { environment = []
+    ; not_nullable_records = []
     ; last_eval_expression = Unitialized None
     ; last_return_value = Unitialized None
     ; last_derefered_variable = None
@@ -45,11 +53,11 @@ module Interpret = struct
     | Nullable _, NullValue -> true
     | Unit, Unitialized _ -> true
     | (ClassIdentifier identifier | Nullable (ClassIdentifier identifier)), Object obj
-      when String.equal obj.classname identifier -> true
+      when String.equal obj.obj_class.classname identifier -> true
     | _, _ -> false
   ;;
 
-  let check_record_contains_modifier rc modifier =
+  let check_record_contains_modifier (rc : record_t) modifier =
     Option.is_some
       (List.find rc.modifiers ~f:(function
           | found_modifier when Poly.( = ) found_modifier modifier -> true
@@ -60,6 +68,23 @@ module Interpret = struct
   let check_record_is_protected rc = check_record_contains_modifier rc Protected
   let check_record_is_open rc = check_record_contains_modifier rc Open
   let check_record_is_override rc = check_record_contains_modifier rc Override
+
+  let check_is_null = function
+    | NullValue | Unitialized _ -> true
+    | _ -> false
+  ;;
+
+  let check_typename_is_nullable = function
+    | Nullable _ -> true
+    | _ -> false
+  ;;
+
+  let get_this_from_ctx ctx =
+    match ctx.scope with
+    | Method obj | ObjectInitialization { contents = obj } | AnonymousFunction (Some obj)
+      -> return obj
+    | _ -> fail ThisExpressionError
+  ;;
 
   let get_var_from_env env name =
     List.find_map env ~f:(fun r ->
@@ -175,6 +200,7 @@ module Interpret = struct
       | None -> []
       | Some o -> func o @ iter_from_obj_to_super o.super func
     in
+    rc.clojure := rc :: !(rc.clojure);
     match rc.content with
     | Variable _ ->
       let defined_fields = iter_from_obj_to_super (Some obj) (fun o -> o.fields) in
@@ -233,23 +259,13 @@ module Interpret = struct
   let get_var_from_ctx ctx identifier =
     let get_var_from_dereference_helper obj this_flag =
       match get_field_from_object this_flag obj identifier with
-      | None -> fail (UnknownField (obj.classname, identifier))
-      | Some (rc, field_content) ->
-        return
-          { ctx with
-            last_eval_expression = !(field_content.value)
-          ; last_derefered_variable = Some (rc, field_content)
-          }
+      | None -> fail (UnknownField (obj.obj_class.classname, identifier))
+      | Some (rc, field_content) -> return (rc, field_content)
     in
     let get_var_from_environment_helper () =
       match get_var_from_env ctx.environment identifier with
       | None -> fail (UnknownVariable identifier)
-      | Some (rc, var) ->
-        return
-          { ctx with
-            last_eval_expression = !(var.value)
-          ; last_derefered_variable = Some (rc, var)
-          }
+      | Some (rc, var) -> return (rc, var)
     in
     match ctx.scope with
     | ObjectInitialization { contents = obj } | Method obj | AnonymousFunction (Some obj)
@@ -272,7 +288,7 @@ module Interpret = struct
       match get_method_from_object this_flag obj identifier with
       | None ->
         (match get_field_from_object this_flag obj identifier with
-        | None -> fail (UnknownMethod (obj.classname, identifier))
+        | None -> fail (UnknownMethod (obj.obj_class.classname, identifier))
         | Some (rc, content) ->
           (match !(content.value) with
           | AnonymousFunction f -> return f
@@ -311,6 +327,132 @@ module Interpret = struct
     | _ -> get_function_from_environment_helper ()
   ;;
 
+  (* TODO: поменять ошибки DereferenceError на что нибудь более осмысленное *)
+  let rec check_expression_is_nullable ctx =
+    let check_dereference_nullable obj_expression der_expression =
+      check_expression_is_nullable ctx obj_expression
+      >>= function
+      | true -> return true
+      | _ ->
+        let get_class_or_primitive_typename_of_method cur_class identifier =
+          match
+            List.find cur_class.method_initializers ~f:(fun meth ->
+                if String.equal meth.identifier identifier then true else false)
+          with
+          | None -> fail (UnknownMethod (cur_class.classname, identifier))
+          | Some meth ->
+            (match meth.fun_typename with
+            | Nullable _ | Dynamic -> return `Nullable
+            | ClassIdentifier identifier ->
+              (match get_class_from_env ctx.environment identifier with
+              | None -> fail (UnknownClass identifier)
+              | Some (_, class_data) -> return (`Class class_data))
+            | other -> return (`Primitive other))
+        in
+        let get_class_or_primitive_typename_of_field cur_class identifier =
+          match
+            List.find cur_class.field_initializers ~f:(fun field ->
+                if String.equal field.identifier identifier then true else false)
+          with
+          | None -> fail (UnknownField (cur_class.classname, identifier))
+          | Some field ->
+            (match field.var_typename with
+            | Nullable _ | Dynamic -> return `Nullable
+            | ClassIdentifier identifier ->
+              (match get_class_from_env ctx.environment identifier with
+              | None -> fail (UnknownClass identifier)
+              | Some (_, class_data) -> return (`Class class_data))
+            | other -> return (`Primitive other))
+        in
+        let rec check_dereference_nullable_helper cur_class = function
+          | VarIdentifier identifier ->
+            get_class_or_primitive_typename_of_field cur_class identifier
+            >>= (function
+            | `Nullable -> return true
+            | _ -> return false)
+          | FunctionCall (identifier, _) ->
+            get_class_or_primitive_typename_of_method cur_class identifier
+            >>= (function
+            | `Nullable -> return true
+            | _ -> return false)
+          | Dereference (VarIdentifier identifier, der_expression)
+          | ElvisDereference (VarIdentifier identifier, der_expression) ->
+            get_class_or_primitive_typename_of_field cur_class identifier
+            >>= (function
+            | `Nullable -> return true
+            | `Class class_data ->
+              check_dereference_nullable_helper class_data der_expression
+            | `Primitive _ ->
+              failwith "Not implemented. Expected field of non-primitive class type")
+          | Dereference (FunctionCall (identifier, _), der_expression)
+          | ElvisDereference (FunctionCall (identifier, _), der_expression) ->
+            get_class_or_primitive_typename_of_method cur_class identifier
+            >>= (function
+            | `Nullable -> return true
+            | `Class class_data ->
+              check_dereference_nullable_helper class_data der_expression
+            | `Primitive _ ->
+              failwith "Not implemented. Expected method of non-primitive class type")
+          | _ -> fail DereferenceError
+        in
+        (* На данный момент поддерживаются только Dereference(obj_expression, der_expression) такого вида, что obj_expression = VarIdentifier | FunctionCall | This, причем VarIdentifier | FunctionCall должны производить объект класса не примитивного типа *)
+        (match obj_expression with
+        | VarIdentifier identifier ->
+          let* _, var = get_var_from_ctx ctx identifier in
+          (match !(var.value) with
+          | Object obj -> check_dereference_nullable_helper obj.obj_class der_expression
+          | _ -> failwith "Not implemented. Expected variable of non-primitive class type")
+        | FunctionCall (identifier, _) ->
+          get_function_from_ctx ctx identifier
+          >>= (function
+          | `AnonymousFunction (_, func) | `Function (_, func) | `Method (_, _, func) ->
+            (match func.fun_typename with
+            | Nullable _ -> return true
+            | ClassIdentifier identifier ->
+              (match get_class_from_env ctx.environment identifier with
+              | None -> fail (UnknownClass identifier)
+              | Some (_, class_data) ->
+                check_dereference_nullable_helper class_data der_expression)
+            | _ ->
+              failwith "Not implemented. Expected function of non-primitive class type")
+          | `Class (_, class_data) ->
+            check_dereference_nullable_helper class_data der_expression)
+        | This ->
+          let* this = get_this_from_ctx ctx in
+          check_dereference_nullable_helper this.obj_class der_expression
+        | _ -> fail DereferenceError)
+    in
+    function
+    | VarIdentifier identifier ->
+      let* rc, var = get_var_from_ctx ctx identifier in
+      if List.mem ctx.not_nullable_records rc ~equal:phys_equal
+      then return false
+      else (
+        match var.var_typename with
+        | Nullable _ -> return true
+        | _ -> return false)
+    | FunctionCall (identifier, _) ->
+      get_function_from_ctx ctx identifier
+      >>= (function
+      | `AnonymousFunction (_, func) | `Function (_, func) | `Method (_, _, func) ->
+        (match func.fun_typename with
+        | Nullable _ -> return true
+        | _ -> return false)
+      | `Class _ -> return false)
+    | Dereference (obj_expression, der_expression)
+    | ElvisDereference (obj_expression, der_expression) ->
+      check_dereference_nullable obj_expression der_expression
+    | Const NullValue -> return true
+    | _ -> return false
+  ;;
+
+  let test_typename_expression_nullable_correspondance ctx typename expr =
+    let* expression_nullable_flag = check_expression_is_nullable ctx expr in
+    if (not (check_typename_is_nullable typename)) && expression_nullable_flag
+    then fail (ExpectedToBeNotNull expr)
+    else return ctx
+  ;;
+
   let rec interpret_statement ctx stat =
     match stat with
     | InitInClass statement_block -> interpret_statement ctx statement_block
@@ -346,16 +488,40 @@ module Interpret = struct
       >>= fun ret_ctx ->
       return { ctx with last_return_value = ret_ctx.last_eval_expression }
     | Expression expression -> interpret_expression ctx expression
-    | ClassDeclaration
-        (modifiers, name, constructor_args, super_call_option, class_statement) ->
-      (match class_statement with
-      | Block statements -> return statements
-      | _ -> fail ClassBodyExpected)
-      >>= fun statements ->
-      let super_call =
+    | ClassDeclaration (modifiers, name, constructor_args, super_call_option, statements)
+      ->
+      let* super_constructor =
         match super_call_option with
-        | None when not (String.equal name "Any") -> Some (FunctionCall ("Any", []))
-        | _ -> super_call_option
+        | None when not (String.equal name "Any") ->
+          (* Option.value_exn здесь не должен кидать исключений, так как предполагается, что класс Any обязательно должен быть объявлен *)
+          let _, any_class =
+            Option.value_exn (get_class_from_env ctx.environment "Any")
+          in
+          return (Some (any_class, FunctionCall ("Any", [])))
+        | Some (class_identifier, arg_expressions) ->
+          (match get_class_from_env ctx.environment class_identifier with
+          | None -> fail (UnknownClass class_identifier)
+          | Some (_, found_class) ->
+            return (Some (found_class, FunctionCall (class_identifier, arg_expressions))))
+        | _ -> return None
+      in
+      let field_initializers, method_initializers, init_statements =
+        List.fold_right
+          statements
+          ~f:(fun stat (field_initializers, method_initializers, init_statements) ->
+            match stat with
+            | VarDeclaration var_initializer ->
+              var_initializer :: field_initializers, method_initializers, init_statements
+            | FunDeclaration fun_initializer ->
+              field_initializers, fun_initializer :: method_initializers, init_statements
+            | InitInClass block ->
+              field_initializers, method_initializers, block :: init_statements
+            | _ ->
+              failwith
+                ("should not reach here. Parser must not parse with statement inside \
+                  class: "
+                ^ show_statement stat))
+          ~init:([], [], [])
       in
       (match
          define_in_ctx
@@ -364,16 +530,26 @@ module Interpret = struct
            ; modifiers
            ; clojure = ref ctx.environment
            ; enclosing_object = ref (get_enclosing_object ctx)
-           ; content = Class { constructor_args; super_call; statements }
+           ; content =
+               Class
+                 { classname = name
+                 ; constructor_args
+                 ; super_constructor
+                 ; field_initializers
+                 ; method_initializers
+                 ; init_statements
+                 }
            }
        with
       | None -> fail (Redeclaration name)
       | Some new_ctx -> return new_ctx)
-    | FunDeclaration (modifiers, name, arguments, fun_typename, fun_statement) ->
-      (match fun_statement with
-      | Block _ -> return fun_statement
-      | _ -> fail FunctionBodyExpected)
-      >>= fun statement ->
+    | FunDeclaration
+        { modifiers
+        ; identifier = name
+        ; args = arguments
+        ; fun_typename
+        ; fun_statement = statement
+        } ->
       (match
          define_in_ctx
            ctx
@@ -392,10 +568,12 @@ module Interpret = struct
        with
       | None -> fail (Redeclaration name)
       | Some new_ctx -> return new_ctx)
-    | VarDeclaration (modifiers, var_modifier, name, var_typename, init_expression) ->
+    | VarDeclaration
+        { modifiers; var_modifier; identifier = name; var_typename; init_expression } ->
       (match init_expression with
       | None -> return (Unitialized None)
       | Some expr ->
+        let* _ = test_typename_expression_nullable_correspondance ctx var_typename expr in
         interpret_expression ctx expr
         >>= fun interpreted_ctx -> return interpreted_ctx.last_eval_expression)
       >>= fun value ->
@@ -422,6 +600,12 @@ module Interpret = struct
       (match identifier_ctx.last_derefered_variable with
       | None -> fail ExpectedVarIdentifer
       | Some (rc, var) ->
+        let* _ =
+          test_typename_expression_nullable_correspondance
+            ctx
+            var.var_typename
+            assign_expression
+        in
         interpret_expression ctx assign_expression
         >>= fun assign_value_ctx ->
         let update_rc_and_return_assign_value_ctx () =
@@ -448,30 +632,40 @@ module Interpret = struct
       interpret_expression ctx log_expr
       >>= fun eval_ctx ->
       (match eval_ctx.last_eval_expression with
-      | BooleanValue log_val when log_val -> interpret_statement ctx if_statement
+      | BooleanValue log_val when log_val -> interpret_statement eval_ctx if_statement
       | BooleanValue log_val when not log_val ->
         (match else_statement with
         | None -> return ctx
-        | Some stat -> interpret_statement ctx stat)
+        | Some stat -> interpret_statement eval_ctx stat)
       | _ -> fail ExpectedBooleanValue)
     | While (log_expr, while_statement) ->
       interpret_expression ctx log_expr
       >>= fun eval_ctx ->
       (match eval_ctx.last_eval_expression with
       | BooleanValue log_val when log_val ->
-        interpret_statement ctx while_statement >>= fun _ -> interpret_statement ctx stat
+        interpret_statement eval_ctx while_statement
+        >>= fun _ -> interpret_statement ctx stat
       | BooleanValue log_val when not log_val -> return eval_ctx
       | _ -> fail ExpectedBooleanValue)
 
   and interpret_expression ctx expr =
-    let eval_bin_args l r =
+    let nullable_checker flag ctx expr =
+      if flag
+      then
+        let* flag = check_expression_is_nullable ctx expr in
+        if flag then fail (ExpectedToBeNotNull expr) else return ""
+      else return ""
+    in
+    let eval_bin_args ?(not_null = true) l r =
+      let* _ = nullable_checker not_null ctx l in
       interpret_expression ctx l
       >>= fun l_ctx ->
-      interpret_expression ctx r
-      >>= fun r_ctx -> return (l_ctx.last_eval_expression, r_ctx.last_eval_expression)
+      let* _ = nullable_checker not_null l_ctx r in
+      interpret_expression l_ctx r >>= fun r_ctx -> return (l_ctx, r_ctx)
     in
-    let eval_un_arg x =
-      interpret_expression ctx x >>= fun x_ctx -> return x_ctx.last_eval_expression
+    let eval_un_arg ?(not_null = true) x =
+      let* _ = nullable_checker not_null ctx x in
+      interpret_expression ctx x >>= fun x_ctx -> return x_ctx
     in
     match expr with
     | Println print_expr ->
@@ -482,7 +676,8 @@ module Interpret = struct
       | StringValue v -> Stdio.print_endline v
       | BooleanValue v -> Stdio.print_endline (if v then "true" else "false")
       | NullValue | Unitialized _ -> Stdio.print_endline "null"
-      | Object obj -> Stdlib.Printf.printf "%s@%x\n" obj.classname obj.identity_code
+      | Object obj ->
+        Stdlib.Printf.printf "%s@%x\n" obj.obj_class.classname obj.identity_code
       | AnonymousFunction func ->
         let args_count = List.length func.arguments in
         let args_string =
@@ -518,7 +713,13 @@ module Interpret = struct
           ~init:(return define_ctx)
           ~f:(fun monadic_ctx (arg_name, arg_typename) arg_expr ->
             monadic_ctx
-            >>= fun monadic_ctx ->
+            >>= fun checked_ctx ->
+            let* _ =
+              test_typename_expression_nullable_correspondance
+                args_ctx
+                arg_typename
+                arg_expr
+            in
             interpret_expression args_ctx arg_expr
             >>= fun eval_expr_ctx ->
             if check_typename_value_correspondance
@@ -526,7 +727,7 @@ module Interpret = struct
             then (
               match
                 define_in_ctx
-                  monadic_ctx
+                  checked_ctx
                   { name = arg_name
                   ; modifiers = []
                   ; clojure = ref args_ctx.environment
@@ -584,7 +785,6 @@ module Interpret = struct
         let new_object =
           ref
             { identity_code = get_unique_identity_code ()
-            ; classname = rc.name
             ; super = None
             ; obj_class = class_data
             ; fields = []
@@ -596,9 +796,9 @@ module Interpret = struct
         | Ok constructor_ctx ->
           constructor_ctx
           >>= fun class_ctx ->
-          (match class_data.super_call with
+          (match class_data.super_constructor with
           | None -> return class_ctx
-          | Some expr ->
+          | Some (_, expr) ->
             (match expr with
             | FunctionCall (identifier, _) ->
               (match get_class_from_env ctx.environment identifier with
@@ -619,72 +819,91 @@ module Interpret = struct
           return
             { evaluated_constructor_ctx with scope = ObjectInitialization new_object }
           >>= fun class_inner_ctx ->
+          let* class_with_fields_inner_ctx =
+            List.fold
+              class_data.field_initializers
+              ~init:(return class_inner_ctx)
+              ~f:(fun
+                   monadic_ctx
+                   { modifiers
+                   ; var_modifier
+                   ; identifier = name
+                   ; var_typename
+                   ; init_expression
+                   }
+                 ->
+                let* checked_ctx = monadic_ctx in
+                let* init_value =
+                  match init_expression with
+                  | None -> return (Unitialized (Some new_object))
+                  | Some expr ->
+                    let* eval_ctx = interpret_expression class_inner_ctx expr in
+                    return eval_ctx.last_eval_expression
+                in
+                match
+                  define_in_object
+                    !new_object
+                    { name
+                    ; modifiers
+                    ; clojure = ref ctx.environment
+                    ; enclosing_object = ref (get_enclosing_object ctx)
+                    ; content =
+                        Variable
+                          { var_typename
+                          ; mutable_status =
+                              (match var_modifier with
+                              | Var -> true
+                              | Val -> false)
+                          ; value = ref init_value
+                          }
+                    }
+                with
+                | None -> fail (Redeclaration name)
+                | Some updated_object ->
+                  new_object := updated_object;
+                  return checked_ctx)
+          in
+          let* class_with_methods_inner_ctx =
+            List.fold
+              class_data.method_initializers
+              ~init:(return class_with_fields_inner_ctx)
+              ~f:(fun
+                   monadic_ctx
+                   { modifiers
+                   ; identifier = name
+                   ; args = arguments
+                   ; fun_typename
+                   ; fun_statement = statement
+                   }
+                 ->
+                let* checked_ctx = monadic_ctx in
+                match
+                  define_in_object
+                    !new_object
+                    { name
+                    ; modifiers
+                    ; clojure = ref ctx.environment
+                    ; enclosing_object = ref (get_enclosing_object ctx)
+                    ; content =
+                        Function
+                          { identity_code = get_unique_identity_code ()
+                          ; fun_typename
+                          ; arguments
+                          ; statement
+                          }
+                    }
+                with
+                | None -> fail (Redeclaration name)
+                | Some updated_object ->
+                  new_object := updated_object;
+                  return checked_ctx)
+          in
           List.fold
-            class_data.statements
-            ~init:(return class_inner_ctx)
+            class_data.init_statements
+            ~init:(return class_with_methods_inner_ctx)
             ~f:(fun monadic_ctx stat ->
-              monadic_ctx
-              >>= fun checked_ctx ->
-              match stat with
-              | VarDeclaration
-                  (modifiers, var_modifier, name, var_typename, init_expression) ->
-                (match init_expression with
-                | None -> return (Unitialized (Some new_object))
-                | Some expr ->
-                  interpret_expression class_inner_ctx expr
-                  >>= fun interpreted_ctx -> return interpreted_ctx.last_eval_expression)
-                >>= fun value ->
-                (match
-                   define_in_object
-                     !new_object
-                     { name
-                     ; modifiers
-                     ; clojure = ref ctx.environment
-                     ; enclosing_object = ref (get_enclosing_object class_inner_ctx)
-                     ; content =
-                         Variable
-                           { var_typename
-                           ; mutable_status = Poly.( = ) var_modifier Var
-                           ; value = ref value
-                           }
-                     }
-                 with
-                | None -> fail (Redeclaration name)
-                | Some updated_obj ->
-                  new_object := updated_obj;
-                  return class_inner_ctx)
-              | FunDeclaration (modifiers, name, arguments, fun_typename, fun_statement)
-                ->
-                (match fun_statement with
-                | Block _ -> return fun_statement
-                | _ -> fail FunctionBodyExpected)
-                >>= fun statement ->
-                (match
-                   define_in_object
-                     !new_object
-                     { name
-                     ; modifiers
-                     ; clojure = ref ctx.environment
-                     ; enclosing_object = ref (get_enclosing_object class_inner_ctx)
-                     ; content =
-                         Function
-                           { identity_code = get_unique_identity_code ()
-                           ; fun_typename
-                           ; arguments
-                           ; statement
-                           }
-                     }
-                 with
-                | None -> fail (Redeclaration name)
-                | Some updated_obj ->
-                  new_object := updated_obj;
-                  return class_inner_ctx)
-              | InitInClass block -> interpret_statement checked_ctx block
-              | _ ->
-                failwith
-                  ("should not reach here. Parser must not parse with statement inside \
-                    class: "
-                  ^ show_statement stat))
+              let* checked_ctx = monadic_ctx in
+              interpret_statement checked_ctx stat)
           >>= fun _ -> return { ctx with last_eval_expression = Object !new_object }
         | _ -> fail FunctionArgumentsCountMismatch)
       | `Function (rc, func) ->
@@ -694,18 +913,41 @@ module Interpret = struct
         let new_ctx = { ctx with environment = !(rc.clojure); scope = Method obj } in
         eval_function new_ctx meth)
     | Const x -> return { ctx with last_eval_expression = x }
-    | This -> fail ThisExpressionError
-    | VarIdentifier identifier -> get_var_from_ctx ctx identifier
+    | This ->
+      (match ctx.scope with
+      | ObjectInitialization { contents = obj }
+      | Method obj
+      | AnonymousFunction (Some obj) ->
+        return { ctx with last_eval_expression = Object obj }
+      | _ -> fail ThisExpressionError)
+    | VarIdentifier identifier ->
+      let* rc, var = get_var_from_ctx ctx identifier in
+      let ctx_with_updated_not_null =
+        if (not (check_is_null !(var.value)))
+           && Option.is_none
+                (List.find ctx.not_nullable_records ~f:(fun r -> phys_equal r rc))
+        then { ctx with not_nullable_records = rc :: ctx.not_nullable_records }
+        else ctx
+      in
+      return
+        { ctx_with_updated_not_null with
+          last_eval_expression = !(var.value)
+        ; last_derefered_variable = Some (rc, var)
+        }
     | Dereference (obj_expression, der_expression)
     | ElvisDereference (obj_expression, der_expression) ->
+      check_expression_is_nullable ctx obj_expression
+      >>= fun nullable_flag ->
+      (match expr with
+      | Dereference _ when nullable_flag ->
+        (* TODO: сделать обработку данного случая *)
+        fail DereferenceError
+      | _ -> return "")
+      >>= fun _ ->
       (match obj_expression with
       | This ->
-        (match ctx.scope with
-        | Method obj
-        | ObjectInitialization { contents = obj }
-        | AnonymousFunction (Some obj) ->
-          return ({ ctx with last_eval_expression = Object obj }, true)
-        | _ -> fail ThisExpressionError)
+        let* this = get_this_from_ctx ctx in
+        return ({ ctx with last_eval_expression = Object this }, true)
       | _ ->
         interpret_expression ctx obj_expression
         >>= fun obj_expr_eval_ctx -> return (obj_expr_eval_ctx, false))
@@ -723,7 +965,7 @@ module Interpret = struct
         in
         let obj_ctx = { ctx with scope } in
         (match der_expression with
-        | VarIdentifier _ | FunctionCall _ | Dereference _ ->
+        | VarIdentifier _ | FunctionCall _ | Dereference _ | ElvisDereference _ ->
           interpret_expression obj_ctx der_expression
           >>= fun ctx_with_eval_dereference ->
           return { ctx_with_eval_dereference with scope = ctx.scope }
@@ -735,86 +977,97 @@ module Interpret = struct
       | _ -> fail ExpectedObjectToDereference)
     | Add (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | IntValue x, IntValue y ->
-        return { ctx with last_eval_expression = IntValue (x + y) }
+        return { r_ctx with last_eval_expression = IntValue (x + y) }
       | StringValue x, StringValue y ->
-        return { ctx with last_eval_expression = StringValue (x ^ y) }
+        return { r_ctx with last_eval_expression = StringValue (x ^ y) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | Mul (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | IntValue x, IntValue y ->
-        return { ctx with last_eval_expression = IntValue (x * y) }
+        return { r_ctx with last_eval_expression = IntValue (x * y) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | Sub (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | IntValue x, IntValue y ->
-        return { ctx with last_eval_expression = IntValue (x - y) }
+        return { r_ctx with last_eval_expression = IntValue (x - y) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | And (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | BooleanValue x, BooleanValue y ->
-        return { ctx with last_eval_expression = BooleanValue (x && y) }
+        return { r_ctx with last_eval_expression = BooleanValue (x && y) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | Or (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | BooleanValue x, BooleanValue y ->
-        return { ctx with last_eval_expression = BooleanValue (x || y) }
+        return { r_ctx with last_eval_expression = BooleanValue (x || y) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | Not x ->
       eval_un_arg x
-      >>= (function
-      | BooleanValue x -> return { ctx with last_eval_expression = BooleanValue (not x) }
+      >>= fun x_ctx ->
+      (match x_ctx.last_eval_expression with
+      | BooleanValue x ->
+        return { x_ctx with last_eval_expression = BooleanValue (not x) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | Equal (l, r) ->
-      eval_bin_args l r
-      >>= (function
+      eval_bin_args l r ?not_null:(Some false)
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | IntValue x, IntValue y ->
-        return { ctx with last_eval_expression = BooleanValue (x = y) }
+        return { r_ctx with last_eval_expression = BooleanValue (x = y) }
       | StringValue x, StringValue y ->
-        return { ctx with last_eval_expression = BooleanValue (String.equal x y) }
+        return { r_ctx with last_eval_expression = BooleanValue (String.equal x y) }
       | BooleanValue x, BooleanValue y ->
         return
-          { ctx with
+          { r_ctx with
             last_eval_expression = BooleanValue ((x && y) || ((not x) && not y))
           }
       | AnonymousFunction x, AnonymousFunction y ->
         return
-          { ctx with
+          { r_ctx with
             last_eval_expression = BooleanValue (x.identity_code = y.identity_code)
           }
       | Object x, Object y ->
         return
-          { ctx with
+          { r_ctx with
             last_eval_expression = BooleanValue (x.identity_code = y.identity_code)
           }
       | NullValue, NullValue
       | NullValue, Unitialized _
       | Unitialized _, NullValue
       | Unitialized _, Unitialized _ ->
-        return { ctx with last_eval_expression = BooleanValue true }
+        return { r_ctx with last_eval_expression = BooleanValue true }
       | NullValue, _ | _, NullValue ->
-        return { ctx with last_eval_expression = BooleanValue false }
-      | _ -> return { ctx with last_eval_expression = BooleanValue false })
+        return { r_ctx with last_eval_expression = BooleanValue false }
+      | _ -> return { r_ctx with last_eval_expression = BooleanValue false })
     | Less (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | IntValue x, IntValue y ->
         return { ctx with last_eval_expression = BooleanValue (x < y) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | Div (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | IntValue x, IntValue y ->
         return { ctx with last_eval_expression = IntValue (x / y) }
       | _ -> fail (UnsupportedOperandTypes expr))
     | Mod (l, r) ->
       eval_bin_args l r
-      >>= (function
+      >>= fun (l_ctx, r_ctx) ->
+      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
       | IntValue x, IntValue y ->
         return { ctx with last_eval_expression = IntValue (x % y) }
       | _ -> fail (UnsupportedOperandTypes expr))

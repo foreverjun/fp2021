@@ -16,5 +16,15 @@
  (public_name demoFactorial)
  (libraries Kotlin.Lib))
 
+(executable
+ (name demoFlowSensitiveTyping)
+ (modules demoFlowSensitiveTyping)
+ (public_name demoFlowSensitiveTyping)
+ (libraries Kotlin.Lib))
+
 (cram
- (deps ./demoBFS.exe ./demoIteratorMap.exe ./demoFactorial.exe))
+ (deps
+  ./demoBFS.exe
+  ./demoIteratorMap.exe
+  ./demoFactorial.exe
+  ./demoFlowSensitiveTyping.exe))

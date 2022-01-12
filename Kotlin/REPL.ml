@@ -70,10 +70,9 @@ let rec repl buffered_lines ctx =
           | Expression _ | Assign _ ->
             print_as_repl_answer (show_value eval_ctx.last_eval_expression);
             eval_ctx
-          | If _ | While _
-          | FunDeclaration (_, _, _, _, _)
+          | If _ | While _ | FunDeclaration _
           | ClassDeclaration (_, _, _, _, _)
-          | VarDeclaration (_, _, _, _, _) ->
+          | VarDeclaration _ ->
             print_as_repl_answer "<REPL empty answer>";
             eval_ctx))
     in

@@ -9,9 +9,12 @@ type error =
   | UnsupportedOperandTypes of expression
   | NullUnsafeAccessError
   | DereferenceError
+  | NullableDereferenceError
+  | ExpectedToBeNotNull of expression
   | FunctionReturnTypeMismatch of string * typename * value
   | UnknownVariable of string
   | UnknownFunction of string
+  | UnknownClass of string
   | Redeclaration of string
   | VariableTypeMismatch of string
   | VariableValueTypeMismatch of string * typename * value

@@ -194,7 +194,14 @@ let%test _ =
   apply_parser statement {| fun main(): Int { 
     return 0
   } |}
-  = Some (FunDeclaration ([], "main", [], Int, Block [ Return (Const (IntValue 0)) ]))
+  = Some
+      (FunDeclaration
+         { modifiers = []
+         ; identifier = "main"
+         ; args = []
+         ; fun_typename = Int
+         ; fun_statement = Block [ Return (Const (IntValue 0)) ]
+         })
 ;;
 
 let%test _ =
@@ -203,11 +210,12 @@ let%test _ =
   } |}
   = Some
       (FunDeclaration
-         ( []
-         , "func_with_args"
-         , [ "x", Int; "y", Int ]
-         , Int
-         , Block [ Return (Const (IntValue 0)) ] ))
+         { modifiers = []
+         ; identifier = "func_with_args"
+         ; args = [ "x", Int; "y", Int ]
+         ; fun_typename = Int
+         ; fun_statement = Block [ Return (Const (IntValue 0)) ]
+         })
 ;;
 
 let%test _ =
@@ -218,42 +226,50 @@ let%test _ =
   } |}
   = Some
       (FunDeclaration
-         ( [ Protected; Open ]
-         , "func_with_modifiers"
-         , []
-         , Int
-         , Block [ Return (Const (IntValue 0)) ] ))
+         { modifiers = [ Protected; Open ]
+         ; identifier = "func_with_modifiers"
+         ; args = []
+         ; fun_typename = Int
+         ; fun_statement = Block [ Return (Const (IntValue 0)) ]
+         })
 ;;
 
 let%test _ =
   apply_parser statement {| val foo: Int |}
-  = Some (VarDeclaration ([], Val, "foo", Int, None))
-;;
-
-let%test _ =
-  apply_parser statement {| var foo: Int |}
-  = Some (VarDeclaration ([], Var, "foo", Int, None))
+  = Some
+      (VarDeclaration
+         { modifiers = []
+         ; var_modifier = Val
+         ; identifier = "foo"
+         ; var_typename = Int
+         ; init_expression = None
+         })
 ;;
 
 let%test _ =
   apply_parser statement {| open val foo: Int = 1 |}
-  = Some (VarDeclaration ([ Open ], Val, "foo", Int, Some (Const (IntValue 1))))
+  = Some
+      (VarDeclaration
+         { modifiers = [ Open ]
+         ; var_modifier = Val
+         ; identifier = "foo"
+         ; var_typename = Int
+         ; init_expression = Some (Const (IntValue 1))
+         })
 ;;
 
 let%test _ =
   apply_parser statement {| class MyClass() { 
     
   } |}
-  = Some (ClassDeclaration ([], "MyClass", [], None, Block []))
+  = Some (ClassDeclaration ([], "MyClass", [], None, []))
 ;;
 
 let%test _ =
   apply_parser statement {| open class MyClassWithSuper(): Foo() { 
     
   } |}
-  = Some
-      (ClassDeclaration
-         ([ Open ], "MyClassWithSuper", [], Some (FunctionCall ("Foo", [])), Block []))
+  = Some (ClassDeclaration ([ Open ], "MyClassWithSuper", [], Some ("Foo", []), []))
 ;;
 
 let%test _ =
@@ -271,10 +287,21 @@ let%test _ =
          , "MyClassWithContent"
          , []
          , None
-         , Block
-             [ VarDeclaration ([], Var, "foo", Int, Some (Const (IntValue 1)))
-             ; FunDeclaration ([], "bar", [], Int, Block [ Return (Const (IntValue 0)) ])
-             ] ))
+         , [ VarDeclaration
+               { modifiers = []
+               ; var_modifier = Var
+               ; identifier = "foo"
+               ; var_typename = Int
+               ; init_expression = Some (Const (IntValue 1))
+               }
+           ; FunDeclaration
+               { modifiers = []
+               ; identifier = "bar"
+               ; args = []
+               ; fun_typename = Int
+               ; fun_statement = Block [ Return (Const (IntValue 0)) ]
+               }
+           ] ))
 ;;
 
 let%test _ =
@@ -321,378 +348,504 @@ open Utils
 open Interpreter
 open Interpreter.Interpret
 
-let test_with_predicate ~predicate = function
-  | Ok eval_ctx when predicate eval_ctx -> true
-  | _ -> raise Test_failed
-;;
-
-let test_unsupported_operand_types = function
-  | Error err ->
-    (match err with
-    | UnsupportedOperandTypes _ -> true
-    | _ -> raise Test_failed)
-  | _ -> raise Test_failed
-;;
-
-let test_unknown_variable identifier = function
-  | Error err ->
-    (match err with
-    | UnknownVariable var_identifier when String.equal identifier var_identifier -> true
-    | _ -> raise Test_failed)
-  | _ -> raise Test_failed
-;;
-
-let test_unknown_function identifier = function
-  | Error err ->
-    (match err with
-    | UnknownFunction fun_identifier when String.equal identifier fun_identifier -> true
-    | _ -> raise Test_failed)
-  | _ -> raise Test_failed
-;;
-
 let ctx_with_standard_classes =
   Base.Option.value_exn (Base.Result.ok (load_standard_classes empty_ctx))
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = IntValue 1)
-    (parse_and_run {| fun main(): Int { 
+  let ctx = parse_and_run {| fun main(): Int { 
     return 1
   } 
-  |})
+  |} in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = IntValue 3)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Add (Const (IntValue 1), Const (IntValue 2))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Add (Const (IntValue 1), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 3
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = StringValue "foobar")
-    (interpret_expression
-       ctx_with_standard_classes
-       (Add (Const (StringValue "foo"), Const (StringValue "bar"))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Add (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = StringValue "foobar"
 ;;
 
 let%test _ =
-  test_unsupported_operand_types
-    (interpret_expression
-       ctx_with_standard_classes
-       (Add (Const (BooleanValue false), Const (StringValue "bar"))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Add (Const (BooleanValue false), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = IntValue (-1))
-    (interpret_expression
-       ctx_with_standard_classes
-       (Sub (Const (IntValue 1), Const (IntValue 2))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Sub (Const (IntValue 1), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue (-1)
 ;;
 
 let%test _ =
-  test_unsupported_operand_types
-    (interpret_expression
-       ctx_with_standard_classes
-       (Sub (Const (StringValue "foo"), Const (StringValue "bar"))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Sub (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = IntValue 2)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Mul (Const (IntValue 1), Const (IntValue 2))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Mul (Const (IntValue 1), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 2
 ;;
 
 let%test _ =
-  test_unsupported_operand_types
-    (interpret_expression
-       ctx_with_standard_classes
-       (Mul (Const (StringValue "foo"), Const (StringValue "bar"))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Mul (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = IntValue 1)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Div (Const (IntValue 2), Const (IntValue 2))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Div (Const (IntValue 2), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = IntValue 1)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Div (Const (IntValue 3), Const (IntValue 2))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Div (Const (IntValue 3), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = IntValue 0)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Mod (Const (IntValue 2), Const (IntValue 2))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Mod (Const (IntValue 2), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 0
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = IntValue 1)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Mod (Const (IntValue 3), Const (IntValue 2))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Mod (Const (IntValue 3), Const (IntValue 2)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
-  test_unsupported_operand_types
-    (interpret_expression
-       ctx_with_standard_classes
-       (Div (Const (StringValue "foo"), Const (StringValue "bar"))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Div (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
 ;;
 
 let%test _ =
-  test_unsupported_operand_types
-    (interpret_expression
-       ctx_with_standard_classes
-       (Mod (Const (StringValue "foo"), Const (StringValue "bar"))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Mod (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false)
-    (interpret_expression
-       ctx_with_standard_classes
-       (And (Const (BooleanValue true), Const (BooleanValue false))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (And (Const (BooleanValue true), Const (BooleanValue false)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false)
-    (interpret_expression
-       ctx_with_standard_classes
-       (And (Const (BooleanValue false), Const (BooleanValue false))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (And (Const (BooleanValue false), Const (BooleanValue false)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true)
-    (interpret_expression
-       ctx_with_standard_classes
-       (And (Const (BooleanValue true), Const (BooleanValue true))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (And (Const (BooleanValue true), Const (BooleanValue true)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
-  test_unsupported_operand_types
-    (interpret_expression
-       ctx_with_standard_classes
-       (And (Const (StringValue "foo"), Const (StringValue "bar"))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (And (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Or (Const (BooleanValue true), Const (BooleanValue false))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Or (Const (BooleanValue true), Const (BooleanValue false)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Or (Const (BooleanValue false), Const (BooleanValue false))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Or (Const (BooleanValue false), Const (BooleanValue false)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Or (Const (BooleanValue true), Const (BooleanValue true))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Or (Const (BooleanValue true), Const (BooleanValue true)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
-  test_unsupported_operand_types
-    (interpret_expression
-       ctx_with_standard_classes
-       (Or (Const (StringValue "foo"), Const (StringValue "bar"))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Or (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true)
-    (interpret_expression ctx_with_standard_classes (Not (Const (BooleanValue false))))
+  let ctx =
+    interpret_expression ctx_with_standard_classes (Not (Const (BooleanValue false)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false)
-    (interpret_expression ctx_with_standard_classes (Not (Const (BooleanValue true))))
+  let ctx =
+    interpret_expression ctx_with_standard_classes (Not (Const (BooleanValue true)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
-  test_unsupported_operand_types
-    (interpret_expression ctx_with_standard_classes (Not (Const (StringValue "foo"))))
+  let ctx =
+    interpret_expression ctx_with_standard_classes (Not (Const (StringValue "foo")))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Equal (Const (IntValue 1), Const (IntValue 1))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Equal (Const (IntValue 1), Const (IntValue 1)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Equal (Const (IntValue 42), Const (IntValue 1))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Equal (Const (IntValue 42), Const (IntValue 1)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Equal (Const (StringValue "foo"), Const (StringValue "foo"))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Equal (Const (StringValue "foo"), Const (StringValue "foo")))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Equal (Const (StringValue "foo"), Const (StringValue "bar"))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Equal (Const (StringValue "foo"), Const (StringValue "bar")))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Equal (Const (StringValue "foo"), Const (StringValue "foo"))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Equal (Const (StringValue "foo"), Const (StringValue "foo")))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Equal (Const (BooleanValue false), Const (BooleanValue true))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Equal (Const (BooleanValue false), Const (BooleanValue true)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Equal (Const (BooleanValue true), Const (BooleanValue true))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Equal (Const (BooleanValue true), Const (BooleanValue true)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Equal (Const NullValue, Const NullValue)))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Equal (Const NullValue, Const NullValue))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Equal
-          ( Const
-              (AnonymousFunction
-                 { identity_code = 1
-                 ; fun_typename = Int
-                 ; arguments = []
-                 ; statement = Block []
-                 })
-          , Const
-              (AnonymousFunction
-                 { identity_code = 2
-                 ; fun_typename = Int
-                 ; arguments = []
-                 ; statement = Block []
-                 }) )))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Equal
+         ( Const
+             (AnonymousFunction
+                { identity_code = 1
+                ; fun_typename = Int
+                ; arguments = []
+                ; statement = Block []
+                })
+         , Const
+             (AnonymousFunction
+                { identity_code = 2
+                ; fun_typename = Int
+                ; arguments = []
+                ; statement = Block []
+                }) ))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false)
-    (let obj_class = { constructor_args = []; super_call = None; statements = [] } in
-     interpret_expression
-       ctx_with_standard_classes
-       (Equal
-          ( Const
-              (Object
-                 { identity_code = 1
-                 ; classname = "foo"
-                 ; super = None
-                 ; obj_class
-                 ; fields = []
-                 ; methods = []
-                 })
-          , Const
-              (Object
-                 { identity_code = 2
-                 ; classname = "foo"
-                 ; super = None
-                 ; obj_class
-                 ; fields = []
-                 ; methods = []
-                 }) )))
+  let ctx =
+    let obj_class =
+      { classname = "Foo"
+      ; constructor_args = []
+      ; super_constructor = None
+      ; field_initializers = []
+      ; method_initializers = []
+      ; init_statements = []
+      }
+    in
+    interpret_expression
+      ctx_with_standard_classes
+      (Equal
+         ( Const
+             (Object
+                { identity_code = 1; super = None; obj_class; fields = []; methods = [] })
+         , Const
+             (Object
+                { identity_code = 2; super = None; obj_class; fields = []; methods = [] })
+         ))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Less (Const (IntValue 1), Const (IntValue 42))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Less (Const (IntValue 1), Const (IntValue 42)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false)
-    (interpret_expression
-       ctx_with_standard_classes
-       (Less (Const (IntValue 42), Const (IntValue 1))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Less (Const (IntValue 42), Const (IntValue 1)))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
 ;;
 
 let%test _ =
-  test_unsupported_operand_types
-    (interpret_expression
-       ctx_with_standard_classes
-       (Less (Const (BooleanValue false), Const (IntValue 1))))
+  let ctx =
+    interpret_expression
+      ctx_with_standard_classes
+      (Less (Const (BooleanValue false), Const (IntValue 1)))
+  in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnsupportedOperandTypes _ -> true
+    | _ -> false)
+  | Ok _ -> raise Test_failed
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = IntValue 1)
-    (interpret_expression ctx_with_standard_classes (Const (IntValue 1)))
+  let ctx = interpret_expression ctx_with_standard_classes (Const (IntValue 1)) in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = StringValue "foo")
-    (interpret_expression ctx_with_standard_classes (Const (StringValue "foo")))
+  let ctx = interpret_expression ctx_with_standard_classes (Const (IntValue 1)) in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = NullValue)
-    (interpret_expression ctx_with_standard_classes (Const NullValue))
+  let ctx = interpret_expression ctx_with_standard_classes (Const (StringValue "foo")) in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = StringValue "foo"
+;;
+
+let%test _ =
+  let ctx = interpret_expression ctx_with_standard_classes (Const NullValue) in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = NullValue
 ;;
 
 let%test _ =
@@ -708,17 +861,22 @@ let%test _ =
     }
   in
   let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
-  test_with_predicate
-    ~predicate:(fun eval_ctx ->
-      eval_ctx.last_eval_expression = IntValue 1
-      && eval_ctx.last_derefered_variable = Some (rc, content))
-    (interpret_expression ctx_with_variable (VarIdentifier "foo"))
+  let ctx = interpret_expression ctx_with_variable (VarIdentifier "foo") in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx ->
+    eval_ctx.last_eval_expression = IntValue 1
+    && eval_ctx.last_derefered_variable = Some (rc, content)
 ;;
 
 let%test _ =
-  test_unknown_variable
-    "foo"
-    (interpret_expression ctx_with_standard_classes (VarIdentifier "foo"))
+  let ctx = interpret_expression ctx_with_standard_classes (VarIdentifier "foo") in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnknownVariable "foo" -> true
+    | _ -> raise Test_failed)
+  | Ok _ -> raise Test_failed
 ;;
 
 let%test _ =
@@ -737,15 +895,20 @@ let%test _ =
     }
   in
   let ctx_with_function = { ctx_with_standard_classes with environment = [ rc ] } in
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = IntValue 1)
-    (interpret_expression ctx_with_function (FunctionCall ("foo", [])))
+  let ctx = interpret_expression ctx_with_function (FunctionCall ("foo", [])) in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
-  test_unknown_function
-    "foo"
-    (interpret_expression ctx_with_standard_classes (FunctionCall ("foo", [])))
+  let ctx = interpret_expression ctx_with_standard_classes (FunctionCall ("foo", [])) in
+  match ctx with
+  | Error err ->
+    (match err with
+    | UnknownFunction "foo" -> true
+    | _ -> raise Test_failed)
+  | Ok _ -> raise Test_failed
 ;;
 
 let%test _ =
@@ -762,10 +925,15 @@ let%test _ =
               ref
                 (Object
                    { identity_code = 1
-                   ; classname = "MyClass"
                    ; super = None
                    ; obj_class =
-                       { constructor_args = []; super_call = None; statements = [] }
+                       { classname = "MyClass"
+                       ; constructor_args = []
+                       ; super_constructor = None
+                       ; field_initializers = []
+                       ; method_initializers = []
+                       ; init_statements = []
+                       }
                    ; fields =
                        [ { name = "field"
                          ; modifiers = []
@@ -785,11 +953,14 @@ let%test _ =
     }
   in
   let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ] } in
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = IntValue 1)
-    (interpret_expression
-       ctx_with_object
-       (Dereference (VarIdentifier "foo", VarIdentifier "field")))
+  let ctx =
+    interpret_expression
+      ctx_with_object
+      (Dereference (VarIdentifier "foo", VarIdentifier "field"))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
 ;;
 
 let%test _ =
@@ -803,9 +974,271 @@ let%test _ =
     }
   in
   let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ] } in
-  test_with_predicate
-    ~predicate:(fun eval_ctx -> eval_ctx.last_eval_expression = NullValue)
-    (interpret_expression
-       ctx_with_object
-       (ElvisDereference (VarIdentifier "foo", VarIdentifier "field")))
+  let ctx =
+    interpret_expression
+      ctx_with_object
+      (ElvisDereference (VarIdentifier "foo", VarIdentifier "field"))
+  in
+  match ctx with
+  | Error _ -> raise Test_failed
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = NullValue
+;;
+
+(*nullable тест*)
+let%test _ =
+  let content =
+    { var_typename = Int; mutable_status = false; value = ref (IntValue 1) }
+  in
+  let rc =
+    { name = "foo"
+    ; modifiers = []
+    ; clojure = ref []
+    ; enclosing_object = ref None
+    ; content = Variable content
+    }
+  in
+  let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
+  match check_expression_is_nullable ctx_with_variable (VarIdentifier "foo") with
+  | Ok flag when Bool.equal flag false -> true
+  | _ -> raise Test_failed
+;;
+
+let%test _ =
+  let content =
+    { var_typename = Nullable Int; mutable_status = false; value = ref (IntValue 1) }
+  in
+  let rc =
+    { name = "foo"
+    ; modifiers = []
+    ; clojure = ref []
+    ; enclosing_object = ref None
+    ; content = Variable content
+    }
+  in
+  let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
+  match check_expression_is_nullable ctx_with_variable (VarIdentifier "foo") with
+  | Ok flag when Bool.equal flag true -> true
+  | _ -> raise Test_failed
+;;
+
+let%test _ =
+  let rc =
+    { name = "foo"
+    ; modifiers = []
+    ; clojure = ref []
+    ; enclosing_object = ref None
+    ; content =
+        Function
+          { identity_code = 1
+          ; fun_typename = Int
+          ; arguments = []
+          ; statement = Block [ Return (Const (IntValue 1)) ]
+          }
+    }
+  in
+  let ctx_with_function = { ctx_with_standard_classes with environment = [ rc ] } in
+  match check_expression_is_nullable ctx_with_function (FunctionCall ("foo", [])) with
+  | Ok flag when Bool.equal flag false -> true
+  | _ -> raise Test_failed
+;;
+
+let%test _ =
+  let rc =
+    { name = "foo"
+    ; modifiers = []
+    ; clojure = ref []
+    ; enclosing_object = ref None
+    ; content =
+        Function
+          { identity_code = 1
+          ; fun_typename = Nullable Int
+          ; arguments = []
+          ; statement = Block [ Return (Const (IntValue 1)) ]
+          }
+    }
+  in
+  let ctx_with_function = { ctx_with_standard_classes with environment = [ rc ] } in
+  match check_expression_is_nullable ctx_with_function (FunctionCall ("foo", [])) with
+  | Ok flag when Bool.equal flag true -> true
+  | _ -> raise Test_failed
+;;
+
+let%test _ =
+  let my_class =
+    { classname = "MyClass"
+    ; constructor_args = []
+    ; super_constructor = None
+    ; field_initializers =
+        [ { modifiers = []
+          ; var_modifier = Val
+          ; identifier = "field"
+          ; var_typename = Int
+          ; init_expression = Some (Const (IntValue 1))
+          }
+        ]
+    ; method_initializers = []
+    ; init_statements = []
+    }
+  in
+  let rc =
+    { name = "myclass_instance"
+    ; modifiers = []
+    ; clojure = ref []
+    ; enclosing_object = ref None
+    ; content =
+        Variable
+          { var_typename = ClassIdentifier "MyClass"
+          ; mutable_status = false
+          ; value =
+              ref
+                (Object
+                   { identity_code = 1
+                   ; super = None
+                   ; obj_class = my_class
+                   ; fields =
+                       [ { name = "foo"
+                         ; modifiers = []
+                         ; clojure = ref []
+                         ; enclosing_object = ref None
+                         ; content =
+                             Variable
+                               { var_typename = Int
+                               ; mutable_status = false
+                               ; value = ref (IntValue 1)
+                               }
+                         }
+                       ]
+                   ; methods = []
+                   })
+          }
+    }
+  in
+  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ] } in
+  match
+    check_expression_is_nullable
+      ctx_with_object
+      (Dereference (VarIdentifier "myclass_instance", VarIdentifier "field"))
+  with
+  | Ok flag when Bool.equal flag false -> true
+  | _ -> raise Test_failed
+;;
+
+let%test _ =
+  let my_class =
+    { classname = "MyClass"
+    ; constructor_args = []
+    ; super_constructor = None
+    ; field_initializers =
+        [ { modifiers = []
+          ; var_modifier = Val
+          ; identifier = "field"
+          ; var_typename = Nullable Int
+          ; init_expression = Some (Const (IntValue 1))
+          }
+        ]
+    ; method_initializers = []
+    ; init_statements = []
+    }
+  in
+  let rc =
+    { name = "myclass_instance"
+    ; modifiers = []
+    ; clojure = ref []
+    ; enclosing_object = ref None
+    ; content =
+        Variable
+          { var_typename = ClassIdentifier "MyClass"
+          ; mutable_status = false
+          ; value =
+              ref
+                (Object
+                   { identity_code = 1
+                   ; super = None
+                   ; obj_class = my_class
+                   ; fields =
+                       [ { name = "foo"
+                         ; modifiers = []
+                         ; clojure = ref []
+                         ; enclosing_object = ref None
+                         ; content =
+                             Variable
+                               { var_typename = Nullable Int
+                               ; mutable_status = false
+                               ; value = ref (IntValue 1)
+                               }
+                         }
+                       ]
+                   ; methods = []
+                   })
+          }
+    }
+  in
+  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ] } in
+  match
+    check_expression_is_nullable
+      ctx_with_object
+      (Dereference (VarIdentifier "myclass_instance", VarIdentifier "field"))
+  with
+  | Ok flag when Bool.equal flag true -> true
+  | _ -> raise Test_failed
+;;
+
+let%test _ =
+  let my_class =
+    { classname = "MyClass"
+    ; constructor_args = []
+    ; super_constructor = None
+    ; field_initializers =
+        [ { modifiers = []
+          ; var_modifier = Val
+          ; identifier = "field"
+          ; var_typename = Nullable Int
+          ; init_expression = Some (Const (IntValue 1))
+          }
+        ]
+    ; method_initializers = []
+    ; init_statements = []
+    }
+  in
+  let rc =
+    { name = "myclass_instance"
+    ; modifiers = []
+    ; clojure = ref []
+    ; enclosing_object = ref None
+    ; content =
+        Variable
+          { var_typename = Nullable (ClassIdentifier "MyClass")
+          ; mutable_status = false
+          ; value =
+              ref
+                (Object
+                   { identity_code = 1
+                   ; super = None
+                   ; obj_class = my_class
+                   ; fields =
+                       [ { name = "foo"
+                         ; modifiers = []
+                         ; clojure = ref []
+                         ; enclosing_object = ref None
+                         ; content =
+                             Variable
+                               { var_typename = Int
+                               ; mutable_status = false
+                               ; value = ref (IntValue 1)
+                               }
+                         }
+                       ]
+                   ; methods = []
+                   })
+          }
+    }
+  in
+  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ] } in
+  match
+    check_expression_is_nullable
+      ctx_with_object
+      (Dereference (VarIdentifier "myclass_instance", VarIdentifier "field"))
+  with
+  | Ok flag when Bool.equal flag true -> true
+  | _ -> raise Test_failed
 ;;

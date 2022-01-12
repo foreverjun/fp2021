@@ -72,16 +72,6 @@ let rec parse_typename input =
     input
 ;;
 
-let parse_args =
-  sep_by
-    (parse_identifier
-    >>= fun parse_var_identifier ->
-    token ":"
-    >> parse_typename
-    >>= fun var_typename -> return (parse_var_identifier, var_typename))
-    (token ",")
-;;
-
 module rec Expression : sig
   val parse_var_identifier : char Opal.input -> (Ast.expression * char Opal.input) option
   val parse_int_value : char Opal.input -> (Ast.value * char Opal.input) option
@@ -246,8 +236,8 @@ end = struct
           ]))
       input
 
-  and or_expression input = (chainl1 and_expression or_op) input
-  and and_expression input = (chainl1 compare_expression and_op) input
+  and or_expression input = (chainr1 and_expression or_op) input
+  and and_expression input = (chainr1 compare_expression and_op) input
   and add_expression input = (chainl1 mul_expression (choice [ add_op; sub_op ])) input
 
   and mul_expression input =
@@ -301,7 +291,15 @@ end = struct
 
   and anonymous_function_expression input =
     (braces
-       (option [] parse_args
+       (option
+          []
+          (sep_by
+             (parse_identifier
+             >>= fun parse_var_identifier ->
+             token ":"
+             >> parse_typename
+             >>= fun var_typename -> return (parse_var_identifier, var_typename))
+             (token ","))
        >>= fun args ->
        (match args with
        | [] -> token ""
@@ -377,7 +375,7 @@ end = struct
   and class_block_statement input =
     (skip_many (exactly ' ')
     >> braces (sep_by class_inner_statement (skip_many (exactly ' ') >> newline))
-    >>= fun expressions -> return (Block expressions))
+    >>= fun statements -> return statements)
       input
 
   and initialize_block_statement input =
@@ -398,7 +396,14 @@ end = struct
     token "class"
     >> parse_identifier
     >>= fun identifier ->
-    parens parse_args
+    parens
+      (sep_by
+         (parse_identifier
+         >>= fun parse_var_identifier ->
+         token ":"
+         >> parse_typename
+         >>= fun var_typename -> return (parse_var_identifier, var_typename))
+         (token ","))
     >>= fun constructor_args ->
     option
       None
@@ -406,58 +411,62 @@ end = struct
       >> parse_identifier
       >>= fun super_identifier ->
       parens (sep_by expression (token ","))
-      >>= fun args -> return (Some (FunctionCall (super_identifier, args))))
-    >>= fun super_class_constructor ->
+      >>= fun args -> return (Some (super_identifier, args)))
+    >>= fun super_constructor ->
     class_block_statement
     >>= fun class_statement ->
     return
       (ClassDeclaration
-         ( modifier_list
-         , identifier
-         , constructor_args
-         , super_class_constructor
-         , class_statement )))
+         (modifier_list, identifier, constructor_args, super_constructor, class_statement))
+    )
       input
 
   and var_declaration_statement input =
     (parse_modifiers
-    >>= fun modifier_list ->
+    >>= fun modifiers ->
     parse_variable_type_modifier
-    >>= fun type_modifier ->
+    >>= fun var_modifier ->
     parse_identifier
     >>= fun identifier ->
     token ":"
     >> parse_typename
-    >>= fun parsed_typename ->
+    >>= fun var_typename ->
     option
-      (VarDeclaration (modifier_list, type_modifier, identifier, parsed_typename, None))
+      (VarDeclaration
+         { modifiers; var_modifier; identifier; var_typename; init_expression = None })
       (token "="
       >> expression
-      >>= fun parsed_expression ->
+      >>= fun init_expression ->
       return
         (VarDeclaration
-           ( modifier_list
-           , type_modifier
-           , identifier
-           , parsed_typename
-           , Some parsed_expression ))))
+           { modifiers
+           ; var_modifier
+           ; identifier
+           ; var_typename
+           ; init_expression = Some init_expression
+           })))
       input
 
   and fun_declaration_statement input =
     (parse_modifiers
-    >>= fun modifier_list ->
+    >>= fun modifiers ->
     token "fun"
     >> parse_identifier
-    >>= fun fun_identifier ->
-    parens parse_args
+    >>= fun identifier ->
+    parens
+      (sep_by
+         (parse_identifier
+         >>= fun parse_var_identifier ->
+         token ":"
+         >> parse_typename
+         >>= fun var_typename -> return (parse_var_identifier, var_typename))
+         (token ","))
     >>= fun args ->
     option Unit (token ":" >> parse_typename)
     >>= fun fun_typename ->
     block_statement
     >>= fun fun_statement ->
-    return
-      (FunDeclaration (modifier_list, fun_identifier, args, fun_typename, fun_statement))
-    )
+    return (FunDeclaration { modifiers; identifier; args; fun_typename; fun_statement }))
       input
 
   and assign_statement input =
