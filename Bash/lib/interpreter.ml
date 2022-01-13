@@ -193,7 +193,13 @@ module Eval (M : MonadFail) = struct
   (** Evaluate filename expansion *)
   let ev_filename_exp _ s =
     let cts dir =
-      let re = Re.Glob.glob s |> Re.whole_string |> Re.compile in
+      let re =
+        Re.(
+          Glob.(
+            try glob ~anchored:true s with
+            | Parse_error -> empty)
+          |> compile)
+      in
       let rd d = Array.to_list (Sys.readdir d) in
       (* Source: https://gist.github.com/lindig/be55f453026c65e761f4e7012f8ab9b5 *)
       let rec helper res = function
@@ -208,7 +214,11 @@ module Eval (M : MonadFail) = struct
       in
       helper [] (rd dir)
     in
-    cts (Sys.getcwd ()) |> List.sort String.compare |> return
+    cts (Sys.getcwd ())
+    |> List.sort String.compare
+    |> function
+    | _ :: _ as ss -> return ss
+    | [] -> return [ s ]
   ;;
 
   (** Evaluate word *)
@@ -603,7 +613,7 @@ module Eval (M : MonadFail) = struct
           >>= fun (env, ptrns) ->
           (match
              List.filter
-               (fun p -> Re.(execp (Glob.glob p |> whole_string |> compile) s))
+               (fun p -> Re.(execp (Glob.glob ~anchored:true p |> compile) s))
                ptrns
            with
           | [] -> helper env tl
