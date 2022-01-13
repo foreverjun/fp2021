@@ -8,6 +8,7 @@ module type MonadFail = sig
 
   val return : 'a -> 'a t
   val fail : string -> 'a t
+  val ( <|> ) : 'a t -> (unit -> 'a t) -> 'a t
 end
 
 (** Result as a monad-fail *)
@@ -17,6 +18,13 @@ module Result : MonadFail with type 'a t = ('a, string) result = struct
   let return = Result.ok
   let ( >>= ) = Result.bind
   let ( >>| ) f g = f >>= fun x -> return (g x)
+
+  let ( <|> ) f g =
+    match f with
+    | Ok _ -> f
+    | Error _ -> g ()
+  ;;
+
   let fail = Result.error
 end
 
@@ -97,7 +105,8 @@ end = struct
 
   let echo argv chs =
     match IMap.find_opt 1 chs, argv with
-    | Some stdout, _ :: args when try_wr stdout (String.concat " " args ^ "\n") -> 0
+    | Some stdout, _ :: args
+      when try_wr stdout (String.concat " " (List.filter (( <> ) "") args) ^ "\n") -> 0
     | Some _, _ :: _ ->
       print_err chs "echo: failed to write to stdout";
       1
@@ -451,28 +460,79 @@ module Eval (M : MonadFail) = struct
       | _, cmd :: tl -> return (cmd, cmd :: tl)
       | _, [] -> fail "Simple command expanded to nothing"
     in
-    let vars_to_strs vars =
-      SMap.fold
-        (fun k var acc ->
-          let v =
-            match var with
-            | IndArray vs ->
-              (match IMap.find_opt 0 vs with
-              | Some v -> v
-              | None -> "")
-            | AssocArray vs ->
-              (match SMap.find_opt "0" vs with
-              | Some v -> v
-              | None -> "")
-          in
-          String.concat "=" [ k; v ] :: acc)
-        vars
-        []
+    let named_args argv =
+      List.mapi (fun i e -> string_of_int i, IndArray (IMap.singleton 0 e)) argv
     in
-    let dot_to_cwd = function
-      | s when Filename.dirname s = "." ->
-        String.concat Filename.dir_sep [ Sys.getcwd (); Filename.basename s ]
-      | s -> s
+    let run_script env cmd argv =
+      let try_read =
+        let read_from s =
+          if Sys.file_exists s
+          then (
+            let ch = open_in s in
+            try Some (really_input_string ch (in_channel_length ch)) with
+            | End_of_file -> None)
+          else None
+        in
+        function
+        | s when Filename.dirname s = "." -> read_from (Filename.basename s)
+        | s when Filename.dirname s = "" -> read_from s
+        | _ -> None
+      in
+      match try_read cmd with
+      | Some s ->
+        (match Parser.parse_result s with
+        | Ok script ->
+          ev_script { env with vars = SMap.add_list (named_args argv) env.vars } script
+          >>| fun { retcode } -> exit retcode
+        | Error e -> fail (Printf.sprintf "%s: syntax error %s" cmd e))
+      | None -> fail "Script file not found"
+    in
+    let run_exec env cmd argv =
+      let vars_to_strs vars =
+        SMap.fold
+          (fun k var acc ->
+            let v =
+              match var with
+              | IndArray vs ->
+                (match IMap.find_opt 0 vs with
+                | Some v -> v
+                | None -> "")
+              | AssocArray vs ->
+                (match SMap.find_opt "0" vs with
+                | Some v -> v
+                | None -> "")
+            in
+            String.concat "=" [ k; v ] :: acc)
+          vars
+          []
+      in
+      let dot_to_cwd = function
+        | s when Filename.dirname s = "." ->
+          String.concat Filename.dir_sep [ Sys.getcwd (); Filename.basename s ]
+        | s -> s
+      in
+      let open Unix in
+      IMap.iter
+        (fun n fd ->
+          match n with
+          | 0 -> dup2 fd stdin
+          | 1 -> dup2 fd stdout
+          | 2 -> dup2 fd stderr
+          (* Custom file descriptors for external executables are not supported *)
+          | _ -> ())
+        env.chs;
+      try
+        execvpe
+          (dot_to_cwd cmd)
+          (Array.of_list argv)
+          (Array.of_list (vars_to_strs env.vars))
+      with
+      | Unix_error (ENOENT, _, _) ->
+        Builtins.print_err env.chs (Printf.sprintf "%s: command not found" cmd);
+        exit 127
+      | Unix_error (ENOEXEC, _, _) | Unix_error (EUNKNOWNERR 26, _, _) ->
+        Builtins.print_err env.chs (Printf.sprintf "%s: command not executable" cmd);
+        exit 126
     in
     function
     | Simple ((_ :: _ as assignts), [], _) ->
@@ -487,40 +547,16 @@ module Eval (M : MonadFail) = struct
       (match get_fun cmd env, Builtins.find cmd with
       | Some (b, rs), _ ->
         let n_env = merge_envs env n_env in
-        let named_args =
-          List.mapi (fun i e -> string_of_int i, IndArray (IMap.singleton 0 e)) argv
-        in
         ev_redirs n_env rs
         >>= fun n_env ->
-        ev_compound { n_env with vars = SMap.add_list named_args n_env.vars } b
+        ev_compound { n_env with vars = SMap.add_list (named_args argv) n_env.vars } b
         >>| fun { retcode } -> { env with retcode }
       | None, Some f -> return { env with retcode = f argv n_env.chs }
       | None, None ->
         let open Unix in
         let pid = fork () in
         if pid = 0
-        then (
-          IMap.iter
-            (fun n fd ->
-              match n with
-              | 0 -> dup2 fd stdin
-              | 1 -> dup2 fd stdout
-              | 2 -> dup2 fd stderr
-              (* Custom file descriptors for external executables are not supported *)
-              | _ -> ())
-            n_env.chs;
-          try
-            execvpe
-              (dot_to_cwd cmd)
-              (Array.of_list argv)
-              (Array.of_list (vars_to_strs n_env.vars))
-          with
-          | Unix_error (ENOENT, _, _) ->
-            Builtins.print_err n_env.chs (Printf.sprintf "%s: command not found" cmd);
-            exit 127
-          | Unix_error (ENOEXEC, _, _) | Unix_error (EUNKNOWNERR 26, _, _) ->
-            Builtins.print_err n_env.chs (Printf.sprintf "%s: command not executable" cmd);
-            exit 126)
+        then run_script n_env cmd argv <|> fun () -> run_exec n_env cmd argv
         else
           Fun.protect
             ~finally:(fun () -> Sys.catch_break false)

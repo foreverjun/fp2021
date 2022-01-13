@@ -4,6 +4,7 @@ module type MonadFail = sig
 
   val return : 'a -> 'a t
   val fail : string -> 'a t
+  val ( <|> ) : 'a t -> (unit -> 'a t) -> 'a t
 end
 
 (** Result as a monad-fail *)
