@@ -535,12 +535,15 @@ let func_p : func t =
 
 (* -------------------- Script -------------------- *)
 
+(** Comment (at the beginning of a line) parser *)
+let comment = char '#' *> take_while (( <> ) '\n') <* char '\n'
+
 (** Script element parser *)
 let script_elem_p = func_p >>| (fun f -> Func f) <|> (pipe_list_p >>| fun ps -> Pipes ps)
 
 (** Bash script parser *)
 let script_p : script t =
-  let gap = many (blank1 <|> delim1) in
+  let gap = many (blank1 <|> delim1 <|> comment) in
   let gap1 = blank *> delim1 *> gap in
   gap *> sep_by gap1 script_elem_p <* gap
 ;;
@@ -1517,6 +1520,17 @@ meow_f () {
             ]
         , [] )
     ]
+;;
+
+let%test _ =
+  succ_script_p
+    {|
+#!/bin/sh
+echo meow
+# some comment
+#and another #one
+|}
+    [ Pipes (Pipe (false, Simple ([], [ Word "echo"; Word "meow" ], []), [])) ]
 ;;
 
 let%test _ =
