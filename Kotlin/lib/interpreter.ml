@@ -119,7 +119,6 @@ module Interpret = struct
       if not (List.mem var_names rc.name ~equal:String.equal)
       then (
         let new_environment = rc :: ctx.environment in
-        rc.clojure := rc :: !(rc.clojure);
         Some { ctx with environment = new_environment })
       else None
     | Function _ ->
@@ -132,7 +131,6 @@ module Interpret = struct
       if not (List.mem func_names rc.name ~equal:String.equal)
       then (
         let new_environment = rc :: ctx.environment in
-        rc.clojure := rc :: !(rc.clojure);
         Some { ctx with environment = new_environment })
       else None
     | Class _ ->
@@ -145,7 +143,6 @@ module Interpret = struct
       if not (List.mem cls_names rc.name ~equal:String.equal)
       then (
         let new_environment = rc :: ctx.environment in
-        rc.clojure := rc :: !(rc.clojure);
         Some { ctx with environment = new_environment })
       else None
   ;;
@@ -200,7 +197,6 @@ module Interpret = struct
       | None -> []
       | Some o -> func o @ iter_from_obj_to_super o.super func
     in
-    rc.clojure := rc :: !(rc.clojure);
     match rc.content with
     | Variable _ ->
       let defined_fields = iter_from_obj_to_super (Some obj) (fun o -> o.fields) in
@@ -490,6 +486,14 @@ module Interpret = struct
     | Expression expression -> interpret_expression ctx expression
     | ClassDeclaration (modifiers, name, constructor_args, super_call_option, statements)
       ->
+      let* _ =
+        match ctx.scope with
+        | Initialize -> return ""
+        | _ ->
+          failwith
+            "Not implemented. Definition of classes in functions or other classes is \
+             unsupported"
+      in
       let* super_constructor =
         match super_call_option with
         | None when not (String.equal name "Any") ->
@@ -523,24 +527,17 @@ module Interpret = struct
                 ^ show_statement stat))
           ~init:([], [], [])
       in
-      (match
-         define_in_ctx
-           ctx
-           { name
-           ; modifiers
-           ; clojure = ref ctx.environment
-           ; enclosing_object = ref (get_enclosing_object ctx)
-           ; content =
-               Class
-                 { classname = name
-                 ; constructor_args
-                 ; super_constructor
-                 ; field_initializers
-                 ; method_initializers
-                 ; init_statements
-                 }
-           }
-       with
+      let rec class_content =
+        { classname = name
+        ; constructor_args
+        ; clojure = rc :: ctx.environment
+        ; super_constructor
+        ; field_initializers
+        ; method_initializers
+        ; init_statements
+        }
+      and rc = { name; modifiers; content = Class class_content } in
+      (match define_in_ctx ctx rc with
       | None -> fail (Redeclaration name)
       | Some new_ctx -> return new_ctx)
     | FunDeclaration
@@ -550,22 +547,16 @@ module Interpret = struct
         ; fun_typename
         ; fun_statement = statement
         } ->
-      (match
-         define_in_ctx
-           ctx
-           { name
-           ; modifiers
-           ; clojure = ref ctx.environment
-           ; enclosing_object = ref (get_enclosing_object ctx)
-           ; content =
-               Function
-                 { identity_code = get_unique_identity_code ()
-                 ; fun_typename
-                 ; arguments
-                 ; statement
-                 }
-           }
-       with
+      let rec function_content =
+        { identity_code = get_unique_identity_code ()
+        ; fun_typename
+        ; clojure = rc :: ctx.environment
+        ; enclosing_object = get_enclosing_object ctx
+        ; arguments
+        ; statement
+        }
+      and rc = { name; modifiers; content = Function function_content } in
+      (match define_in_ctx ctx rc with
       | None -> fail (Redeclaration name)
       | Some new_ctx -> return new_ctx)
     | VarDeclaration
@@ -582,8 +573,6 @@ module Interpret = struct
            ctx
            { name
            ; modifiers
-           ; clojure = ref ctx.environment
-           ; enclosing_object = ref (get_enclosing_object ctx)
            ; content =
                Variable
                  { var_typename
@@ -609,8 +598,6 @@ module Interpret = struct
         interpret_expression ctx assign_expression
         >>= fun assign_value_ctx ->
         let update_rc_and_return_assign_value_ctx () =
-          rc.clojure := identifier_ctx.environment;
-          rc.enclosing_object := get_enclosing_object ctx;
           var.value := assign_value_ctx.last_eval_expression;
           return assign_value_ctx
         in
@@ -693,6 +680,8 @@ module Interpret = struct
     | AnonymousFunctionDeclaration (arguments, statement) ->
       let func =
         { identity_code = get_unique_identity_code ()
+        ; clojure = ctx.environment
+        ; enclosing_object = get_enclosing_object ctx
         ; fun_typename = Dynamic
         ; arguments
         ; statement
@@ -730,8 +719,6 @@ module Interpret = struct
                   checked_ctx
                   { name = arg_name
                   ; modifiers = []
-                  ; clojure = ref args_ctx.environment
-                  ; enclosing_object = ref (get_enclosing_object args_ctx)
                   ; content =
                       Variable
                         { var_typename = arg_typename
@@ -776,11 +763,12 @@ module Interpret = struct
       | `AnonymousFunction (rc, func) ->
         let new_ctx =
           { ctx with
-            environment = !(rc.clojure)
-          ; scope = AnonymousFunction !(rc.enclosing_object)
+            environment = func.clojure
+          ; scope = AnonymousFunction func.enclosing_object
           }
         in
-        eval_function new_ctx func
+        let* eval_ctx = eval_function new_ctx func in
+        return { ctx with last_eval_expression = eval_ctx.last_eval_expression }
       | `Class (rc, class_data) ->
         let new_object =
           ref
@@ -791,7 +779,7 @@ module Interpret = struct
             ; methods = []
             }
         in
-        let new_ctx = { ctx with environment = !(rc.clojure); scope = Function } in
+        let new_ctx = { ctx with environment = class_data.clojure; scope = Function } in
         (match define_args new_ctx class_data.constructor_args arg_expressions with
         | Ok constructor_ctx ->
           constructor_ctx
@@ -845,8 +833,6 @@ module Interpret = struct
                     !new_object
                     { name
                     ; modifiers
-                    ; clojure = ref ctx.environment
-                    ; enclosing_object = ref (get_enclosing_object ctx)
                     ; content =
                         Variable
                           { var_typename
@@ -877,22 +863,16 @@ module Interpret = struct
                    }
                  ->
                 let* checked_ctx = monadic_ctx in
-                match
-                  define_in_object
-                    !new_object
-                    { name
-                    ; modifiers
-                    ; clojure = ref ctx.environment
-                    ; enclosing_object = ref (get_enclosing_object ctx)
-                    ; content =
-                        Function
-                          { identity_code = get_unique_identity_code ()
-                          ; fun_typename
-                          ; arguments
-                          ; statement
-                          }
-                    }
-                with
+                let rec function_content =
+                  { identity_code = get_unique_identity_code ()
+                  ; fun_typename
+                  ; clojure = rc :: ctx.environment
+                  ; enclosing_object = get_enclosing_object ctx
+                  ; arguments
+                  ; statement
+                  }
+                and rc = { name; modifiers; content = Function function_content } in
+                match define_in_object !new_object rc with
                 | None -> fail (Redeclaration name)
                 | Some updated_object ->
                   new_object := updated_object;
@@ -907,11 +887,13 @@ module Interpret = struct
           >>= fun _ -> return { ctx with last_eval_expression = Object !new_object }
         | _ -> fail FunctionArgumentsCountMismatch)
       | `Function (rc, func) ->
-        let new_ctx = { ctx with environment = !(rc.clojure); scope = Function } in
-        eval_function new_ctx func
+        let new_ctx = { ctx with environment = func.clojure; scope = Function } in
+        let* eval_ctx = eval_function new_ctx func in
+        return { ctx with last_eval_expression = eval_ctx.last_eval_expression }
       | `Method (obj, rc, meth) ->
-        let new_ctx = { ctx with environment = !(rc.clojure); scope = Method obj } in
-        eval_function new_ctx meth)
+        let new_ctx = { ctx with environment = meth.clojure; scope = Method obj } in
+        let* eval_ctx = eval_function new_ctx meth in
+        return { ctx with last_eval_expression = eval_ctx.last_eval_expression })
     | Const x -> return { ctx with last_eval_expression = x }
     | This ->
       (match ctx.scope with

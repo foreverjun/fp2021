@@ -741,6 +741,8 @@ let%test _ =
              (AnonymousFunction
                 { identity_code = 1
                 ; fun_typename = Int
+                ; clojure = []
+                ; enclosing_object = None
                 ; arguments = []
                 ; statement = Block []
                 })
@@ -748,6 +750,8 @@ let%test _ =
              (AnonymousFunction
                 { identity_code = 2
                 ; fun_typename = Int
+                ; clojure = []
+                ; enclosing_object = None
                 ; arguments = []
                 ; statement = Block []
                 }) ))
@@ -761,6 +765,7 @@ let%test _ =
   let ctx =
     let obj_class =
       { classname = "Foo"
+      ; clojure = []
       ; constructor_args = []
       ; super_constructor = None
       ; field_initializers = []
@@ -852,14 +857,7 @@ let%test _ =
   let content =
     { var_typename = Int; mutable_status = false; value = ref (IntValue 1) }
   in
-  let rc =
-    { name = "foo"
-    ; modifiers = []
-    ; clojure = ref []
-    ; enclosing_object = ref None
-    ; content = Variable content
-    }
-  in
+  let rc = { name = "foo"; modifiers = []; content = Variable content } in
   let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
   let ctx = interpret_expression ctx_with_variable (VarIdentifier "foo") in
   match ctx with
@@ -883,12 +881,12 @@ let%test _ =
   let rc =
     { name = "foo"
     ; modifiers = []
-    ; clojure = ref []
-    ; enclosing_object = ref None
     ; content =
         Function
           { identity_code = 1
           ; fun_typename = Int
+          ; clojure = []
+          ; enclosing_object = None
           ; arguments = []
           ; statement = Block [ Return (Const (IntValue 1)) ]
           }
@@ -915,8 +913,6 @@ let%test _ =
   let rc =
     { name = "foo"
     ; modifiers = []
-    ; clojure = ref []
-    ; enclosing_object = ref None
     ; content =
         Variable
           { var_typename = ClassIdentifier "MyClass"
@@ -928,6 +924,7 @@ let%test _ =
                    ; super = None
                    ; obj_class =
                        { classname = "MyClass"
+                       ; clojure = []
                        ; constructor_args = []
                        ; super_constructor = None
                        ; field_initializers = []
@@ -937,8 +934,6 @@ let%test _ =
                    ; fields =
                        [ { name = "field"
                          ; modifiers = []
-                         ; clojure = ref []
-                         ; enclosing_object = ref None
                          ; content =
                              Variable
                                { var_typename = Int
@@ -967,8 +962,6 @@ let%test _ =
   let rc =
     { name = "foo"
     ; modifiers = []
-    ; clojure = ref []
-    ; enclosing_object = ref None
     ; content =
         Variable { var_typename = Int; mutable_status = false; value = ref NullValue }
     }
@@ -989,14 +982,7 @@ let%test _ =
   let content =
     { var_typename = Int; mutable_status = false; value = ref (IntValue 1) }
   in
-  let rc =
-    { name = "foo"
-    ; modifiers = []
-    ; clojure = ref []
-    ; enclosing_object = ref None
-    ; content = Variable content
-    }
-  in
+  let rc = { name = "foo"; modifiers = []; content = Variable content } in
   let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
   match check_expression_is_nullable ctx_with_variable (VarIdentifier "foo") with
   | Ok flag when Bool.equal flag false -> true
@@ -1007,14 +993,7 @@ let%test _ =
   let content =
     { var_typename = Nullable Int; mutable_status = false; value = ref (IntValue 1) }
   in
-  let rc =
-    { name = "foo"
-    ; modifiers = []
-    ; clojure = ref []
-    ; enclosing_object = ref None
-    ; content = Variable content
-    }
-  in
+  let rc = { name = "foo"; modifiers = []; content = Variable content } in
   let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
   match check_expression_is_nullable ctx_with_variable (VarIdentifier "foo") with
   | Ok flag when Bool.equal flag true -> true
@@ -1025,12 +1004,12 @@ let%test _ =
   let rc =
     { name = "foo"
     ; modifiers = []
-    ; clojure = ref []
-    ; enclosing_object = ref None
     ; content =
         Function
           { identity_code = 1
           ; fun_typename = Int
+          ; clojure = []
+          ; enclosing_object = None
           ; arguments = []
           ; statement = Block [ Return (Const (IntValue 1)) ]
           }
@@ -1046,12 +1025,12 @@ let%test _ =
   let rc =
     { name = "foo"
     ; modifiers = []
-    ; clojure = ref []
-    ; enclosing_object = ref None
     ; content =
         Function
           { identity_code = 1
           ; fun_typename = Nullable Int
+          ; clojure = []
+          ; enclosing_object = None
           ; arguments = []
           ; statement = Block [ Return (Const (IntValue 1)) ]
           }
@@ -1066,6 +1045,7 @@ let%test _ =
 let%test _ =
   let my_class =
     { classname = "MyClass"
+    ; clojure = []
     ; constructor_args = []
     ; super_constructor = None
     ; field_initializers =
@@ -1083,8 +1063,6 @@ let%test _ =
   let rc =
     { name = "myclass_instance"
     ; modifiers = []
-    ; clojure = ref []
-    ; enclosing_object = ref None
     ; content =
         Variable
           { var_typename = ClassIdentifier "MyClass"
@@ -1098,8 +1076,6 @@ let%test _ =
                    ; fields =
                        [ { name = "foo"
                          ; modifiers = []
-                         ; clojure = ref []
-                         ; enclosing_object = ref None
                          ; content =
                              Variable
                                { var_typename = Int
@@ -1126,6 +1102,7 @@ let%test _ =
 let%test _ =
   let my_class =
     { classname = "MyClass"
+    ; clojure = []
     ; constructor_args = []
     ; super_constructor = None
     ; field_initializers =
@@ -1143,8 +1120,6 @@ let%test _ =
   let rc =
     { name = "myclass_instance"
     ; modifiers = []
-    ; clojure = ref []
-    ; enclosing_object = ref None
     ; content =
         Variable
           { var_typename = ClassIdentifier "MyClass"
@@ -1158,8 +1133,6 @@ let%test _ =
                    ; fields =
                        [ { name = "foo"
                          ; modifiers = []
-                         ; clojure = ref []
-                         ; enclosing_object = ref None
                          ; content =
                              Variable
                                { var_typename = Nullable Int
@@ -1186,6 +1159,7 @@ let%test _ =
 let%test _ =
   let my_class =
     { classname = "MyClass"
+    ; clojure = []
     ; constructor_args = []
     ; super_constructor = None
     ; field_initializers =
@@ -1203,8 +1177,6 @@ let%test _ =
   let rc =
     { name = "myclass_instance"
     ; modifiers = []
-    ; clojure = ref []
-    ; enclosing_object = ref None
     ; content =
         Variable
           { var_typename = Nullable (ClassIdentifier "MyClass")
@@ -1218,8 +1190,6 @@ let%test _ =
                    ; fields =
                        [ { name = "foo"
                          ; modifiers = []
-                         ; clojure = ref []
-                         ; enclosing_object = ref None
                          ; content =
                              Variable
                                { var_typename = Int

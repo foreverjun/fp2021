@@ -45,8 +45,6 @@ and record_content =
 and record_t =
   { name : string
   ; modifiers : modifier list
-  ; clojure : (record_t list ref[@opaque])
-  ; enclosing_object : (object_t option ref[@opaque])
   ; content : record_content
   }
 
@@ -59,6 +57,8 @@ and variable_t =
 and function_t =
   { identity_code : int
   ; fun_typename : typename
+  ; clojure : (record_t list[@opaque])
+  ; enclosing_object : (object_t option[@opaque])
   ; arguments : (string * typename) list
   ; statement : statement
   }
@@ -74,6 +74,7 @@ and object_t =
 and class_t =
   { classname : string
   ; constructor_args : (string * typename) list
+  ; clojure : (record_t list[@opaque])
   ; super_constructor : (class_t * expression) option
   ; field_initializers : var_initializer list
   ; method_initializers : fun_initializer list
