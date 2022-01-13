@@ -152,9 +152,9 @@ let init_value_p =
 (** [mnemonic_p] parses [Ast.Mnemonic]. *)
 let mnemonic_p =
   take_till (fun c -> is_blank c || c = ';')
-  >>= function
-  | s when is_mnemonic (String.uppercase_ascii s) ->
-      return (Mnemonic (String.uppercase_ascii s))
+  >>= fun s ->
+  match String.uppercase_ascii s with
+  | s when is_mnemonic s -> return (Mnemonic (String.uppercase_ascii s))
   | _ -> fail "Invalid command"
 
 let in_sec_dir_p =
