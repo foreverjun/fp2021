@@ -732,7 +732,7 @@ module Interpret = struct
           >>= fun fun_ctx ->
           interpret_statement
             { fun_ctx with last_return_value = Unitialized None }
-            func.statement
+            (Block func.statement)
           >>= fun func_eval_ctx ->
           if check_typename_value_correspondance
                (func.fun_typename, func_eval_ctx.last_return_value)

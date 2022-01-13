@@ -308,8 +308,8 @@ end = struct
        | _ -> token "->")
        >> sep_by Statement.statement (skip_many (exactly ' ') >> newline)
        >>= fun statements -> return (args, statements))
-    >>= fun (args, statements) ->
-    return (AnonymousFunctionDeclaration (args, Block statements)))
+    >>= fun (args, statements) -> return (AnonymousFunctionDeclaration (args, statements))
+    )
       input
   ;;
 end
@@ -345,7 +345,11 @@ end = struct
   open Expression
   open Ast
 
-  let rec expression_statement input =
+  let rec parse_block_as_statement_list inner_parser =
+    skip_many (exactly ' ')
+    >> braces (sep_by inner_parser (skip_many (exactly ' ') >> newline))
+
+  and expression_statement input =
     (expression >>= fun expr -> return (Expression expr)) input
 
   and statement input =
@@ -375,10 +379,7 @@ end = struct
       input
 
   and class_block_statement input =
-    (skip_many (exactly ' ')
-    >> braces (sep_by class_inner_statement (skip_many (exactly ' ') >> newline))
-    >>= fun statements -> return statements)
-      input
+    (parse_block_as_statement_list class_inner_statement) input
 
   and initialize_block_statement input =
     (skip_many (exactly ' ')
@@ -387,9 +388,8 @@ end = struct
       input
 
   and block_statement input =
-    (skip_many (exactly ' ')
-    >> braces (sep_by statement (skip_many (exactly ' ') >> newline))
-    >>= fun expressions -> return (Block expressions))
+    (parse_block_as_statement_list statement
+    >>= fun statements -> return (Block statements))
       input
 
   and class_declaration_statement input =
@@ -452,7 +452,7 @@ end = struct
     >>= fun args ->
     option Unit (token ":" >> parse_typename)
     >>= fun fun_typename ->
-    block_statement
+    parse_block_as_statement_list statement
     >>= fun fun_statement ->
     return (FunDeclaration { modifiers; identifier; args; fun_typename; fun_statement }))
       input

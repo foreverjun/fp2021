@@ -60,7 +60,7 @@ and function_t =
   ; clojure : (record_t list[@opaque])
   ; enclosing_object : (object_t option[@opaque])
   ; arguments : (string * typename) list
-  ; statement : statement
+  ; statement : statement list
   }
 
 and object_t =
@@ -94,7 +94,7 @@ and fun_initializer =
   ; identifier : string
   ; args : (string * typename) list
   ; fun_typename : typename
-  ; fun_statement : statement
+  ; fun_statement : statement list
   }
 
 and expression =
@@ -112,7 +112,7 @@ and expression =
   | VarIdentifier of string
       (** Строки string, не заключенные в кавычки, преставляются как VarIdentifier ("string") *)
   | This (** Специальное выражение для вызова this внутри объекта *)
-  | AnonymousFunctionDeclaration of (string * typename) list * statement
+  | AnonymousFunctionDeclaration of (string * typename) list * statement list
       (** \{ (string * typename) list -> statement \}. Например: \{elem: Int -> elem * elem\} - анонимная функция для возведения числа в квадрат*)
   | FunctionCall of string * expression list
       (** Например: foo(bar) <=> FunctionCall ("foo", \[VarIdentifier "bar"\])*)

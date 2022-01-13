@@ -147,7 +147,7 @@ let%test _ =
 
 let%test _ =
   apply_parser expression {| { 1 } |}
-  = Some (AnonymousFunctionDeclaration ([], Block [ Expression (Const (IntValue 1)) ]))
+  = Some (AnonymousFunctionDeclaration ([], [ Expression (Const (IntValue 1)) ]))
 ;;
 
 let%test _ = apply_parser expression {| { -> 1 } |} = None
@@ -157,7 +157,7 @@ let%test _ =
   = Some
       (AnonymousFunctionDeclaration
          ( [ "x", Int; "y", Int ]
-         , Block [ Expression (Add (VarIdentifier "x", VarIdentifier "y")) ] ))
+         , [ Expression (Add (VarIdentifier "x", VarIdentifier "y")) ] ))
 ;;
 
 let%test _ = apply_parser expression {| baz() |} = Some (FunctionCall ("baz", []))
@@ -200,7 +200,7 @@ let%test _ =
          ; identifier = "main"
          ; args = []
          ; fun_typename = Int
-         ; fun_statement = Block [ Return (Const (IntValue 0)) ]
+         ; fun_statement = [ Return (Const (IntValue 0)) ]
          })
 ;;
 
@@ -214,7 +214,7 @@ let%test _ =
          ; identifier = "func_with_args"
          ; args = [ "x", Int; "y", Int ]
          ; fun_typename = Int
-         ; fun_statement = Block [ Return (Const (IntValue 0)) ]
+         ; fun_statement = [ Return (Const (IntValue 0)) ]
          })
 ;;
 
@@ -230,7 +230,7 @@ let%test _ =
          ; identifier = "func_with_modifiers"
          ; args = []
          ; fun_typename = Int
-         ; fun_statement = Block [ Return (Const (IntValue 0)) ]
+         ; fun_statement = [ Return (Const (IntValue 0)) ]
          })
 ;;
 
@@ -299,7 +299,7 @@ let%test _ =
                ; identifier = "bar"
                ; args = []
                ; fun_typename = Int
-               ; fun_statement = Block [ Return (Const (IntValue 0)) ]
+               ; fun_statement = [ Return (Const (IntValue 0)) ]
                }
            ] ))
 ;;
@@ -744,7 +744,7 @@ let%test _ =
                 ; clojure = []
                 ; enclosing_object = None
                 ; arguments = []
-                ; statement = Block []
+                ; statement = []
                 })
          , Const
              (AnonymousFunction
@@ -753,7 +753,7 @@ let%test _ =
                 ; clojure = []
                 ; enclosing_object = None
                 ; arguments = []
-                ; statement = Block []
+                ; statement = []
                 }) ))
   in
   match ctx with
@@ -886,7 +886,7 @@ let%test _ =
           ; clojure = []
           ; enclosing_object = None
           ; arguments = []
-          ; statement = Block [ Return (Const (IntValue 1)) ]
+          ; statement = [ Return (Const (IntValue 1)) ]
           }
     }
   in
@@ -1005,7 +1005,7 @@ let%test _ =
           ; clojure = []
           ; enclosing_object = None
           ; arguments = []
-          ; statement = Block [ Return (Const (IntValue 1)) ]
+          ; statement = [ Return (Const (IntValue 1)) ]
           }
     }
   in
@@ -1026,7 +1026,7 @@ let%test _ =
           ; clojure = []
           ; enclosing_object = None
           ; arguments = []
-          ; statement = Block [ Return (Const (IntValue 1)) ]
+          ; statement = [ Return (Const (IntValue 1)) ]
           }
     }
   in
