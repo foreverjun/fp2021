@@ -854,9 +854,7 @@ let%test _ =
 ;;
 
 let%test _ =
-  let content =
-    { var_typename = Int; mutable_status = false; value = ref (IntValue 1) }
-  in
+  let content = { var_typename = Int; mutable_status = false; value = IntValue 1 } in
   let rc = { name = "foo"; modifiers = []; content = Variable content } in
   let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
   let ctx = interpret_expression ctx_with_variable (VarIdentifier "foo") in
@@ -918,32 +916,31 @@ let%test _ =
           { var_typename = ClassIdentifier "MyClass"
           ; mutable_status = false
           ; value =
-              ref
-                (Object
-                   { identity_code = 1
-                   ; super = None
-                   ; obj_class =
-                       { classname = "MyClass"
-                       ; clojure = []
-                       ; constructor_args = []
-                       ; super_constructor = None
-                       ; field_initializers = []
-                       ; method_initializers = []
-                       ; init_statements = []
-                       }
-                   ; fields =
-                       [ { name = "field"
-                         ; modifiers = []
-                         ; content =
-                             Variable
-                               { var_typename = Int
-                               ; mutable_status = false
-                               ; value = ref (IntValue 1)
-                               }
-                         }
-                       ]
-                   ; methods = []
-                   })
+              Object
+                { identity_code = 1
+                ; super = None
+                ; obj_class =
+                    { classname = "MyClass"
+                    ; clojure = []
+                    ; constructor_args = []
+                    ; super_constructor = None
+                    ; field_initializers = []
+                    ; method_initializers = []
+                    ; init_statements = []
+                    }
+                ; fields =
+                    [ { name = "field"
+                      ; modifiers = []
+                      ; content =
+                          Variable
+                            { var_typename = Int
+                            ; mutable_status = false
+                            ; value = IntValue 1
+                            }
+                      }
+                    ]
+                ; methods = []
+                }
           }
     }
   in
@@ -962,8 +959,7 @@ let%test _ =
   let rc =
     { name = "foo"
     ; modifiers = []
-    ; content =
-        Variable { var_typename = Int; mutable_status = false; value = ref NullValue }
+    ; content = Variable { var_typename = Int; mutable_status = false; value = NullValue }
     }
   in
   let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ] } in
@@ -979,9 +975,7 @@ let%test _ =
 
 (*nullable тест*)
 let%test _ =
-  let content =
-    { var_typename = Int; mutable_status = false; value = ref (IntValue 1) }
-  in
+  let content = { var_typename = Int; mutable_status = false; value = IntValue 1 } in
   let rc = { name = "foo"; modifiers = []; content = Variable content } in
   let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
   match check_expression_is_nullable ctx_with_variable (VarIdentifier "foo") with
@@ -991,7 +985,7 @@ let%test _ =
 
 let%test _ =
   let content =
-    { var_typename = Nullable Int; mutable_status = false; value = ref (IntValue 1) }
+    { var_typename = Nullable Int; mutable_status = false; value = IntValue 1 }
   in
   let rc = { name = "foo"; modifiers = []; content = Variable content } in
   let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
@@ -1068,24 +1062,23 @@ let%test _ =
           { var_typename = ClassIdentifier "MyClass"
           ; mutable_status = false
           ; value =
-              ref
-                (Object
-                   { identity_code = 1
-                   ; super = None
-                   ; obj_class = my_class
-                   ; fields =
-                       [ { name = "foo"
-                         ; modifiers = []
-                         ; content =
-                             Variable
-                               { var_typename = Int
-                               ; mutable_status = false
-                               ; value = ref (IntValue 1)
-                               }
-                         }
-                       ]
-                   ; methods = []
-                   })
+              Object
+                { identity_code = 1
+                ; super = None
+                ; obj_class = my_class
+                ; fields =
+                    [ { name = "foo"
+                      ; modifiers = []
+                      ; content =
+                          Variable
+                            { var_typename = Int
+                            ; mutable_status = false
+                            ; value = IntValue 1
+                            }
+                      }
+                    ]
+                ; methods = []
+                }
           }
     }
   in
@@ -1125,24 +1118,23 @@ let%test _ =
           { var_typename = ClassIdentifier "MyClass"
           ; mutable_status = false
           ; value =
-              ref
-                (Object
-                   { identity_code = 1
-                   ; super = None
-                   ; obj_class = my_class
-                   ; fields =
-                       [ { name = "foo"
-                         ; modifiers = []
-                         ; content =
-                             Variable
-                               { var_typename = Nullable Int
-                               ; mutable_status = false
-                               ; value = ref (IntValue 1)
-                               }
-                         }
-                       ]
-                   ; methods = []
-                   })
+              Object
+                { identity_code = 1
+                ; super = None
+                ; obj_class = my_class
+                ; fields =
+                    [ { name = "foo"
+                      ; modifiers = []
+                      ; content =
+                          Variable
+                            { var_typename = Nullable Int
+                            ; mutable_status = false
+                            ; value = IntValue 1
+                            }
+                      }
+                    ]
+                ; methods = []
+                }
           }
     }
   in
@@ -1182,24 +1174,23 @@ let%test _ =
           { var_typename = Nullable (ClassIdentifier "MyClass")
           ; mutable_status = false
           ; value =
-              ref
-                (Object
-                   { identity_code = 1
-                   ; super = None
-                   ; obj_class = my_class
-                   ; fields =
-                       [ { name = "foo"
-                         ; modifiers = []
-                         ; content =
-                             Variable
-                               { var_typename = Int
-                               ; mutable_status = false
-                               ; value = ref (IntValue 1)
-                               }
-                         }
-                       ]
-                   ; methods = []
-                   })
+              Object
+                { identity_code = 1
+                ; super = None
+                ; obj_class = my_class
+                ; fields =
+                    [ { name = "foo"
+                      ; modifiers = []
+                      ; content =
+                          Variable
+                            { var_typename = Int
+                            ; mutable_status = false
+                            ; value = IntValue 1
+                            }
+                      }
+                    ]
+                ; methods = []
+                }
           }
     }
   in

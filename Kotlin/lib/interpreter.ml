@@ -286,7 +286,7 @@ module Interpret = struct
         (match get_field_from_object this_flag obj identifier with
         | None -> fail (UnknownMethod (obj.obj_class.classname, identifier))
         | Some (rc, content) ->
-          (match !(content.value) with
+          (match content.value with
           | AnonymousFunction f -> return f
           | _ -> fail (UnknownFunction identifier))
           >>= fun func -> return (`AnonymousFunction (rc, func)))
@@ -301,7 +301,7 @@ module Interpret = struct
           (match get_var_from_env ctx.environment identifier with
           | None -> fail (UnknownFunction identifier)
           | Some (rc, content) ->
-            (match !(content.value) with
+            (match content.value with
             | AnonymousFunction f -> return f
             | _ -> fail (UnknownFunction identifier))
             >>= fun func -> return (`AnonymousFunction (rc, func))))
@@ -395,7 +395,7 @@ module Interpret = struct
         (match obj_expression with
         | VarIdentifier identifier ->
           let* _, var = get_var_from_ctx ctx identifier in
-          (match !(var.value) with
+          (match var.value with
           | Object obj -> check_dereference_nullable_helper obj.obj_class der_expression
           | _ -> failwith "Not implemented. Expected variable of non-primitive class type")
         | FunctionCall (identifier, _) ->
@@ -575,10 +575,7 @@ module Interpret = struct
            ; modifiers
            ; content =
                Variable
-                 { var_typename
-                 ; mutable_status = Poly.( = ) var_modifier Var
-                 ; value = ref value
-                 }
+                 { var_typename; mutable_status = Poly.( = ) var_modifier Var; value }
            }
        with
       | None -> fail (Redeclaration name)
@@ -598,14 +595,14 @@ module Interpret = struct
         interpret_expression ctx assign_expression
         >>= fun assign_value_ctx ->
         let update_rc_and_return_assign_value_ctx () =
-          var.value := assign_value_ctx.last_eval_expression;
+          var.value <- assign_value_ctx.last_eval_expression;
           return assign_value_ctx
         in
         (match
            ( check_typename_value_correspondance
                (var.var_typename, assign_value_ctx.last_eval_expression)
            , ctx.scope
-           , !(var.value) )
+           , var.value )
          with
         | true, ObjectInitialization obj, Unitialized (Some obj_of_field)
           when phys_equal obj obj_of_field -> update_rc_and_return_assign_value_ctx ()
@@ -723,7 +720,7 @@ module Interpret = struct
                       Variable
                         { var_typename = arg_typename
                         ; mutable_status = false
-                        ; value = ref eval_expr_ctx.last_eval_expression
+                        ; value = eval_expr_ctx.last_eval_expression
                         }
                   }
               with
@@ -840,7 +837,7 @@ module Interpret = struct
                               (match var_modifier with
                               | Var -> true
                               | Val -> false)
-                          ; value = ref init_value
+                          ; value = init_value
                           }
                     }
                 with
@@ -905,7 +902,7 @@ module Interpret = struct
     | VarIdentifier identifier ->
       let* rc, var = get_var_from_ctx ctx identifier in
       let ctx_with_updated_not_null =
-        if (not (check_is_null !(var.value)))
+        if (not (check_is_null var.value))
            && Option.is_none
                 (List.find ctx.not_nullable_records ~f:(fun r -> phys_equal r rc))
         then { ctx with not_nullable_records = rc :: ctx.not_nullable_records }
@@ -913,7 +910,7 @@ module Interpret = struct
       in
       return
         { ctx_with_updated_not_null with
-          last_eval_expression = !(var.value)
+          last_eval_expression = var.value
         ; last_derefered_variable = Some (rc, var)
         }
     | Dereference (obj_expression, der_expression)

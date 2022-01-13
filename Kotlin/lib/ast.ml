@@ -51,7 +51,7 @@ and record_t =
 and variable_t =
   { var_typename : typename
   ; mutable_status : bool
-  ; value : value ref
+  ; mutable value : value
   }
 
 and function_t =
