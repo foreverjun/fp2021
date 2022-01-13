@@ -333,7 +333,7 @@ module Interpret = struct
         let get_class_or_primitive_typename_of_method cur_class identifier =
           match
             List.find cur_class.method_initializers ~f:(fun meth ->
-                if String.equal meth.identifier identifier then true else false)
+                String.equal meth.identifier identifier)
           with
           | None -> fail (UnknownMethod (cur_class.classname, identifier))
           | Some meth ->
@@ -348,7 +348,7 @@ module Interpret = struct
         let get_class_or_primitive_typename_of_field cur_class identifier =
           match
             List.find cur_class.field_initializers ~f:(fun field ->
-                if String.equal field.identifier identifier then true else false)
+                String.equal field.identifier identifier)
           with
           | None -> fail (UnknownField (cur_class.classname, identifier))
           | Some field ->
