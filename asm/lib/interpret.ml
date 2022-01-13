@@ -131,7 +131,7 @@ module Eval (M : MonadError) = struct
           | Some Er -> error "byte data exceeds bounds"
           | _ ->
               error "relocation truncated to fit: R_X86_64_8 against `.data\'" )
-        | _ -> error "fatal error" in
+        | _ -> error "fatal error: other cases should be handled in ev" in
       function
       | Label l -> (
         match MapString.find_opt l env with
@@ -159,7 +159,7 @@ module Eval (M : MonadError) = struct
               if d = 0L then return acc else helper s (acc ^ s) (sub d 1L) in
             function
             | Ls k -> helper s "" (string_to_int64 k) >>| fun k -> Ls k
-            | _ -> error "fatal error" ) in
+            | _ -> error "fatal error: pr_expr should return Ls" ) in
       function
       | [] -> (
         match acc with
@@ -168,8 +168,8 @@ module Eval (M : MonadError) = struct
       | hd :: tl -> (
           helper env hd
           >>= function
-          | Ls s -> pr_init_val env (acc ^ s) tl | _ -> error "fatal error" )
-    in
+          | Ls s -> pr_init_val env (acc ^ s) tl
+          | _ -> error "fatal error: helper should return Ls" ) in
     let rec pr_data env =
       let pr_inst env = function
         | Instr (None, _) | DataDecl (None, _, _) -> return env
@@ -256,16 +256,18 @@ module Eval (M : MonadError) = struct
           match MapString.find r e with
           | R64 i -> return i
           | RSSE _ -> error "invalid combination of opcode and operands"
-          | _ -> error "fatal error" )
+          | _ -> error "fatal error: register can only be R64 or RSSE" )
       | Label l -> (
         match MapString.find_opt l e with
         | Some (Ls s) -> return (string_to_int64 s)
         | Some Er -> error "byte data exceeds bounds"
         | _ -> error (Printf.sprintf "symbol `%s\' not defined" l) )
-      | _ -> error "fatal error" in
+      | _ -> error "fatal error: other cases should be handled in ev" in
     let find_reg64 env r =
       return (MapString.find r env)
-      >>= function R64 i -> return i | _ -> error "falal error" in
+      >>= function
+      | R64 i -> return i
+      | _ -> error "falal error: register 64 can only be R64" in
     let change_reg64 env reg foo =
       let do_offset ot nt offs len =
         let os =
@@ -313,7 +315,9 @@ module Eval (M : MonadError) = struct
     let inter_arg0 env st = function
       | "RET" ->
           jump env (List.tl st)
-            (function R64 _ -> return true | _ -> error "fatal error")
+            (function
+              | R64 _ -> return true
+              | _ -> error "fatal error: register 64 can only be R64" )
             (Label (List.hd st))
       | "SYSCALL" -> (
           find_reg64 env "RAX"
@@ -340,7 +344,7 @@ module Eval (M : MonadError) = struct
               error
                 (Printf.sprintf "syscall %s is not implemented" (to_string i))
           | _ -> return (env, st) )
-      | _ -> error "fatal error" in
+      | _ -> error "fatal error: the interpreter could not parse this" in
     let inter_arg1 env st e = function
       | "INC" ->
           change_reg64 env e (fun i -> add i 1L) >>= fun env -> return (env, st)
@@ -366,56 +370,60 @@ module Eval (M : MonadError) = struct
         match e with
         | Label l ->
             jump env (l :: st)
-              (function R64 _ -> return true | _ -> error "fatal error")
+              (function
+                | R64 _ -> return true
+                | _ -> error "fatal error: register 64 can only be R64" )
               e
         | _ -> error "Illegal instruction (core dumped)" )
       | "JMP" ->
           jump env st
-            (function R64 _ -> return true | _ -> error "fatal error")
+            (function
+              | R64 _ -> return true
+              | _ -> error "fatal error: register 64 can only be R64" )
             e
       | "JE" ->
           jump env st
             (function
               | R64 0L -> return true
               | R64 _ -> return false
-              | _ -> error "fatal error" )
+              | _ -> error "fatal error: register 64 can only be R64" )
             e
       | "JNE" ->
           jump env st
             (function
               | R64 0L -> return false
               | R64 _ -> return true
-              | _ -> error "fatal error" )
+              | _ -> error "fatal error: register 64 can only be R64" )
             e
       | "JG" ->
           jump env st
             (function
               | R64 i when i > 0L -> return true
               | R64 _ -> return false
-              | _ -> error "fatal error" )
+              | _ -> error "fatal error: register 64 can only be R64" )
             e
       | "JGE" ->
           jump env st
             (function
               | R64 i when i >= 0L -> return true
               | R64 _ -> return false
-              | _ -> error "fatal error" )
+              | _ -> error "fatal error: register 64 can only be R64" )
             e
       | "JL" ->
           jump env st
             (function
               | R64 i when i < 0L -> return true
               | R64 _ -> return false
-              | _ -> error "fatal error" )
+              | _ -> error "fatal error: register 64 can only be R64" )
             e
       | "JLE" ->
           jump env st
             (function
               | R64 i when i <= 0L -> return true
               | R64 _ -> return false
-              | _ -> error "fatal error" )
+              | _ -> error "fatal error: register 64 can only be R64" )
             e
-      | _ -> error "fatal error" in
+      | _ -> error "fatal error: the interpreter could not parse this" in
     let inter_arg2 env e1 e2 =
       let helper foo =
         ev env (f env) e2 >>= fun i -> change_reg64 env e1 (foo i) in
@@ -435,11 +443,11 @@ module Eval (M : MonadError) = struct
         | Label l -> (
           match MapString.find l env with
           | Ls s -> return s
-          | _ -> error "fatal error" )
+          | _ -> error "fatal error: label can only be Ls" )
         | Reg r when regSSE r -> (
           match MapString.find r env with
           | RSSE s -> return s
-          | _ -> error "fatal error" )
+          | _ -> error "fatal error: SEE register can only be RSSE" )
         | _ -> error "invalid combination of opcode and operands" )
         >>= fun s -> change_regsse env e1 (foo1 s) in
       function
@@ -469,14 +477,14 @@ module Eval (M : MonadError) = struct
           | Label s -> (
             match MapString.find s env with
             | Ls i | RSSE i -> return (MapString.add r (RSSE i) env)
-            | _ -> error "fatal error" )
+            | _ -> error "fatal error: cannot be R64" )
           | Reg s when regSSE s -> (
             match MapString.find s env with
             | Ls i | RSSE i -> return (MapString.add r (RSSE i) env)
-            | _ -> error "fatal error" )
+            | _ -> error "fatal error: cannot be R64" )
           | _ -> error "invalid combination of opcode and operands" )
         | _ -> error "invalid combination of opcode and operands" )
-      | _ -> error "fatal error" in
+      | _ -> error "fatal error: the interpreter could not parse this" in
     let inter_cmd env st = function
       | _, Arg0 (Mnemonic mn) -> inter_arg0 env st mn
       | _, Arg1 (Mnemonic mn, e) -> inter_arg1 env st e mn
@@ -503,7 +511,7 @@ module Eval (M : MonadError) = struct
           | Ls s ->
               find_label s list
               >>= fun list -> helper (MapString.add "0jump" (Ls "") env) st list
-          | _ -> error "fatal error" ) )
+          | _ -> error "fatal error: can be only Ls" ) )
       | hd :: tl -> (
           inter_cmd env st hd
           >>= fun (env, st) ->
@@ -517,7 +525,7 @@ module Eval (M : MonadError) = struct
                 find_label s list
                 >>= fun list ->
                 helper (MapString.add "0jump" (Ls "") env) st list
-            | _ -> error "fatal error" ) ) in
+            | _ -> error "fatal error: can be only Ls" ) ) in
     helper env [] list
 
   (** Main interpreter function. *)
