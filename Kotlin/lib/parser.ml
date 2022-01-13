@@ -383,7 +383,7 @@ end = struct
   and initialize_block_statement input =
     (skip_many (exactly ' ')
     >> sep_by initialize_block_inner_statement spaces
-    >>= fun expressions -> return (InitializeBlock expressions))
+    >>= fun expressions -> return (Block expressions))
       input
 
   and block_statement input =

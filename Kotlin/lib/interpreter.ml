@@ -476,9 +476,6 @@ module Interpret = struct
         (match ctx.scope with
         | Method _ | AnonymousFunction _ | Function -> return returned_ctx
         | _ -> fail ReturnNotInFunction))
-    | InitializeBlock statements ->
-      List.fold statements ~init:(return ctx) ~f:(fun monadic_ctx stat ->
-          monadic_ctx >>= fun checked_ctx -> interpret_statement checked_ctx stat)
     | Return expression ->
       interpret_expression ctx expression
       >>= fun ret_ctx ->

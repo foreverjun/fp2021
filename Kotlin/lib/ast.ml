@@ -142,8 +142,6 @@ and statement =
       (** modifiers class string(string * typename list): string(expression list) {statement list}. Например: open class Foo(bar: Int): Baz(bar) \{ ... \} *)
   | Block of statement list
       (** \{ statement list \} - набор выражений, окруженных фигурными скобками *)
-  | InitializeBlock of statement list
-      (** Вырожденный случай Block. Нужен только для функции parse_and_run, и по сути является Block без фигурных скобок вокруг *)
   | InitInClass of statement
       (** init \{ ... \}, причем данная конструкция должна встречаться только внутри классов *)
 [@@deriving show { with_path = false }]

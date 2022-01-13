@@ -58,7 +58,7 @@ let rec repl buffered_lines ctx =
           ctx
         | Ok eval_ctx ->
           (match stat with
-          | Block _ | InitializeBlock _ ->
+          | Block _ ->
             print_as_repl_answer "Block expressions are not supported in REPL";
             ctx
           | Return _ ->
