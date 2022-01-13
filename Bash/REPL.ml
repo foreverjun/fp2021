@@ -25,7 +25,9 @@ let rec parse_input st =
     let st = feed st (`String (line ^ "\n")) in
     (match try_finish st with
     | Ok res -> Some (Ok res)
-    | Error _ -> parse_input st)
+    | Error _ ->
+      print_string "> ";
+      parse_input st)
 ;;
 
 let rec repl env =
@@ -47,5 +49,9 @@ let rec repl env =
 
 let () =
   print_endline "\tMiniBash REPL";
+  print_endline
+    "- To run a command type it and press Enter\n\
+     - To stop typing a multiline command prematurely, enter an empty line\n\
+     - To exit REPL type `exit` or press Ctrl-D";
   repl empty_env
 ;;
