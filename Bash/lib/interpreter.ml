@@ -175,6 +175,14 @@ module Eval (M : MonadFail) = struct
   let get_fun name env = SMap.find_opt name env.funs
   let set_fun name v env = { env with funs = SMap.add name v env.funs }
 
+  let merge_envs e1 e2 =
+    { e2 with
+      vars = SMap.union (fun _ _ v -> Some v) e1.vars e2.vars
+    ; funs = SMap.union (fun _ _ v -> Some v) e1.funs e2.funs
+    ; chs = IMap.union (fun _ _ v -> Some v) e1.chs e2.chs
+    }
+  ;;
+
   (* -------------------- Evaluation -------------------- *)
 
   (** Evaluate variable *)
@@ -255,7 +263,7 @@ module Eval (M : MonadFail) = struct
     >>| fun (env, l) -> env, List.(l |> rev |> flatten)
 
   (** Evaluate assignment *)
-  and ev_assignt env =
+  and ev_assignt env ?(s_env = env) =
     let open struct
       type 'a container =
         | Simple of string * 'a (** Simple assignment of key and value *)
@@ -263,7 +271,7 @@ module Eval (M : MonadFail) = struct
         | Assoc of (string * 'a) list (** Associative array assignment of pairs *)
     end in
     let env_set env name =
-      let env_with x = set_var name x env in
+      let env_with x = { (set_var name x env) with retcode = 0 } in
       function
       | Simple (k, v) ->
         env_with
@@ -278,22 +286,33 @@ module Eval (M : MonadFail) = struct
     in
     function
     | SimpleAssignt ((name, i), w) ->
-      ev_word env w
+      ev_word s_env w
       >>= (function
-      | env, [ s ] -> return (env_set env name (Simple (i, s)))
+      | _, [ s ] -> return (env_set env name (Simple (i, s)))
       | _ -> fail "Illegal expansion in simple assignment")
     | IndArrAssignt (name, ws) ->
-      ev_words env ws >>| fun (env, ss) -> env_set env name (Ind ss)
+      ev_words s_env ws >>| fun (_, ss) -> env_set env name (Ind ss)
     | AssocArrAssignt (name, ps) ->
       ev_words
-        env
+        s_env
         ~c:(function
           | [ _ ] -> true
           | _ -> false)
         ~e:"Illegal expansion in associative array assignment"
         (List.map (fun (_, w) -> w) ps)
-      >>| fun (env, ss) ->
-      env_set env name (Assoc (List.map2 (fun (k, _) v -> k, v) ps ss))
+      >>| fun (_, ss) -> env_set env name (Assoc (List.map2 (fun (k, _) v -> k, v) ps ss))
+
+  (** Evaluate asiignment list *)
+  and ev_assignts env ?(s_env = env) assignts =
+    List.fold_left
+      (fun acc a ->
+        acc
+        >>= fun (env, s_env) ->
+        ev_assignt env ~s_env a
+        >>= fun env -> ev_assignt s_env a >>| fun s_env -> env, s_env)
+      (return (env, s_env))
+      assignts
+    >>| fun (env, _) -> env
 
   (** Evaluate bare arithmetic *)
   and ev_arithm env =
@@ -386,14 +405,14 @@ module Eval (M : MonadFail) = struct
     | SubstEnd (v, p, r) -> subst Re.longest ~all:false ~beg:(Some false) v p r
 
   (** Evaluate redirection (when duplicationg, no checks are performed for r-w access) *)
-  and ev_redir env =
+  and ev_redir env ?(s_env = env) =
     (* Permissions for new files: rw for user, r for group, none for others *)
     let perm = 0o640 in
     let to_str env w =
       ev_word env w
-      >>= fun (env, ss) ->
+      >>= fun (_, ss) ->
       match ss with
-      | [ s ] -> return (env, s)
+      | [ s ] -> return s
       | _ -> fail "Illegal expansion in redirection"
     in
     let env_add_fd env n fd = return { env with chs = IMap.add n fd env.chs } in
@@ -407,36 +426,29 @@ module Eval (M : MonadFail) = struct
     in
     function
     | RedirInp (n, w) ->
-      to_str env w
-      >>= fun (env, f) ->
+      to_str s_env w
+      >>= fun f ->
       if Sys.file_exists f
       then env_add_fd env n Unix.(openfile f [ O_RDONLY ] perm)
       else fail (Printf.sprintf "%s: No such file or directory" f)
     | RedirOtp (n, w) ->
-      to_str env w
-      >>= fun (env, f) -> env_add_fd env n Unix.(openfile f [ O_CREAT; O_WRONLY ] perm)
+      to_str s_env w
+      >>= fun f -> env_add_fd env n Unix.(openfile f [ O_CREAT; O_WRONLY ] perm)
     | AppendOtp (n, w) ->
-      to_str env w
-      >>= fun (env, f) ->
-      env_add_fd env n Unix.(openfile f [ O_CREAT; O_WRONLY; O_APPEND ] perm)
-    | DuplInp (n, w) -> to_str env w >>= fun (env, s) -> env_dup_fd env n s
-    | DuplOtp (n, w) -> to_str env w >>= fun (env, s) -> env_dup_fd env n s
+      to_str s_env w
+      >>= fun f -> env_add_fd env n Unix.(openfile f [ O_CREAT; O_WRONLY; O_APPEND ] perm)
+    | DuplInp (n, w) -> to_str s_env w >>= fun s -> env_dup_fd env n s
+    | DuplOtp (n, w) -> to_str s_env w >>= fun s -> env_dup_fd env n s
 
-  and ev_redirs env rs =
-    List.fold_left (fun acc r -> acc >>= fun env -> ev_redir env r) (return env) rs
+  and ev_redirs env ?(s_env = env) rs =
+    List.fold_left (fun acc r -> acc >>= fun env -> ev_redir env ~s_env r) (return env) rs
 
   (** Evaluate command *)
   and ev_cmd env =
-    let env_with assignts =
-      List.fold_left
-        (fun acc a -> acc >>= fun env -> ev_assignt env a)
-        (return env)
-        assignts
-    in
     let expand env ws =
       ev_words env ws
       >>= function
-      | env, cmd :: tl -> return (env, cmd, cmd :: tl)
+      | _, cmd :: tl -> return (cmd, cmd :: tl)
       | _, [] -> fail "Simple command expanded to nothing"
     in
     let vars_to_strs vars =
@@ -464,16 +476,17 @@ module Eval (M : MonadFail) = struct
     in
     function
     | Simple ((_ :: _ as assignts), [], _) ->
-      env_with assignts >>| fun env -> { env with retcode = 0 }
+      ev_assignts env assignts >>| fun env -> { env with retcode = 0 }
     | Simple (assignts, ws, rs) ->
-      env_with assignts
+      expand env ws
+      >>= fun (cmd, argv) ->
+      ev_redirs { empty_env with chs = env.chs } ~s_env:env rs
       >>= fun n_env ->
-      ev_redirs n_env rs
+      ev_assignts n_env ~s_env:env assignts
       >>= fun n_env ->
-      expand n_env ws
-      >>= fun (n_env, cmd, argv) ->
-      (match get_fun cmd n_env, Builtins.find cmd with
+      (match get_fun cmd env, Builtins.find cmd with
       | Some (b, rs), _ ->
+        let n_env = merge_envs env n_env in
         let named_args =
           List.mapi (fun i e -> string_of_int i, IndArray (IMap.singleton 0 e)) argv
         in
@@ -668,7 +681,8 @@ module Eval (M : MonadFail) = struct
     if n <> 0 then { env with retcode = 0 } else { env with retcode = 1 }
 
   (** Evaluate function *)
-  and ev_func env ((name, body, rs) : func) = return (set_fun name (body, rs) env)
+  and ev_func env ((name, body, rs) : func) =
+    return { (set_fun name (body, rs) env) with retcode = 0 }
 
   (** Evaluate script element *)
   and ev_script_elem env = function
@@ -1331,7 +1345,7 @@ open TestMake (struct
 
   let pp_giv = pp_assignt
   let pp_res = pp_environment
-  let ev = ev_assignt
+  let ev env assignt = ev_assignt env assignt
   let cmp = cmp_envs
 end)
 
@@ -1504,7 +1518,7 @@ open TestMake (struct
 
   let pp_giv = pp_redir
   let pp_res = pp_environment
-  let ev = ev_redir
+  let ev env redir = ev_redir env redir
   let cmp = cmp_envs
 end)
 
@@ -1712,7 +1726,7 @@ let%test _ =
         ~exp_stdout:"123\n")
 ;;
 
-(* let%test _ =
+let%test _ =
   with_test_file (fun _ oc ->
       output_string oc "#!/bin/sh\necho $A $X";
       close_out oc;
@@ -1724,7 +1738,7 @@ let%test _ =
         (Simple ([ SimpleAssignt (("A", "0"), Word "123") ], [ Word test_file ], []))
         tmpl
         ~exp_stdout:"123\n")
-;; *)
+;;
 
 (* -------------------- Compound -------------------- *)
 
@@ -2188,12 +2202,27 @@ f a b
 let%test _ =
   match Parser.parse_result {|
 ABC=10
-ABC=5 echo $ABC
+
+echo_ABC () { echo $ABC }
+
+ABC=5 echo_ABC
 |} with
   | Ok ast ->
     succ_ev
       ast
-      { empty_env with vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "10")) }
+      { empty_env with
+        vars = SMap.singleton "ABC" (IndArray (IMap.singleton 0 "10"))
+      ; funs =
+          SMap.singleton
+            "echo_ABC"
+            ( Group
+                [ Pipe
+                    ( false
+                    , Simple ([], [ Word "echo"; ParamExp (Param ("ABC", "0")) ], [])
+                    , [] )
+                ]
+            , [] )
+      }
       ~exp_stdout:"5\n"
   | Error _ -> false
 ;;

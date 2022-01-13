@@ -219,8 +219,13 @@ Variables
   > 
   > echo -------------------
   > 
-  > Y="this will only be visible in this command call" echo "Y equals \"$Y\""
-  > echo "Y equals $Y"
+  > echo_Y () { echo "Y equals \"$Y\"" }
+  > 
+  > Y="this will only be visible in this command call" echo_Y
+  > echo "Y equals \"$Y\""
+  > 
+  > Z="and this won't be visible here" echo "Z equals \"$Z\""
+  > 
   > EOF
   first value
   second value
@@ -229,7 +234,8 @@ Variables
   and here it is: let's assign it another value
   -------------------
   Y equals "this will only be visible in this command call"
-  Y equals 
+  Y equals ""
+  Z equals ""
   Interpretation finished with return code: 0
 
 Expansions
