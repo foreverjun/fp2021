@@ -70,6 +70,9 @@ module Builtins : sig
   (** BuiltIn functions in the form of [cla -> chs -> retcode] *)
   type t = string list -> Unix.file_descr IMap.t -> int
 
+  (** [print_err chs s] prints [s] to stderr from [chs] if it exists *)
+  val print_err : Unix.file_descr IMap.t -> string -> unit
+
   (** [find s] returns builtin with the name [s] if such builtin exists *)
   val find : string -> t option
 end = struct
@@ -433,22 +436,31 @@ module Eval (M : MonadFail) = struct
     let expand env ws =
       ev_words env ws
       >>= function
-      | env, cmd :: tl -> return (env, cmd, tl)
+      | env, cmd :: tl -> return (env, cmd, cmd :: tl)
       | _, [] -> fail "Simple command expanded to nothing"
     in
-    let try_read =
-      let read_from s =
-        if Sys.file_exists s
-        then (
-          let ch = open_in s in
-          try Some (really_input_string ch (in_channel_length ch)) with
-          | End_of_file -> None)
-        else None
-      in
-      function
-      | s when Filename.dirname s = "." -> read_from (Filename.basename s)
-      | s when Filename.dirname s = "" -> read_from s
-      | _ -> None
+    let vars_to_strs vars =
+      SMap.fold
+        (fun k var acc ->
+          let v =
+            match var with
+            | IndArray vs ->
+              (match IMap.find_opt 0 vs with
+              | Some v -> v
+              | None -> "")
+            | AssocArray vs ->
+              (match SMap.find_opt "0" vs with
+              | Some v -> v
+              | None -> "")
+          in
+          String.concat "=" [ k; v ] :: acc)
+        vars
+        []
+    in
+    let dot_to_cwd = function
+      | s when Filename.dirname s = "." ->
+        String.concat Filename.dir_sep [ Sys.getcwd (); Filename.basename s ]
+      | s -> s
     in
     function
     | Simple ((_ :: _ as assignts), [], _) ->
@@ -459,33 +471,59 @@ module Eval (M : MonadFail) = struct
       ev_redirs n_env rs
       >>= fun n_env ->
       expand n_env ws
-      >>= fun (n_env, cmd, args) ->
-      (* Probably not very efficient to match like this, but it is more readable *)
-      (match get_fun cmd n_env, Builtins.find cmd, try_read cmd with
-      | Some (b, rs), _, _ ->
+      >>= fun (n_env, cmd, argv) ->
+      (match get_fun cmd n_env, Builtins.find cmd with
+      | Some (b, rs), _ ->
         let named_args =
-          List.mapi
-            (fun i e -> string_of_int i, IndArray (IMap.singleton 0 e))
-            (cmd :: args)
+          List.mapi (fun i e -> string_of_int i, IndArray (IMap.singleton 0 e)) argv
         in
         ev_redirs n_env rs
         >>= fun n_env ->
         ev_compound { n_env with vars = SMap.add_list named_args n_env.vars } b
         >>| fun { retcode } -> { env with retcode }
-      | None, Some f, _ -> return { env with retcode = f (cmd :: args) n_env.chs }
-      | None, None, Some s ->
-        (match Parser.parse_result s with
-        | Ok script ->
+      | None, Some f -> return { env with retcode = f argv n_env.chs }
+      | None, None ->
+        let open Unix in
+        let pid = fork () in
+        if pid = 0
+        then (
+          IMap.iter
+            (fun n fd ->
+              match n with
+              | 0 -> dup2 fd stdin
+              | 1 -> dup2 fd stdout
+              | 2 -> dup2 fd stderr
+              (* Custom file descriptors for external executables are not supported *)
+              | _ -> ())
+            n_env.chs;
+          try
+            execvpe
+              (dot_to_cwd cmd)
+              (Array.of_list argv)
+              (Array.of_list (vars_to_strs n_env.vars))
+          with
+          | Unix_error (ENOENT, _, _) ->
+            Builtins.print_err n_env.chs (Printf.sprintf "%s: command not found" cmd);
+            exit 127
+          | Unix_error (ENOEXEC, _, _) | Unix_error (EUNKNOWNERR 26, _, _) ->
+            Builtins.print_err n_env.chs (Printf.sprintf "%s: command not executable" cmd);
+            exit 126)
+        else
           Fun.protect
             ~finally:(fun () -> Sys.catch_break false)
             (fun () ->
               Sys.catch_break true;
-              try ev_script n_env script with
+              try
+                let _, status = Unix.waitpid [] pid in
+                return
+                  (match status with
+                  | WEXITED retcode -> { env with retcode }
+                  | WSIGNALED n | WSTOPPED n -> { env with retcode = 128 + n })
+              with
               (* 130: script terminated by Ctrl-C *)
-              | Sys.Break -> return { n_env with retcode = 130 })
-          >>| fun { retcode } -> { env with retcode }
-        | Error e -> fail (Printf.sprintf "%s: syntax error %s" cmd e))
-      | None, None, None -> fail (Printf.sprintf "%s: command not found" cmd))
+              | Sys.Break ->
+                kill pid Sys.sigkill;
+                return { env with retcode = 130 }))
     | Compound (c, rs) ->
       ev_redirs env rs
       >>= fun n_env ->
@@ -1483,7 +1521,7 @@ let with_test_file f =
   let ic = open_in test_file in
   Fun.protect
     ~finally:(fun () ->
-      close_out oc;
+      close_out_noerr oc;
       Sys.remove test_file)
     (fun () -> f ic oc)
 ;;
@@ -1636,15 +1674,8 @@ let%test _ =
 
 let%test _ =
   with_test_file (fun _ oc ->
-      output_string oc "echo sample!";
-      flush oc;
-      succ_ev (Simple ([], [ Word test_file ], [])) empty_env ~exp_stdout:"sample!\n")
-;;
-
-let%test _ =
-  with_test_file (fun _ oc ->
-      output_string oc "echo sample!";
-      flush oc;
+      output_string oc "#!/bin/sh\necho sample!";
+      close_out oc;
       succ_ev
         (Simple ([], [ Word ("./" ^ test_file) ], []))
         empty_env
@@ -1653,13 +1684,47 @@ let%test _ =
 
 let%test _ =
   with_test_file (fun _ oc ->
-      output_string oc "echo sample!";
-      flush oc;
+      output_string oc "#!/bin/sh\necho sample!";
+      close_out oc;
+      succ_ev
+        (Simple ([], [ Word ("./" ^ test_file) ], []))
+        empty_env
+        ~exp_stdout:"sample!\n")
+;;
+
+let%test _ =
+  with_test_file (fun _ oc ->
+      output_string oc "#!/bin/sh\necho sample!";
+      close_out oc;
       succ_ev
         (Simple ([], [ Word test_file ], [ DuplOtp (1, Word "2") ]))
         empty_env
         ~exp_stderr:"sample!\n")
 ;;
+
+let%test _ =
+  with_test_file (fun _ oc ->
+      output_string oc "#!/bin/sh\necho $A";
+      close_out oc;
+      succ_ev
+        (Simple ([ SimpleAssignt (("A", "0"), Word "123") ], [ Word test_file ], []))
+        empty_env
+        ~exp_stdout:"123\n")
+;;
+
+(* let%test _ =
+  with_test_file (fun _ oc ->
+      output_string oc "#!/bin/sh\necho $A $X";
+      close_out oc;
+      let tmpl =
+        { empty_env with vars = SMap.singleton "X" (IndArray (IMap.singleton 0 "x")) }
+      in
+      succ_ev
+        ~tmpl
+        (Simple ([ SimpleAssignt (("A", "0"), Word "123") ], [ Word test_file ], []))
+        tmpl
+        ~exp_stdout:"123\n")
+;; *)
 
 (* -------------------- Compound -------------------- *)
 

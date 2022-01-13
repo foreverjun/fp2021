@@ -37,4 +37,4 @@ Features done (for AST, parser and interpreter):
 - Arrays
     - Indexed: `name=(value1 value2 value3 ...)`
     - Associative: `name=(key1=value1 key2=value2 ...)`
-- External script calls
+- External executables

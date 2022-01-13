@@ -1,12 +1,15 @@
-External script call
-  $ echo "echo hello from another script" > another_script.sh
+External executable call
+  $ cat <<-"EOF" > another_script.sh
+  > #!/bin/sh
+  > echo "hello from another script"
+  > EOF
   $ ./demoInterpret.exe <<-"EOF"
   > echo $( ./another_script.sh )
   > EOF
   hello from another script
   Interpretation finished with return code: 0
 
-Interruption with Ctrl-C while executing an external script:
+Interruption with Ctrl-C while running an external executable:
 (1) An external script with an infinite loop is written into another_script.sh
 (2) demoInterrupt.exe starts the script with an another_script.sh call in a forked process
 and waits for any output on stderr (which will be available after the infinite loop is
@@ -14,6 +17,7 @@ started)
 (3) Ctrl-C signal is sent to the script
 (4) The another_script.sh call finishes and the whole script resumes its execution 
   $ cat <<-"EOF" > another_script.sh
+  > #!/bin/sh
   > echo "[external script] starting an infinite loop..."
   > while (( 1 )); do echo "stderr message to signal the start of the loop" 1>&2; done
   > EOF
