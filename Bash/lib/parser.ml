@@ -547,18 +547,11 @@ let script_p : script t =
 
 (* -------------------- Main parser function -------------------- *)
 
-(** Parses the given string as a Bash script *)
-let parse = parse_string ~consume:All script_p
+(** Parses the given string as a Bash script returning a [result] *)
+let parse_result = parse_string ~consume:All script_p
 
-(* -------------------- Other parser functions -------------------- *)
-
-(** Splits the given string on tokens separated by blanks and newlines *)
-let split_words =
-  let is_sep c = is_blank c || c = '\n' in
-  let sep = take_while is_sep in
-  let non_sep = take_while1 (fun c -> not (is_sep c)) in
-  parse_string ~consume:All (sep *> sep_by sep non_sep <* sep)
-;;
+(** Creates and returns a parser [state] for parsing a Bash script *)
+let make_state () = Buffered.parse script_p
 
 (* ----------------------------------------------- *)
 (* -------------------- Tests -------------------- *)

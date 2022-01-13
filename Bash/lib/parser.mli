@@ -1,5 +1,5 @@
 (** Parses the given string as a Bash script *)
-val parse : string -> (Ast.script, string) result
+val parse_result : string -> (Ast.script, string) result
 
-(** Splits the given string on tokens separated by blanks and newlines *)
-val split_words : string -> (string list, string) result
+(** Creates and returns a parser [state] for parsing a Bash script *)
+val make_state : unit -> Ast.script Angstrom.Buffered.state

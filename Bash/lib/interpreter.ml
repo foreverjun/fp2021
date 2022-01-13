@@ -464,7 +464,7 @@ module Eval (M : MonadFail) = struct
         >>| fun { retcode } -> { env with retcode }
       | None, Some f, _ -> return { env with retcode = f (cmd :: args) n_env.chs }
       | None, None, Some s ->
-        (match Parser.parse s with
+        (match Parser.parse_result s with
         | Ok script ->
           Fun.protect
             ~finally:(fun () -> Sys.catch_break false)
@@ -2048,7 +2048,7 @@ let%test _ = succ_ev [] empty_env
 
 let%test _ =
   match
-    Parser.parse
+    Parser.parse_result
       {|
 f () if ((ABC == 0)); then echo yes && ABC=1 && f; else echo no; fi
 f
@@ -2081,7 +2081,7 @@ f
 ;;
 
 let%test _ =
-  match Parser.parse {|
+  match Parser.parse_result {|
 f () { echo $1 $2 }
 f a b
 |} with
@@ -2111,7 +2111,7 @@ f a b
 ;;
 
 let%test _ =
-  match Parser.parse {|
+  match Parser.parse_result {|
 ABC=10
 ABC=5 echo $ABC
 |} with

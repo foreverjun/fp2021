@@ -9,7 +9,7 @@ let interpret script =
 
 let () =
   let s = Stdio.In_channel.input_all stdin in
-  match Parser.parse s with
+  match Parser.parse_result s with
   | Ok script -> interpret script
   | Error e -> Printf.printf "Parsing error: %s" e
 ;;
