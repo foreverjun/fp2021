@@ -17,15 +17,6 @@
   val x = [1; 2]
   $$$$
   $ ./demoOcamlADT.exe <<-EOF
-  >  let x = function
-  >  | int -> true
-  >  | string -> false
-  >  
-  >  let y = x 2
-  val x = <fun>
-  val y = true
-  $$$$
-  $ ./demoOcamlADT.exe <<-EOF
   >  let x y = y + 2
   >  let z = x 2
   val x = <fun>
