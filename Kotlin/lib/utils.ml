@@ -1,4 +1,3 @@
-open Base
 open Ast
 
 type parser_error =
@@ -7,7 +6,7 @@ type parser_error =
 
 type interpreter_error =
   | ExpectedReturnInFunction of string
-      (** Возникает, если у функции с типом, отличным от Unit, отсутствует return. Например, для функции fun empty(): Int {} при вызове выскочила бы эта ошибка*)
+      (** Возникает, если у функции с типом, отличным от Unit, отсутствует return. Например, для функции [fun empty(): Int {}] при вызове выскочила бы эта ошибка*)
   | UnknownVariable of string
       (** Возникает, если в текущем контексте не объявлена переменная с именем string *)
   | UnknownFunction of string
@@ -24,13 +23,13 @@ type interpreter_error =
   | FunctionArgumentsCountMismatch of string
       (** Возникает, если при вызове функции string в нее передано меньше аргументов, чем она принимает *)
   | UnsupportedTypeOfExpressionOnLeftSideOfAssign of expression
-      (** Возникает, если слева от знака присваивания находится выражение, отличное от переменной или обращения к полю. Например, при попытке интерпретации 1 = 2 выпадет эта ошибка *)
+      (** Возникает, если слева от знака присваивания находится выражение, отличное от переменной или обращения к полю. Например, при попытке интерпретации [1 = 2] выпадет эта ошибка *)
   | ExpressionExpectedToBeNotNull of expression
-      (** Возникает, если выражение expression интерпретируется в null, но при этом не должно так делать. В частности, если создать поле класса val notNullable: Foo и ничем ее не инициализировать, а потом попробовать обратиться к нему внутри init-блока notNullable.bar, то выскачит эта ошибка. Это относится к данной ссылке https://counterexamples.org/under-construction.html*)
+      (** Возникает, если выражение expression интерпретируется в null, но при этом не должно так делать. В частности, если создать поле класса [val notNullable: Foo] и ничем ее не инициализировать, а потом попробовать обратиться к нему внутри init-блока [notNullable.bar], то выскачит эта ошибка. Это относится к данной ссылке https://counterexamples.org/under-construction.html*)
   | ExpectedObjectToDereference of expression
       (** Возникает, например, при попытке интерпретировать такой код 
-      val intVatiable: Int = 1
-      intVariable.foo
+      [val intVatiable: Int = 1
+      intVariable.foo]
       , так как примитивный тип не является объектом (к сожалению) *)
   | ThisIsNotDefined
       (** Возникает при попытке обратиться с помощью this не внутри объекта *)
@@ -41,8 +40,8 @@ type typing_error =
       (** Возникает, если попытаться присвоить не мутабельной переменной новое значение *)
   | ExpressionExpectedToBeNotNullable of expression
       (** Возникает, если согласно системе типов данное выражение не должно иметь nullable тип. В частности, это относится к обращению к переменным, функциям, методам и полям, тип которых объявлен как SomethingType?. Например, такая ошибка выпадет при выполнении такого кода
-      val nullable: Int? = 1
-      val notNullable: Int = nullable //здесь будет ошибка, так как в nullable потенциально мог лежать null *)
+      [val nullable: Int? = 1
+      val notNullable: Int = nullable] //здесь будет ошибка, так как в nullable потенциально мог лежать null *)
   | FunctionReturnTypeMismatch of string * typename * value
       (** Возникает, если функция string с типом typename вернула value, который не соответствует типу typename *)
   | VariableValueTypeMismatch of string * typename * value
@@ -52,8 +51,8 @@ type typing_error =
   | PrivateAccessError of string * string
       (** Возникает, если попытаться обратиться к private или procted полю снаружи от объекта, в котором они объявлены. Также возникает, если попытаться обратиться к private полю супер класса *)
   | UnsupportedOperandTypes of expression
-      (** Возникает, если при попытке применения некоторой операции (например, +б - или /) операнды имеют неподходящий тип *)
-  | ExpectedBooleanValue of expression (* Возникает, если внутри if(...) или while(...) выражение не производит boolean *)
+      (** Возникает, если при попытке применения некоторой операции (например, +, - или /) операнды имеют неподходящий тип *)
+  | ExpectedBooleanValue of expression (* Возникает, если внутри [if(...)] или [while(...)] выражение не производит boolean *)
 [@@deriving show { with_path = false }]
 
 type error =
