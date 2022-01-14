@@ -542,7 +542,9 @@ module Eval (M : MonadFail) = struct
                 | WSIGNALED n | WSTOPPED n -> { env with retcode = 128 + n })
             with
             | Sys.Break ->
-              kill pid Sys.sigint;
+              (try kill pid Sys.sigint with
+              | Unix_error (EACCES, _, _) ->
+                Builtins.print_err env.chs "EACCES: cannot interrupt the current process");
               wait ()
           in
           Fun.protect
