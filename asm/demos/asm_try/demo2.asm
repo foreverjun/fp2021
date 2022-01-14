@@ -38,6 +38,6 @@ jnz .loop
 
 ; exit
 
- mov     rax, 60  ; exit syscall
- xor     rdi, rdi ; ret code 0
- syscall 
+mov     rax, 60  ; exit syscall
+xor     rdi, rdi ; ret code 0
+syscall 

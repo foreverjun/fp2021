@@ -5,35 +5,29 @@ checks multiple functions
   > section .data
   > section .data
   > @messae2:equ - 0x44aA
-  > mov     rax,1
-  > 
-  > 
+  > mov rax,1
   > section .text
-  > 
   > mov     rax,0x001
   > j inc rbX
   > cmp rbx, 8
   > JNE j
-  >     mov     rdi,rAx
-  >     mov     rsi, message
-  >     mov     rdx,14
+  > mov     rdi,rAx
+  > mov     rsi, message
+  > mov     rdx,14
   > 
   > section .data
   > message: db 6+1 dup "2"   , "r", 0xA
   > v1 db "Oh hi"
   > v2 db "     , Mark!"
   > section .text
-  >     syscall
+  > syscall
   >   
-  > 
-  >     movapd     Xmm2, v1
-  >     movapd     Xmm3, v2
-  >     addpd     xmm2, xmm1
-  >     mov     rAx, 60
-  >     xor     rdi, rdi
-  >     syscall
-  > 
-  > 
+  > movapd     Xmm2, v1
+  > movapd     Xmm3, v2
+  > addpd     xmm2, xmm1
+  > mov     rAx, 60
+  > xor     rdi, rdi
+  > syscall
   > 
   > EOF
   ["0cond": (R64 0L),
@@ -74,9 +68,9 @@ checks multiple functions
   > 
   > ; -----------------------------------------------------
   > 
-  >  mov     rax, 60  ; exit syscall
-  >  xor     rdi, rdi ; ret code 0
-  >  syscall 
+  > mov     rax, 60  ; exit syscall
+  > xor     rdi, rdi ; ret code 0
+  > syscall 
   > EOF
   ["0cond": (R64 0L),
    "0jump": (Ls ""),
@@ -115,19 +109,19 @@ checks multiple functions
   > mov rax, 0xff 
   > 
   > @b: and rdx, rbx
-  > 	and rax, rcx 
-  > 	imul rdx, rax 
-  >     add rbp,rdx 
-  >     shr rbx, 8
-  > 	shr rcx, 8
-  > 	mov rdx, 0xff
-  > 	mov rax, 0xff 
-  > 	cmp rbx, 0
+  > and rax, rcx 
+  > imul rdx, rax 
+  > add rbp,rdx 
+  > shr rbx, 8
+  > shr rcx, 8
+  > mov rdx, 0xff
+  > mov rax, 0xff 
+  > cmp rbx, 0
   > jne @b
   >  ; ------------------------------------
-  >  mov     rax, 60  ; exit syscall
-  >  xor     rdi, rdi ; ret code 0
-  >  syscall 
+  > mov     rax, 60  ; exit syscall
+  > xor     rdi, rdi ; ret code 0
+  > syscall 
   > 
   > EOF
   ["0cond": (R64 0L),
@@ -161,12 +155,12 @@ checks multiple functions
   > v1 db '!3(45) 196'
   > v2 db ".57446-095" 
   > section .text
-  >     movapd     Xmm2, v1
-  >     movapd     Xmm3, v2
-  >     addpd     xmm2, xmm3
-  >     mov     rAx, 60
-  >     xor     rdi, rdi
-  >     syscall
+  > movapd     Xmm2, v1
+  > movapd     Xmm3, v2
+  > addpd     xmm2, xmm3
+  > mov     rAx, 60
+  > xor     rdi, rdi
+  > syscall
   > 
   > EOF
   ["0cond": (R64 0L),

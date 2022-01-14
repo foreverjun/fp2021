@@ -7,20 +7,20 @@ section .text
 
 _start:
 
-   mov rbx, 0x010203040506 ; вектор с элементами 1 2 3 4 5 6
-   mov rcx, 0x060504030201 ; вектор с элементами 6 5 4 3 2 1
-   mov rdx, 0xff
-   mov rax, 0xff 
+mov rbx, 0x010203040506 ; вектор с элементами 1 2 3 4 5 6
+mov rcx, 0x060504030201 ; вектор с элементами 6 5 4 3 2 1
+mov rdx, 0xff
+mov rax, 0xff 
    
 @b: and rdx, rbx
-   and rax, rcx 
-   imul rdx, rax 
-   add rbp,rdx 
-   shr rbx, 8
-   shr rcx, 8
-   mov rdx, 0xff
-   mov rax, 0xff 
-   cmp rbx, 0
+and rax, rcx 
+imul rdx, rax 
+add rbp,rdx 
+shr rbx, 8
+shr rcx, 8
+mov rdx, 0xff
+mov rax, 0xff 
+cmp rbx, 0
 jne @b
 ;------------------------------
 
