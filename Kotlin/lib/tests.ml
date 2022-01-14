@@ -393,7 +393,7 @@ let%test _ =
   match ctx with
   | Error err ->
     (match err with
-    | UnsupportedOperandTypes _ -> true
+    | Typing (UnsupportedOperandTypes _) -> true
     | _ -> false)
   | Ok _ -> raise Test_failed
 ;;
@@ -418,7 +418,7 @@ let%test _ =
   match ctx with
   | Error err ->
     (match err with
-    | UnsupportedOperandTypes _ -> true
+    | Typing (UnsupportedOperandTypes _) -> true
     | _ -> false)
   | Ok _ -> raise Test_failed
 ;;
@@ -443,7 +443,7 @@ let%test _ =
   match ctx with
   | Error err ->
     (match err with
-    | UnsupportedOperandTypes _ -> true
+    | Typing (UnsupportedOperandTypes _) -> true
     | _ -> false)
   | Ok _ -> raise Test_failed
 ;;
@@ -501,7 +501,7 @@ let%test _ =
   match ctx with
   | Error err ->
     (match err with
-    | UnsupportedOperandTypes _ -> true
+    | Typing (UnsupportedOperandTypes _) -> true
     | _ -> false)
   | Ok _ -> raise Test_failed
 ;;
@@ -515,7 +515,7 @@ let%test _ =
   match ctx with
   | Error err ->
     (match err with
-    | UnsupportedOperandTypes _ -> true
+    | Typing (UnsupportedOperandTypes _) -> true
     | _ -> false)
   | Ok _ -> raise Test_failed
 ;;
@@ -562,7 +562,7 @@ let%test _ =
   match ctx with
   | Error err ->
     (match err with
-    | UnsupportedOperandTypes _ -> true
+    | Typing (UnsupportedOperandTypes _) -> true
     | _ -> false)
   | Ok _ -> raise Test_failed
 ;;
@@ -609,7 +609,7 @@ let%test _ =
   match ctx with
   | Error err ->
     (match err with
-    | UnsupportedOperandTypes _ -> true
+    | Typing (UnsupportedOperandTypes _) -> true
     | _ -> false)
   | Ok _ -> raise Test_failed
 ;;
@@ -639,7 +639,7 @@ let%test _ =
   match ctx with
   | Error err ->
     (match err with
-    | UnsupportedOperandTypes _ -> true
+    | Typing (UnsupportedOperandTypes _) -> true
     | _ -> false)
   | Ok _ -> raise Test_failed
 ;;
@@ -820,7 +820,7 @@ let%test _ =
   match ctx with
   | Error err ->
     (match err with
-    | UnsupportedOperandTypes _ -> true
+    | Typing (UnsupportedOperandTypes _) -> true
     | _ -> false)
   | Ok _ -> raise Test_failed
 ;;
@@ -870,7 +870,7 @@ let%test _ =
   match ctx with
   | Error err ->
     (match err with
-    | UnknownVariable "foo" -> true
+    | Interpreter (UnknownVariable "foo") -> true
     | _ -> raise Test_failed)
   | Ok _ -> raise Test_failed
 ;;
@@ -902,7 +902,7 @@ let%test _ =
   match ctx with
   | Error err ->
     (match err with
-    | UnknownFunction "foo" -> true
+    | Interpreter (UnknownFunction "foo") -> true
     | _ -> raise Test_failed)
   | Ok _ -> raise Test_failed
 ;;
