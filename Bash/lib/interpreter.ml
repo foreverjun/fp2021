@@ -108,39 +108,18 @@ end = struct
     | Some stdout, _ :: args
       when try_wr stdout (String.concat " " (List.filter (( <> ) "") args) ^ "\n") -> 0
     | Some _, _ :: _ ->
-      print_err chs "echo: failed to write to stdout";
+      print_err chs "echo (miniBash): failed to write to stdout";
       1
     | None, _ ->
-      print_err chs "echo: stdout is absent";
+      print_err chs "echo (miniBash): stdout is absent";
       1
     | Some _, [] ->
-      print_err chs "echo: no arguments (not even a command name)";
-      1
-  ;;
-
-  let cat argv chs =
-    match argv, IMap.find_opt 0 chs, IMap.find_opt 1 chs with
-    | [ _ ], Some stdin, Some stdout when try_wr stdout (try_read stdin) -> 0
-    | [ _ ], Some _, Some _ ->
-      print_err chs "cat: failed to write to stdout from stdin";
-      1
-    | [ _ ], None, Some _ ->
-      print_err chs "cat: no additional arguments are provided and stdin is absent";
-      1
-    | _ :: _ :: _, _, Some _ ->
-      print_err chs "cat: additional arguments are not yet supported";
-      1
-    | _, _, None ->
-      print_err chs "cat: stdout is absent";
-      1
-    | [], _, _ ->
-      print_err chs "cat: no arguments (not even a command name)";
+      print_err chs "echo (miniBash): no arguments (not even a command name)";
       1
   ;;
 
   let find : string -> t option = function
     | "echo" -> Some echo
-    | "cat" -> Some cat
     | _ -> None
   ;;
 end
@@ -466,10 +445,11 @@ module Eval (M : MonadFail) = struct
     let run_script env cmd argv =
       let try_read =
         let read_from s =
-          if Sys.file_exists s
+          if Sys.file_exists s && not (Sys.is_directory s)
           then (
             let ch = open_in s in
             try Some (really_input_string ch (in_channel_length ch)) with
+            | Sys_error _ -> None
             | End_of_file -> None)
           else None
         in
@@ -506,11 +486,6 @@ module Eval (M : MonadFail) = struct
           vars
           []
       in
-      let dot_to_cwd = function
-        | s when Filename.dirname s = "." ->
-          String.concat Filename.dir_sep [ Sys.getcwd (); Filename.basename s ]
-        | s -> s
-      in
       let open Unix in
       IMap.iter
         (fun n fd ->
@@ -523,9 +498,9 @@ module Eval (M : MonadFail) = struct
         env.chs;
       try
         execvpe
-          (dot_to_cwd cmd)
+          cmd
           (Array.of_list argv)
-          (Array.of_list (vars_to_strs env.vars))
+          (Array.append (Array.of_list (vars_to_strs env.vars)) (environment ()))
       with
       | Unix_error (ENOENT, _, _) ->
         Builtins.print_err env.chs (Printf.sprintf "%s: command not found" cmd);
@@ -557,22 +532,24 @@ module Eval (M : MonadFail) = struct
         let pid = fork () in
         if pid = 0
         then run_script n_env cmd argv <|> fun () -> run_exec n_env cmd argv
-        else
+        else (
+          let rec wait () =
+            try
+              let _, status = Unix.waitpid [] pid in
+              return
+                (match status with
+                | WEXITED retcode -> { env with retcode }
+                | WSIGNALED n | WSTOPPED n -> { env with retcode = 128 + n })
+            with
+            | Sys.Break ->
+              kill pid Sys.sigint;
+              wait ()
+          in
           Fun.protect
             ~finally:(fun () -> Sys.catch_break false)
             (fun () ->
               Sys.catch_break true;
-              try
-                let _, status = Unix.waitpid [] pid in
-                return
-                  (match status with
-                  | WEXITED retcode -> { env with retcode }
-                  | WSIGNALED n | WSTOPPED n -> { env with retcode = 128 + n })
-              with
-              (* 130: script terminated by Ctrl-C *)
-              | Sys.Break ->
-                kill pid Sys.sigkill;
-                return { env with retcode = 130 }))
+              wait ())))
     | Compound (c, rs) ->
       ev_redirs env rs
       >>= fun n_env ->

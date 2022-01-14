@@ -55,7 +55,7 @@ The second echo call doesn't print to stdout but appends to testfile
 cat receives an argument (which is not yet supported) and produces a error message which
 is redirected from stderr to another_testfile (return code 1 is intentional)
   $ ./demoInterpret.exe <<-"EOF"
-  > cat unsupported_argument >another_testfile 2>&1
+  > cat some_nonexistent_file >another_testfile 2>&1
   > EOF
   Interpretation finished with return code: 1
 Another cat call shows the contents of another_testfile that were produced by the previous
@@ -63,7 +63,7 @@ cat call
   $ ./demoInterpret.exe <<-"EOF"
   > cat <another_testfile
   > EOF
-  cat: additional arguments are not yet supported
+  cat: some_nonexistent_file: No such file or directory
   Interpretation finished with return code: 0
 
 Quoting
