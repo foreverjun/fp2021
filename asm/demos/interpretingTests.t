@@ -21,7 +21,7 @@ checks multiple functions
   > section .data
   > message: db 6+1 dup "2"   , "r", 0xA
   > v1 db "Oh hi"
-  > v2 db "\x00\x00\x00\x00\x00, Mark!    "
+  > v2 db "     , Mark!"
   > section .text
   >     syscall
   >   
@@ -51,14 +51,14 @@ checks multiple functions
    "XMM0": (RSSE "\000"),
    "XMM1": (RSSE "\000"),
    "XMM2": (RSSE "Oh hi\000\000\000\000\000\000\000\000\000\000\000"),
-   "XMM3": (RSSE "\\x00\\x00\\x00\\x00\\x00, Mark!    "),
+   "XMM3": (RSSE "     , Mark!"),
    "XMM4": (RSSE "\000"),
    "XMM5": (RSSE "\000"),
    "XMM6": (RSSE "\000"),
    "XMM7": (RSSE "\000"),
    "message": (Ls "22222222222222r\n"),
    "v1": (Ls "Oh hi"),
-   "v2": (Ls "\\x00\\x00\\x00\\x00\\x00, Mark!    "),
+   "v2": (Ls "     , Mark!"),
    ]
 
 2 Factorial
@@ -151,5 +151,44 @@ checks multiple functions
    "XMM5": (RSSE "\000"),
    "XMM6": (RSSE "\000"),
    "XMM7": (RSSE "\000"),
+   ]
+
+4 XMM register
+перемещение данных в регистры и сложение их.
+сумма в XMM2 регистре.
+  $ ./demoAsm.exe <<-EOF
+  > section .data
+  > v1 db '!3(45) 196'
+  > v2 db ".57446-095" 
+  > section .text
+  >     movapd     Xmm2, v1
+  >     movapd     Xmm3, v2
+  >     addpd     xmm2, xmm3
+  >     mov     rAx, 60
+  >     xor     rdi, rdi
+  >     syscall
+  > 
+  > EOF
+  ["0cond": (R64 0L),
+   "0jump": (Ls ""),
+   "0retcode": (R64 0L),
+   "RAX": (R64 60L),
+   "RBP": (R64 0L),
+   "RBX": (R64 0L),
+   "RCX": (R64 0L),
+   "RDI": (R64 0L),
+   "RDX": (R64 0L),
+   "RSI": (R64 0L),
+   "RSP": (R64 0L),
+   "XMM0": (RSSE "\000"),
+   "XMM1": (RSSE "\000"),
+   "XMM2": (RSSE "Oh_hi_Mark\000\000\000\000\000\000"),
+   "XMM3": (RSSE ".57446-095"),
+   "XMM4": (RSSE "\000"),
+   "XMM5": (RSSE "\000"),
+   "XMM6": (RSSE "\000"),
+   "XMM7": (RSSE "\000"),
+   "v1": (Ls "!3(45) 196"),
+   "v2": (Ls ".57446-095"),
    ]
 
