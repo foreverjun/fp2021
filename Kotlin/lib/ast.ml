@@ -35,7 +35,8 @@ type value =
   | AnonymousFunction of function_t
   | Object of object_t
   | NullValue
-  | Unitialized of object_t ref option
+  | Unitialized of int option
+(* Данное значение присваивается переменной, которая была объявлена без инициализации (например, [var x: Int]). При этом, если это не просто переменная, а поле объекта, тогда Unitialized будет содержать identity_code объекта, в котором поле было объявлено *)
 
 and record_content =
   | Variable of variable_t

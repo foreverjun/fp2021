@@ -603,8 +603,11 @@ module Interpret = struct
            , ctx.scope
            , var.value )
          with
-        | true, ObjectInitialization obj, Unitialized (Some obj_of_field)
-          when phys_equal obj obj_of_field -> update_rc_and_return_assign_value_ctx ()
+        | ( true
+          , ObjectInitialization { contents = obj }
+          , Unitialized (Some obj_identity_code) )
+          when obj.identity_code = obj_identity_code ->
+          update_rc_and_return_assign_value_ctx ()
         | true, _, _ when var.mutable_status -> update_rc_and_return_assign_value_ctx ()
         | true, _, _ -> fail (Typing (VariableNotMutable rc.name))
         | false, _, _ ->
@@ -829,7 +832,7 @@ module Interpret = struct
                 let* checked_ctx = monadic_ctx in
                 let* init_value =
                   match init_expression with
-                  | None -> return (Unitialized (Some new_object))
+                  | None -> return (Unitialized (Some !new_object.identity_code))
                   | Some expr ->
                     let* eval_ctx = interpret_expression class_inner_ctx expr in
                     return eval_ctx.last_eval_expression
