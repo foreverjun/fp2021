@@ -20,7 +20,7 @@ let help =
 let interpert_repl_command ctx = function
   | "@help" -> print_endline help
   | "@print_environment" ->
-    List.iter ctx.environment ~f:(fun rc -> print_endline (show_record_t rc))
+    List.iter (get_all_environment ctx) ~f:(fun rc -> print_endline (show_record_t rc))
   | "@last_eval_expression" -> print_endline (show_value ctx.last_eval_expression)
   | str -> printf "No command found [%s]\n" str
 ;;

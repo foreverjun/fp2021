@@ -23,7 +23,7 @@ module Interpret = struct
   [@@deriving show]
 
   and context =
-    { environment : record_t list
+    { environment : record_t list * record_t list
     ; not_nullable_records : record_t list
     ; last_eval_expression : value
           (** Данная переменная используется для сохранения значения последленного исполненого Ast.expression (по умолчанию Unitialized) *)
@@ -35,7 +35,7 @@ module Interpret = struct
     }
 
   let empty_ctx =
-    { environment = []
+    { environment = [], []
     ; not_nullable_records = []
     ; last_eval_expression = Unitialized None
     ; last_return_value = Unitialized None
@@ -79,6 +79,11 @@ module Interpret = struct
     | _ -> false
   ;;
 
+  let get_all_environment ctx =
+    let locals, env = ctx.environment in
+    locals @ env
+  ;;
+
   let get_this_from_ctx ctx =
     match ctx.scope with
     | Method obj | ObjectInitialization obj | AnonymousFunction (Some obj) -> return obj
@@ -107,42 +112,43 @@ module Interpret = struct
   ;;
 
   let define_in_ctx ctx rc =
+    let locals, env = ctx.environment in
     match rc.content with
     | Variable _ ->
       let var_names =
-        List.filter_map ctx.environment ~f:(function rc ->
+        List.filter_map locals ~f:(function rc ->
             (match rc.content with
             | Variable _ -> Some rc.name
             | _ -> None))
       in
       if not (List.mem var_names rc.name ~equal:String.equal)
       then (
-        let new_environment = rc :: ctx.environment in
-        Some { ctx with environment = new_environment })
+        let new_locals = rc :: locals in
+        Some { ctx with environment = new_locals, env })
       else None
     | Function _ ->
       let func_names =
-        List.filter_map ctx.environment ~f:(function rc ->
+        List.filter_map locals ~f:(function rc ->
             (match rc.content with
             | Function _ -> Some rc.name
             | _ -> None))
       in
       if not (List.mem func_names rc.name ~equal:String.equal)
       then (
-        let new_environment = rc :: ctx.environment in
-        Some { ctx with environment = new_environment })
+        let new_locals = rc :: locals in
+        Some { ctx with environment = new_locals, env })
       else None
     | Class _ ->
       let cls_names =
-        List.filter_map ctx.environment ~f:(function rc ->
+        List.filter_map locals ~f:(function rc ->
             (match rc.content with
             | Class _ -> Some rc.name
             | _ -> None))
       in
       if not (List.mem cls_names rc.name ~equal:String.equal)
       then (
-        let new_environment = rc :: ctx.environment in
-        Some { ctx with environment = new_environment })
+        let new_locals = rc :: locals in
+        Some { ctx with environment = new_locals, env })
       else None
   ;;
 
@@ -257,7 +263,7 @@ module Interpret = struct
       | Some (rc, field_content) -> return (rc, field_content)
     in
     let get_var_from_environment_helper () =
-      match get_var_from_env ctx.environment identifier with
+      match get_var_from_env (get_all_environment ctx) identifier with
       | None -> fail (Interpreter (UnknownVariable identifier))
       | Some (rc, var) -> return (rc, var)
     in
@@ -290,12 +296,13 @@ module Interpret = struct
       | Some (meth, meth_content) -> return (`Method (obj, meth, meth_content))
     in
     let get_function_from_environment_helper () =
-      match get_class_from_env ctx.environment identifier with
+      let all_environment = get_all_environment ctx in
+      match get_class_from_env all_environment identifier with
       | None ->
-        (match get_function_from_env ctx.environment identifier with
+        (match get_function_from_env all_environment identifier with
         | Some (rc, func) -> return (`Function (rc, func))
         | None ->
-          (match get_var_from_env ctx.environment identifier with
+          (match get_var_from_env all_environment identifier with
           | None -> fail (Interpreter (UnknownFunction identifier))
           | Some (rc, content) ->
             (match content.value with
@@ -321,6 +328,7 @@ module Interpret = struct
 
   (* TODO: поменять ошибки DereferenceError на что нибудь более осмысленное *)
   let rec check_expression_is_nullable ctx =
+    let all_environment = get_all_environment ctx in
     let check_dereference_nullable obj_expression der_expression =
       check_expression_is_nullable ctx obj_expression
       >>= function
@@ -336,7 +344,7 @@ module Interpret = struct
             (match meth.fun_typename with
             | Nullable _ | Dynamic -> return `Nullable
             | ClassIdentifier identifier ->
-              (match get_class_from_env ctx.environment identifier with
+              (match get_class_from_env all_environment identifier with
               | None -> fail (Interpreter (UnknownClass identifier))
               | Some (_, class_data) -> return (`Class class_data))
             | other -> return (`Primitive other))
@@ -351,7 +359,7 @@ module Interpret = struct
             (match field.var_typename with
             | Nullable _ | Dynamic -> return `Nullable
             | ClassIdentifier identifier ->
-              (match get_class_from_env ctx.environment identifier with
+              (match get_class_from_env all_environment identifier with
               | None -> fail (Interpreter (UnknownClass identifier))
               | Some (_, class_data) -> return (`Class class_data))
             | other -> return (`Primitive other))
@@ -401,7 +409,7 @@ module Interpret = struct
             (match func.fun_typename with
             | Nullable _ -> return true
             | ClassIdentifier identifier ->
-              (match get_class_from_env ctx.environment identifier with
+              (match get_class_from_env all_environment identifier with
               | None -> fail (Interpreter (UnknownClass identifier))
               | Some (_, class_data) ->
                 check_dereference_nullable_helper class_data der_expression)
@@ -447,6 +455,7 @@ module Interpret = struct
 
   let rec interpret_statement ctx stat =
     let exception Return_exception of context in
+    let all_environment = get_all_environment ctx in
     match stat with
     | InitInClass statement_block -> interpret_statement ctx statement_block
     | Block statements ->
@@ -491,11 +500,11 @@ module Interpret = struct
         | None when not (String.equal name "Any") ->
           (* Option.value_exn здесь не должен кидать исключений, так как предполагается, что класс Any обязательно должен быть объявлен *)
           let _, any_class =
-            Option.value_exn (get_class_from_env ctx.environment "Any")
+            Option.value_exn (get_class_from_env all_environment "Any")
           in
           return (Some (any_class, FunctionCall ("Any", [])))
         | Some (class_identifier, arg_expressions) ->
-          (match get_class_from_env ctx.environment class_identifier with
+          (match get_class_from_env all_environment class_identifier with
           | None -> fail (Interpreter (UnknownClass class_identifier))
           | Some (_, found_class) ->
             return (Some (found_class, FunctionCall (class_identifier, arg_expressions))))
@@ -522,7 +531,7 @@ module Interpret = struct
       let rec class_content =
         { classname = name
         ; constructor_args
-        ; clojure = rc :: ctx.environment
+        ; clojure = rc :: all_environment
         ; super_constructor
         ; field_initializers
         ; method_initializers
@@ -542,7 +551,7 @@ module Interpret = struct
       let rec function_content =
         { identity_code = get_unique_identity_code ()
         ; fun_typename
-        ; clojure = rc :: ctx.environment
+        ; clojure = rc :: all_environment
         ; enclosing_object = get_enclosing_object ctx
         ; arguments
         ; statement
@@ -630,6 +639,7 @@ module Interpret = struct
       | _ -> fail (Typing (ExpectedBooleanValue log_expr)))
 
   and interpret_expression ctx expr =
+    let all_environment = get_all_environment ctx in
     let nullable_checker flag ctx expr =
       if flag
       then
@@ -674,7 +684,7 @@ module Interpret = struct
     | AnonymousFunctionDeclaration (arguments, statement) ->
       let func =
         { identity_code = get_unique_identity_code ()
-        ; clojure = ctx.environment
+        ; clojure = all_environment
         ; enclosing_object = get_enclosing_object ctx
         ; fun_typename = Dynamic
         ; arguments
@@ -762,7 +772,7 @@ module Interpret = struct
       | `AnonymousFunction (rc, func) ->
         let new_ctx =
           { ctx with
-            environment = func.clojure
+            environment = [], func.clojure
           ; scope = AnonymousFunction func.enclosing_object
           }
         in
@@ -779,7 +789,9 @@ module Interpret = struct
           ; methods = []
           }
         in
-        let new_ctx = { ctx with environment = class_data.clojure; scope = Function } in
+        let new_ctx =
+          { ctx with environment = [], class_data.clojure; scope = Function }
+        in
         (match define_args new_ctx class_data.constructor_args arg_expressions with
         | Ok constructor_ctx ->
           constructor_ctx
@@ -789,7 +801,7 @@ module Interpret = struct
           | Some (super_class_data, expr) ->
             (match expr with
             | FunctionCall (identifier, _) ->
-              (match get_class_from_env ctx.environment identifier with
+              (match get_class_from_env all_environment identifier with
               | Some (rc, _) when check_record_is_open rc -> return expr
               | Some _ -> fail (Typing (ClassNotOpen identifier))
               | None -> fail (Interpreter (UnknownClass identifier)))
@@ -862,7 +874,7 @@ module Interpret = struct
                 let rec function_content =
                   { identity_code = get_unique_identity_code ()
                   ; fun_typename
-                  ; clojure = rc :: ctx.environment
+                  ; clojure = rc :: all_environment
                   ; enclosing_object = get_enclosing_object ctx
                   ; arguments
                   ; statement
@@ -885,11 +897,11 @@ module Interpret = struct
           return { ctx with last_eval_expression = Object object_with_methods }
         | _ -> fail (Interpreter (FunctionArgumentsCountMismatch class_data.classname)))
       | `Function (rc, func) ->
-        let new_ctx = { ctx with environment = func.clojure; scope = Function } in
+        let new_ctx = { ctx with environment = [], func.clojure; scope = Function } in
         let* eval_ctx = eval_function new_ctx func rc.name in
         return { ctx with last_eval_expression = eval_ctx.last_eval_expression }
       | `Method (obj, rc, meth) ->
-        let new_ctx = { ctx with environment = meth.clojure; scope = Method obj } in
+        let new_ctx = { ctx with environment = [], meth.clojure; scope = Method obj } in
         let* eval_ctx =
           eval_function
             new_ctx

@@ -856,7 +856,7 @@ let%test _ =
 let%test _ =
   let content = { var_typename = Int; mutable_status = false; value = IntValue 1 } in
   let rc = { name = "foo"; modifiers = []; content = Variable content } in
-  let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
+  let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ], [] } in
   let ctx = interpret_expression ctx_with_variable (VarIdentifier "foo") in
   match ctx with
   | Error _ -> raise Test_failed
@@ -890,7 +890,7 @@ let%test _ =
           }
     }
   in
-  let ctx_with_function = { ctx_with_standard_classes with environment = [ rc ] } in
+  let ctx_with_function = { ctx_with_standard_classes with environment = [ rc ], [] } in
   let ctx = interpret_expression ctx_with_function (FunctionCall ("foo", [])) in
   match ctx with
   | Error _ -> raise Test_failed
@@ -944,7 +944,7 @@ let%test _ =
           }
     }
   in
-  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ] } in
+  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ], [] } in
   let ctx =
     interpret_expression
       ctx_with_object
@@ -962,7 +962,7 @@ let%test _ =
     ; content = Variable { var_typename = Int; mutable_status = false; value = NullValue }
     }
   in
-  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ] } in
+  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ], [] } in
   let ctx =
     interpret_expression
       ctx_with_object
@@ -977,7 +977,7 @@ let%test _ =
 let%test _ =
   let content = { var_typename = Int; mutable_status = false; value = IntValue 1 } in
   let rc = { name = "foo"; modifiers = []; content = Variable content } in
-  let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
+  let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ], [] } in
   match check_expression_is_nullable ctx_with_variable (VarIdentifier "foo") with
   | Ok flag when Bool.equal flag false -> true
   | _ -> raise Test_failed
@@ -988,7 +988,7 @@ let%test _ =
     { var_typename = Nullable Int; mutable_status = false; value = IntValue 1 }
   in
   let rc = { name = "foo"; modifiers = []; content = Variable content } in
-  let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ] } in
+  let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ], [] } in
   match check_expression_is_nullable ctx_with_variable (VarIdentifier "foo") with
   | Ok flag when Bool.equal flag true -> true
   | _ -> raise Test_failed
@@ -1009,7 +1009,7 @@ let%test _ =
           }
     }
   in
-  let ctx_with_function = { ctx_with_standard_classes with environment = [ rc ] } in
+  let ctx_with_function = { ctx_with_standard_classes with environment = [ rc ], [] } in
   match check_expression_is_nullable ctx_with_function (FunctionCall ("foo", [])) with
   | Ok flag when Bool.equal flag false -> true
   | _ -> raise Test_failed
@@ -1030,7 +1030,7 @@ let%test _ =
           }
     }
   in
-  let ctx_with_function = { ctx_with_standard_classes with environment = [ rc ] } in
+  let ctx_with_function = { ctx_with_standard_classes with environment = [ rc ], [] } in
   match check_expression_is_nullable ctx_with_function (FunctionCall ("foo", [])) with
   | Ok flag when Bool.equal flag true -> true
   | _ -> raise Test_failed
@@ -1082,7 +1082,7 @@ let%test _ =
           }
     }
   in
-  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ] } in
+  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ], [] } in
   match
     check_expression_is_nullable
       ctx_with_object
@@ -1138,7 +1138,7 @@ let%test _ =
           }
     }
   in
-  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ] } in
+  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ], [] } in
   match
     check_expression_is_nullable
       ctx_with_object
@@ -1194,7 +1194,7 @@ let%test _ =
           }
     }
   in
-  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ] } in
+  let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ], [] } in
   match
     check_expression_is_nullable
       ctx_with_object
