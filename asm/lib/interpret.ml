@@ -546,54 +546,11 @@ let empty_env = MapString.empty
 (* (var_t MapString.t * command list) M.t *)
 let succ_prepr ?(env = empty_env) giv exp_env exp_res =
   match prepr env giv with
-  | Error e ->
-      Printf.printf "Error: %s\n" e;
-      false
   | Ok res when (exp_env, exp_res) = res -> true
-  | Ok (act_env, list) ->
-      print_string "\n-------------------- Input --------------------\n";
-      pp_directive Format.std_formatter giv;
-      Format.pp_print_flush Format.std_formatter ();
-      print_string "\n------------- Actual Environment --------------\n";
-      pp_env Format.std_formatter act_env;
-      Format.pp_print_flush Format.std_formatter ();
-      print_string "\n------------- Expected Environment ------------\n";
-      pp_env Format.std_formatter exp_env;
-      Format.pp_print_flush Format.std_formatter ();
-      print_string "\n----------------- Actual Result ---------------\n";
-      pp_simpl_dir Format.std_formatter list;
-      Format.pp_print_flush Format.std_formatter ();
-      print_string "\n---------------- Expected Result --------------\n";
-      pp_simpl_dir Format.std_formatter exp_res;
-      Format.pp_print_flush Format.std_formatter ();
-      print_string "\n-----------------------------------------------\n";
-      flush stdout;
-      false
+  | _ -> false
 
 let fail_prepr ?(env = empty_env) giv exp_res =
-  match prepr env giv with
-  | Error e when exp_res = e -> true
-  | Error e ->
-      print_string "\n-------------------- Input --------------------\n";
-      pp_directive Format.std_formatter giv;
-      Format.pp_print_flush Format.std_formatter ();
-      print_string "\n--------------- Unexpected error --------------\n";
-      print_string e;
-      print_string "\n-----------------------------------------------\n";
-      flush stdout;
-      false
-  | Ok (act_env, list) ->
-      print_string "\n-------------------- Input --------------------\n";
-      pp_directive Format.std_formatter giv;
-      Format.pp_print_flush Format.std_formatter ();
-      print_string "\n------------- Actual Environment --------------\n";
-      pp_env Format.std_formatter act_env;
-      Format.pp_print_flush Format.std_formatter ();
-      print_string "\n----------------- Actual Result ---------------\n";
-      pp_simpl_dir Format.std_formatter list;
-      Format.pp_print_flush Format.std_formatter ();
-      flush stdout;
-      false
+  match prepr env giv with Error e when exp_res = e -> true | _ -> false
 
 let%test _ =
   succ_prepr
@@ -642,46 +599,13 @@ let succ_simpl_dir =
 (* (var_t MapString.t *)
 let succ_inter env giv exp_env =
   match interpret (env, giv) with
-  | Error e ->
-      Printf.printf "Error: %s\n" e;
-      false
   | Ok res when exp_env = res -> true
-  | Ok res ->
-      print_string "\n-------------------- Input --------------------\n";
-      pp_simpl_dir Format.std_formatter giv;
-      Format.pp_print_flush Format.std_formatter ();
-      print_string "\n------------- Actual Environment --------------\n";
-      pp_env Format.std_formatter res;
-      Format.pp_print_flush Format.std_formatter ();
-      print_string "\n------------- Expected Environment ------------\n";
-      pp_env Format.std_formatter exp_env;
-      Format.pp_print_flush Format.std_formatter ();
-      print_string "\n-----------------------------------------------\n";
-      flush stdout;
-      false
+  | _ -> false
 
 let fail_inter ?(env = MapString.of_list reg_list) giv exp_res =
   match interpret (env, giv) with
   | Error e when exp_res = e -> true
-  | Error e ->
-      print_string "\n-------------------- Input --------------------\n";
-      pp_simpl_dir Format.std_formatter giv;
-      Format.pp_print_flush Format.std_formatter ();
-      print_string "\n--------------- Unexpected error --------------\n";
-      print_string e;
-      print_string "\n-----------------------------------------------\n";
-      flush stdout;
-      false
-  | Ok act_env ->
-      print_string "\n-------------------- Input --------------------\n";
-      pp_simpl_dir Format.std_formatter giv;
-      Format.pp_print_flush Format.std_formatter ();
-      print_string "\n------------- Actual Environment --------------\n";
-      pp_env Format.std_formatter act_env;
-      Format.pp_print_flush Format.std_formatter ();
-      print_string "\n-----------------------------------------------\n";
-      flush stdout;
-      false
+  | _ -> false
 
 let%test _ = fail_inter [] "Segmentation fault (core dumped)"
 
