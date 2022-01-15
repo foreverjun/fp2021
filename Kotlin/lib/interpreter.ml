@@ -15,7 +15,7 @@ module Interpret = struct
   type scope_type =
     | Initialize
     | Function
-    | ObjectInitialization of object_t ref
+    | ObjectInitialization of object_t
     | DereferencedObject of object_t * context
     | ThisDereferencedObject of object_t * context
     | Method of object_t
@@ -81,8 +81,7 @@ module Interpret = struct
 
   let get_this_from_ctx ctx =
     match ctx.scope with
-    | Method obj | ObjectInitialization { contents = obj } | AnonymousFunction (Some obj)
-      -> return obj
+    | Method obj | ObjectInitialization obj | AnonymousFunction (Some obj) -> return obj
     | _ -> fail (Interpreter ThisIsNotDefined)
   ;;
 
@@ -237,8 +236,7 @@ module Interpret = struct
 
   let rec get_enclosing_object ctx =
     match ctx.scope with
-    | Method obj | ObjectInitialization { contents = obj } | AnonymousFunction (Some obj)
-      -> Some obj
+    | Method obj | ObjectInitialization obj | AnonymousFunction (Some obj) -> Some obj
     | DereferencedObject (_, outer_ctx) | ThisDereferencedObject (_, outer_ctx) ->
       get_enclosing_object outer_ctx
     | _ -> None
@@ -264,8 +262,7 @@ module Interpret = struct
       | Some (rc, var) -> return (rc, var)
     in
     match ctx.scope with
-    | ObjectInitialization { contents = obj } | Method obj | AnonymousFunction (Some obj)
-      ->
+    | ObjectInitialization obj | Method obj | AnonymousFunction (Some obj) ->
       (match get_var_from_dereference_helper obj true with
       | Ok ctx -> return ctx
       | Error _ -> get_var_from_environment_helper ())
@@ -308,8 +305,7 @@ module Interpret = struct
       | Some (rc, class_data) -> return (`Class (rc, class_data))
     in
     match ctx.scope with
-    | ObjectInitialization { contents = obj } | Method obj | AnonymousFunction (Some obj)
-      ->
+    | ObjectInitialization obj | Method obj | AnonymousFunction (Some obj) ->
       (match get_function_from_dereference_helper obj true with
       | Ok ctx -> return ctx
       | Error _ -> get_function_from_environment_helper ())
@@ -603,9 +599,7 @@ module Interpret = struct
            , ctx.scope
            , var.value )
          with
-        | ( true
-          , ObjectInitialization { contents = obj }
-          , Unitialized (Some obj_identity_code) )
+        | true, ObjectInitialization obj, Unitialized (Some obj_identity_code)
           when obj.identity_code = obj_identity_code ->
           update_rc_and_return_assign_value_ctx ()
         | true, _, _ when var.mutable_status -> update_rc_and_return_assign_value_ctx ()
@@ -778,13 +772,12 @@ module Interpret = struct
         return { ctx with last_eval_expression = eval_ctx.last_eval_expression }
       | `Class (rc, class_data) ->
         let new_object =
-          ref
-            { identity_code = get_unique_identity_code ()
-            ; super = None
-            ; obj_class = class_data
-            ; fields = []
-            ; methods = []
-            }
+          { identity_code = get_unique_identity_code ()
+          ; super = None
+          ; obj_class = class_data
+          ; fields = []
+          ; methods = []
+          }
         in
         let new_ctx = { ctx with environment = class_data.clojure; scope = Function } in
         (match define_args new_ctx class_data.constructor_args arg_expressions with
@@ -792,7 +785,7 @@ module Interpret = struct
           constructor_ctx
           >>= fun class_ctx ->
           (match class_data.super_constructor with
-          | None -> return class_ctx
+          | None -> return (new_object, class_ctx)
           | Some (super_class_data, expr) ->
             (match expr with
             | FunctionCall (identifier, _) ->
@@ -807,21 +800,17 @@ module Interpret = struct
             return sup_ctx.last_eval_expression
             >>= (function
             | Object super_object ->
-              new_object := { !new_object with super = Some super_object };
-              return class_ctx
+              return ({ new_object with super = Some super_object }, class_ctx)
             | _ ->
               failwith
                 "Should not reach here. Class constructor should always produce an object"))
-          >>= fun evaluated_constructor_ctx ->
-          return
-            { evaluated_constructor_ctx with scope = ObjectInitialization new_object }
-          >>= fun class_inner_ctx ->
-          let* class_with_fields_inner_ctx =
+          >>= fun (object_with_super, class_inner_ctx) ->
+          let* object_with_fields =
             List.fold
               class_data.field_initializers
-              ~init:(return class_inner_ctx)
+              ~init:(return object_with_super)
               ~f:(fun
-                   monadic_ctx
+                   obj
                    { modifiers
                    ; var_modifier
                    ; identifier = name
@@ -829,17 +818,17 @@ module Interpret = struct
                    ; init_expression
                    }
                  ->
-                let* checked_ctx = monadic_ctx in
+                let* initializing_object = obj in
                 let* init_value =
                   match init_expression with
-                  | None -> return (Unitialized (Some !new_object.identity_code))
+                  | None -> return (Unitialized (Some initializing_object.identity_code))
                   | Some expr ->
                     let* eval_ctx = interpret_expression class_inner_ctx expr in
                     return eval_ctx.last_eval_expression
                 in
                 match
                   define_in_object
-                    !new_object
+                    initializing_object
                     { name
                     ; modifiers
                     ; content =
@@ -854,16 +843,14 @@ module Interpret = struct
                     }
                 with
                 | None -> fail (Interpreter (Redeclaration name))
-                | Some updated_object ->
-                  new_object := updated_object;
-                  return checked_ctx)
+                | Some updated_object -> return updated_object)
           in
-          let* class_with_methods_inner_ctx =
+          let* object_with_methods =
             List.fold
               class_data.method_initializers
-              ~init:(return class_with_fields_inner_ctx)
+              ~init:(return object_with_fields)
               ~f:(fun
-                   monadic_ctx
+                   obj
                    { modifiers
                    ; identifier = name
                    ; args = arguments
@@ -871,7 +858,7 @@ module Interpret = struct
                    ; fun_statement = statement
                    }
                  ->
-                let* checked_ctx = monadic_ctx in
+                let* initializing_object = obj in
                 let rec function_content =
                   { identity_code = get_unique_identity_code ()
                   ; fun_typename
@@ -881,19 +868,21 @@ module Interpret = struct
                   ; statement
                   }
                 and rc = { name; modifiers; content = Function function_content } in
-                match define_in_object !new_object rc with
+                match define_in_object initializing_object rc with
                 | None -> fail (Interpreter (Redeclaration name))
-                | Some updated_object ->
-                  new_object := updated_object;
-                  return checked_ctx)
+                | Some updated_object -> return updated_object)
+          in
+          let initialize_ctx =
+            { class_inner_ctx with scope = ObjectInitialization object_with_methods }
           in
           List.fold
             class_data.init_statements
-            ~init:(return class_with_methods_inner_ctx)
+            ~init:(return initialize_ctx)
             ~f:(fun monadic_ctx stat ->
               let* checked_ctx = monadic_ctx in
               interpret_statement checked_ctx stat)
-          >>= fun _ -> return { ctx with last_eval_expression = Object !new_object }
+          >>= fun _ ->
+          return { ctx with last_eval_expression = Object object_with_methods }
         | _ -> fail (Interpreter (FunctionArgumentsCountMismatch class_data.classname)))
       | `Function (rc, func) ->
         let new_ctx = { ctx with environment = func.clojure; scope = Function } in
@@ -911,9 +900,7 @@ module Interpret = struct
     | Const x -> return { ctx with last_eval_expression = x }
     | This ->
       (match ctx.scope with
-      | ObjectInitialization { contents = obj }
-      | Method obj
-      | AnonymousFunction (Some obj) ->
+      | ObjectInitialization obj | Method obj | AnonymousFunction (Some obj) ->
         return { ctx with last_eval_expression = Object obj }
       | _ -> fail (Interpreter ThisIsNotDefined))
     | VarIdentifier identifier ->
