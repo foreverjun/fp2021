@@ -1,6 +1,5 @@
 open Angstrom
 open Ast
-open Format
 
 let is_space = function
   | ' ' | '\t' | '\n' | '\r' -> true
@@ -114,57 +113,9 @@ let pid =
 ;;
 
 let ptupple pelm = pparens @@ sep_by (pstoken ",") pelm
-let pvarty = ptoken (string "'" *> pid)
 let pexc1 = pstoken "Exc1" *> return exc1
 let pexc2 = pstoken "Exc2" *> return exc2
 let pexc = pexc1 <|> pexc2
-let peff_exc = eff_exc <$> pstoken "exc " *> pexc
-let peff_io = pstoken "IO" *> return eff_io
-let peff_asgmt = pstoken "Asgmt" *> return eff_asgmt
-let peff_var = eff_var <$> pvarty
-let peff = choice [ peff_exc; peff_io; peff_asgmt; peff_var ]
-
-let peffs =
-  EffSet.of_list
-  <$> choice
-        [ (fun _ -> all_effs) <$> pstoken "->"
-        ; (fun _ -> []) <$> pstoken "-->"
-        ; pstoken "-[" *> sep_by (pstoken ",") peff <* pstoken "]->"
-        ]
-;;
-
-let ptunit = pstoken "unit" *> return t_unit
-let ptint = pstoken "int" *> return t_int
-let ptstring = pstoken "string" *> return t_string
-let ptbool = pstoken "bool" *> return t_bool
-let ptexc = t_exc <$> pexc
-let ptlist pty = t_list <$> (pty <* pstoken1 "list")
-let ptref pty = t_ref <$> (pty <* pstoken1 "ref")
-let ptvar = t_var <$> pvarty
-let ptfun = (fun effs ty1 ty2 -> t_fun ty1 effs ty2) <$> peffs
-let ptlist = pstoken "list" *> return t_list
-let ptref = pstoken "ref" *> return t_ref
-
-let pty =
-  fix
-  @@ fun pty ->
-  let term = choice [ pparens pty; ptunit; ptint; ptstring; ptbool; ptexc; ptvar ] in
-  let term =
-    lift2
-      (fun ty mods -> List.fold_left (fun ty modif -> modif ty) ty mods)
-      term
-      (many (ptlist <|> ptref))
-  in
-  let term =
-    (fun l ->
-      match l with
-      | [ ty ] -> ty
-      | _ -> t_tuple l)
-    <$> sep_by1 (pstoken "*") term
-    <|> pstoken "()" *> return t_unit
-  in
-  chainr1 term ptfun
-;;
 
 let psign =
   choice [ pstoken "+" *> return 1; pstoken "-" *> return (-1); pstoken "" *> return 1 ]
@@ -187,8 +138,8 @@ let pcstring =
 ;;
 
 let pcbool = c_bool <$> (pstoken "true" *> return true <|> pstoken "false" *> return false)
-let pcempty_list = pstoken "[]" *> return c_empty_list
-let pconst = choice [ pcint; pcstring; pcbool; pcempty_list ]
+let pcnil = pstoken "[]" *> return c_nil
+let pconst = choice [ pcint; pcstring; pcbool; pcnil ]
 let ppval = p_val <$> pid
 let ppconst = p_const <$> pconst
 
@@ -215,11 +166,10 @@ let ppatrn =
 
 let pdecl_base pexpr =
   pstoken "let"
-  *> lift4
-       (fun is_rec name ty expr -> { is_rec; name; ty; expr })
+  *> lift3
+       (fun is_rec name expr -> { is_rec; name; expr })
        (pstoken1 "rec" *> return true <|> return false)
        (ptoken1 pid)
-       (pstoken ":" *> pty)
        (pstoken "=" *> pexpr)
 ;;
 
@@ -235,15 +185,8 @@ let pematch pexpr =
     (many1 @@ pcase ppatrn pexpr)
 ;;
 
-let pparm =
-  fix
-  @@ fun pparam ->
-  pparens pparam <|> lift2 (fun s t -> s, t) (ptoken pid <* pstoken ":") pty
-;;
-
 let pefun pexpr =
-  pstoken "fun"
-  *> lift2 (fun (s, t) e -> e_fun s t e) (ptoken1 pparm <* pstoken "->") pexpr
+  pstoken "fun" *> lift2 (fun s e -> e_fun s e) (ptoken1 pid <* pstoken "->") pexpr
 ;;
 
 let peapp pexpr = lift2 e_app pexpr (ptoken1 pexpr)
@@ -255,26 +198,15 @@ let petry pexpr =
     (many1 @@ pcase pexc pexpr)
 ;;
 
-let pebinop chain1 term pbinops =
-  chain1 term ((fun op expr1 expr2 -> e_binop expr1 op expr2) <$> pbinops)
+let pebinop chain1 term binops =
+  chain1
+    term
+    ((fun op expr1 expr2 -> e_app (e_app (e_val op) expr1) expr2)
+    <$> choice (List.map pstoken binops))
 ;;
 
 let pelbinop = pebinop chainl1
 let perbinop = pebinop chainr1
-let pmul = pstoken "*" *> return mul
-let pdiv = pstoken "/" *> return div
-let padd = pstoken "+" *> return add
-let psub = pstoken "-" *> return sub
-let pcons = pstoken "::" *> return cons
-let pneq = pstoken "!=" *> return neq
-let peq = pstoken "=" *> return eq
-let pleq = pstoken "<=" *> return leq
-let ples = pstoken "<" *> return les
-let pgeq = pstoken ">=" *> return geq
-let pgre = pstoken ">" *> return gre
-let pand = pstoken "&&" *> return and_
-let por = pstoken "||" *> return or_
-let pasgmt = pstoken ":=" *> return asgmt
 
 let pexpr =
   fix (fun pexpr ->
@@ -283,7 +215,7 @@ let pexpr =
       in
       let term =
         lift2
-          (fun l expr -> List.fold_left (fun expr _ -> e_unop deref expr) expr l)
+          (fun l expr -> List.fold_left (fun expr _ -> e_app (e_val "~!") expr) expr l)
           (many (pstoken "!"))
           term
       in
@@ -292,16 +224,16 @@ let pexpr =
       in
       let term =
         lift2
-          (fun l expr -> List.fold_left (fun expr _ -> e_unop neg expr) expr l)
+          (fun l expr -> List.fold_left (fun expr _ -> e_app (e_val "~-") expr) expr l)
           (many (pstoken "-"))
           term
       in
-      let term = pelbinop term (pmul <|> pdiv) in
-      let term = pelbinop term (padd <|> psub) in
-      let term = perbinop term pcons in
-      let term = pelbinop term (choice [ pneq; peq; pleq; ples; pgeq; pgre ]) in
-      let term = perbinop term pand in
-      let term = perbinop term por in
+      let term = pelbinop term [ "*"; "/" ] in
+      let term = pelbinop term [ "+"; "-" ] in
+      let term = perbinop term [ "::" ] in
+      let term = pelbinop term [ "!="; "="; "<="; "<"; ">="; ">" ] in
+      let term = perbinop term [ "&&" ] in
+      let term = perbinop term [ "||" ] in
       let term =
         (fun l ->
           match l with
@@ -309,401 +241,11 @@ let pexpr =
           | _ -> ETuple l)
         <$> sep_by1 (pstoken ",") term
       in
-      let term = perbinop term pasgmt in
+      let term = perbinop term [ ":=" ] in
       choice [ pelet pexpr; pematch pexpr; pefun pexpr; petry pexpr; term ])
 ;;
 
 let pdecl = ptoken (pdecl_base pexpr)
 let pdecl_delim = many (pstoken ";;") *> pspace
 let pprogram = pdecl_delim *> many (pdecl <* pdecl_delim)
-let parse s = parse_string ~consume:Consume.All pprogram s
-
-let parse_or_exit s =
-  match parse s with
-  | Ok ast -> ast
-  | Error err ->
-    eprintf "Parsing error: %s\n%!" err;
-    exit 1
-;;
-
-(* Tests *)
-
-let test_parse str expected =
-  match parse str with
-  | Error err ->
-    printf "%s\n" err;
-    false
-  | Ok actual ->
-    let is_eq = List.equal equal_decl expected actual in
-    if is_eq
-    then ()
-    else printf "Expected: %a\nActual: %a\n" pp_program expected pp_program actual;
-    is_eq
-;;
-
-let%test _ = test_parse "" []
-
-let%test _ = test_parse {|
-;;;;
-;;
-;;
-|} []
-
-let%test _ =
-  test_parse
-    {|
-let rec map : ('a -['e]-> 'b) --> 'a list -['e]-> 'b list = fun f: ('a -['e]-> 'b) -> fun xs : 'a list ->
-  match xs with
-  | [] -> []
-  | x::xs -> (f x) :: (map f xs)
-;;
-let id: 'a --> 'a = fun x: 'a -> x
-;;
-|}
-    [ { is_rec = true
-      ; name = "map"
-      ; ty =
-          TFun
-            ( TFun (TVar "a", EffSet.of_list [ EffVar "e" ], TVar "b")
-            , EffSet.of_list []
-            , TFun (TList (TVar "a"), EffSet.of_list [ EffVar "e" ], TList (TVar "b")) )
-      ; expr =
-          EFun
-            ( "f"
-            , TFun (TVar "a", EffSet.of_list [ EffVar "e" ], TVar "b")
-            , EFun
-                ( "xs"
-                , TList (TVar "a")
-                , EMatch
-                    ( EVal "xs"
-                    , [ PConst CEmptyList, EConst CEmptyList
-                      ; ( PCons ([ PVal "x" ], PVal "xs")
-                        , EBinop
-                            ( EApp (EVal "f", EVal "x")
-                            , Cons
-                            , EApp (EApp (EVal "map", EVal "f"), EVal "xs") ) )
-                      ] ) ) )
-      }
-    ; { is_rec = false
-      ; name = "id"
-      ; ty = TFun (TVar "a", EffSet.of_list [], TVar "a")
-      ; expr = EFun ("x", TVar "a", EVal "x")
-      }
-    ]
-;;
-
-let%test _ =
-  test_parse
-    {|
-let rec map2 : ('a --> 'b -['e]-> 'c) --> 'a list --> 'b list -['e, exc Exc1]-> 'c list = 
-  fun (f: ('a --> 'b -['e]-> 'c)) ->
-    fun l1: 'a list -> fun l2: 'b list ->
-  match (l1, l2) with
-  | ([], []) -> []
-  | (a1::l1, a2::l2) -> let r: 'c = f a1 a2 in r :: map2 f l1 l2
-  | (o1, o2) -> raise1 ()
-;;
-|}
-    [ { is_rec = true
-      ; name = "map2"
-      ; ty =
-          TFun
-            ( TFun
-                ( TVar "a"
-                , EffSet.of_list []
-                , TFun (TVar "b", EffSet.of_list [ EffVar "e" ], TVar "c") )
-            , EffSet.of_list []
-            , TFun
-                ( TList (TVar "a")
-                , EffSet.of_list []
-                , TFun
-                    ( TList (TVar "b")
-                    , EffSet.of_list [ EffExc Exc1; EffVar "e" ]
-                    , TList (TVar "c") ) ) )
-      ; expr =
-          EFun
-            ( "f"
-            , TFun
-                ( TVar "a"
-                , EffSet.of_list []
-                , TFun (TVar "b", EffSet.of_list [ EffVar "e" ], TVar "c") )
-            , EFun
-                ( "l1"
-                , TList (TVar "a")
-                , EFun
-                    ( "l2"
-                    , TList (TVar "b")
-                    , EMatch
-                        ( ETuple [ EVal "l1"; EVal "l2" ]
-                        , [ ( PTuple [ PConst CEmptyList; PConst CEmptyList ]
-                            , EConst CEmptyList )
-                          ; ( PTuple
-                                [ PCons ([ PVal "a1" ], PVal "l1")
-                                ; PCons ([ PVal "a2" ], PVal "l2")
-                                ]
-                            , ELet
-                                ( { is_rec = false
-                                  ; name = "r"
-                                  ; ty = TVar "c"
-                                  ; expr = EApp (EApp (EVal "f", EVal "a1"), EVal "a2")
-                                  }
-                                , EBinop
-                                    ( EVal "r"
-                                    , Cons
-                                    , EApp
-                                        ( EApp (EApp (EVal "map2", EVal "f"), EVal "l1")
-                                        , EVal "l2" ) ) ) )
-                          ; ( PTuple [ PVal "o1"; PVal "o2" ]
-                            , EApp (EVal "raise1", ETuple []) )
-                          ] ) ) ) )
-      }
-    ]
-;;
-
-let%test _ =
-  test_parse
-    {|
-let x: int ref = ref 1
-;;
-let o: () = x := !x + 1
-;;
-let result: int = !x
-;;
-|}
-    [ { is_rec = false
-      ; name = "x"
-      ; ty = TRef TInt
-      ; expr = EApp (EVal "ref", EConst (CInt 1))
-      }
-    ; { is_rec = false
-      ; name = "o"
-      ; ty = TTuple []
-      ; expr =
-          EBinop (EVal "x", Asgmt, EBinop (EUnop (Deref, EVal "x"), Add, EConst (CInt 1)))
-      }
-    ; { is_rec = false; name = "result"; ty = TInt; expr = EUnop (Deref, EVal "x") }
-    ]
-;;
-
-let%test _ =
-  test_parse
-    {|
-let f: bool -[exc Exc1, exc Exc2]-> string = fun flag: bool ->
-  match flag with
-  | true -> raise1 ()
-  | false -> raise2 ()
-;;
-let s: string = try f true with
-| Exc1 -> raise2 ()
-| Exc2 -> "literal"
-|}
-    [ { is_rec = false
-      ; name = "f"
-      ; ty = TFun (TBool, EffSet.of_list [ EffExc Exc1; EffExc Exc2 ], TString)
-      ; expr =
-          EFun
-            ( "flag"
-            , TBool
-            , EMatch
-                ( EVal "flag"
-                , [ PConst (CBool true), EApp (EVal "raise1", ETuple [])
-                  ; PConst (CBool false), EApp (EVal "raise2", ETuple [])
-                  ] ) )
-      }
-    ; { is_rec = false
-      ; name = "s"
-      ; ty = TString
-      ; expr =
-          ETry
-            ( EApp (EVal "f", EConst (CBool true))
-            , [ Exc1, EApp (EVal "raise2", ETuple []); Exc2, EConst (CString "literal") ]
-            )
-      }
-    ]
-;;
-
-let%test _ =
-  test_parse
-    {|
-let b: bool = false || (1 + 3) * 2 + 10 >= 24 / 2 - 1 && 5 + 2 * 2 = 9
-|}
-    [ { is_rec = false
-      ; name = "b"
-      ; ty = TBool
-      ; expr =
-          EBinop
-            ( EConst (CBool false)
-            , Or
-            , EBinop
-                ( EBinop
-                    ( EBinop
-                        ( EBinop
-                            ( EBinop (EConst (CInt 1), Add, EConst (CInt 3))
-                            , Mul
-                            , EConst (CInt 2) )
-                        , Add
-                        , EConst (CInt 10) )
-                    , Geq
-                    , EBinop
-                        ( EBinop (EConst (CInt 24), Div, EConst (CInt 2))
-                        , Sub
-                        , EConst (CInt 1) ) )
-                , And
-                , EBinop
-                    ( EBinop
-                        ( EConst (CInt 5)
-                        , Add
-                        , EBinop (EConst (CInt 2), Mul, EConst (CInt 2)) )
-                    , Eq
-                    , EConst (CInt 9) ) ) )
-      }
-    ]
-;;
-
-let%test _ =
-  test_parse
-    {|
-let x: int = a1, a2 || a3 && a4 != a5 = a6 >= a7 > a8 <= a9 < a10 :: a11 - a12 * -a13 a14 !a15 / a16 + a17
-|}
-    [ { is_rec = false
-      ; name = "x"
-      ; ty = TInt
-      ; expr =
-          ETuple
-            [ EVal "a1"
-            ; EBinop
-                ( EVal "a2"
-                , Or
-                , EBinop
-                    ( EVal "a3"
-                    , And
-                    , EBinop
-                        ( EBinop
-                            ( EBinop
-                                ( EBinop
-                                    ( EBinop
-                                        (EBinop (EVal "a4", Neq, EVal "a5"), Eq, EVal "a6")
-                                    , Geq
-                                    , EVal "a7" )
-                                , Gre
-                                , EVal "a8" )
-                            , Leq
-                            , EVal "a9" )
-                        , Les
-                        , EBinop
-                            ( EVal "a10"
-                            , Cons
-                            , EBinop
-                                ( EBinop
-                                    ( EVal "a11"
-                                    , Sub
-                                    , EBinop
-                                        ( EBinop
-                                            ( EVal "a12"
-                                            , Mul
-                                            , EUnop
-                                                ( Neg
-                                                , EApp
-                                                    ( EApp (EVal "a13", EVal "a14")
-                                                    , EUnop (Deref, EVal "a15") ) ) )
-                                        , Div
-                                        , EVal "a16" ) )
-                                , Add
-                                , EVal "a17" ) ) ) ) )
-            ]
-      }
-    ]
-;;
-
-let%test _ =
-  test_parse
-    "let x: unit = f g h"
-    [ { is_rec = false
-      ; name = "x"
-      ; ty = TTuple []
-      ; expr = EApp (EApp (EVal "f", EVal "g"), EVal "h")
-      }
-    ]
-;;
-
-let%test _ =
-  test_parse
-    "let x: unit = 8 / 4 / 2"
-    [ { is_rec = false
-      ; name = "x"
-      ; ty = TTuple []
-      ; expr =
-          EBinop (EBinop (EConst (CInt 8), Div, EConst (CInt 4)), Div, EConst (CInt 2))
-      }
-    ]
-;;
-
-let%test _ =
-  test_parse
-    "let x: unit = a1 > a2 > a3 = a4 <= a5"
-    [ { is_rec = false
-      ; name = "x"
-      ; ty = TTuple []
-      ; expr =
-          EBinop
-            ( EBinop
-                ( EBinop (EBinop (EVal "a1", Gre, EVal "a2"), Gre, EVal "a3")
-                , Eq
-                , EVal "a4" )
-            , Leq
-            , EVal "a5" )
-      }
-    ]
-;;
-
-let%test _ =
-  test_parse
-    "let x: unit = b1 && b2 && b3"
-    [ { is_rec = false
-      ; name = "x"
-      ; ty = TTuple []
-      ; expr = EBinop (EVal "b1", And, EBinop (EVal "b2", And, EVal "b3"))
-      }
-    ]
-;;
-
-let%test _ =
-  test_parse
-    "let x: unit = b1 || b2 || b3"
-    [ { is_rec = false
-      ; name = "x"
-      ; ty = TTuple []
-      ; expr = EBinop (EVal "b1", Or, EBinop (EVal "b2", Or, EVal "b3"))
-      }
-    ]
-;;
-
-let%test _ =
-  test_parse
-    "let x: unit = e1 :: e2 :: e3 :: e4 :: []"
-    [ { is_rec = false
-      ; name = "x"
-      ; ty = TTuple []
-      ; expr =
-          EBinop
-            ( EVal "e1"
-            , Cons
-            , EBinop
-                ( EVal "e2"
-                , Cons
-                , EBinop (EVal "e3", Cons, EBinop (EVal "e4", Cons, EConst CEmptyList)) )
-            )
-      }
-    ]
-;;
-
-let%test _ =
-  test_parse
-    "let x: unit = a := b:= c"
-    [ { is_rec = false
-      ; name = "x"
-      ; ty = TTuple []
-      ; expr = EBinop (EVal "a", Asgmt, EBinop (EVal "b", Asgmt, EVal "c"))
-      }
-    ]
-;;
+let parse_program s = parse_string ~consume:Consume.All pprogram s
