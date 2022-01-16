@@ -171,7 +171,9 @@ let pack =
           trim (between lsb rsb (sep_by (token ";") (d.pat d))) >>| plist in
         let prim =
           trim @@ choice [pconst; pvar; pwild; plist; parens @@ d.pat d] in
-        trim (lift2 pacase constr_id (empty1 *> d.adt d) <|> prim) ) in
+        trim
+          ( lift2 pacase constr_id (option (PTuple []) (empty1 *> d.adt d))
+          <|> prim ) ) in
   let cons d = fix (fun _self -> chainr1 (d.adt d) popcons) in
   {tuple; cons; pat; adt}
 
@@ -231,8 +233,8 @@ let pack =
     let prim =
       trim
       @@ choice
-           [lst >>| elist; uns_const >>| econst; id >>| evar; parens @@ d.expr d]
-    in
+           [ lst >>| elist; uns_const >>| econst; id >>| evar; parens @@ d.expr d
+           ; (constr_id >>| fun s -> EConstr (s, ETuple [])) ] in
     let helper op pl pr =
       let rec go acc =
         lift2 (fun f x -> f acc x) op (choice [pl >>= go; pr]) <|> return acc
@@ -240,8 +242,8 @@ let pack =
       pl >>= go in
     let app_op =
       trim
-        ( chainl1 prim eapp
-        <|> lift2 (fun id prim -> EConstr (id, prim)) constr_id prim ) in
+        ( lift2 (fun id prim -> EConstr (id, prim)) constr_id prim
+        <|> chainl1 prim eapp ) in
     trim
     @@ List.fold_right
          [mult_div; add_sub; cons; cmp; eq_uneq; conj; disj]
@@ -278,7 +280,9 @@ let tyexp =
 (* Decl parsing *)
 
 let aconstr =
-  lift2 aconstr (token "|" *> constr_id) (empty1 *> token "of" *> tyexp)
+  lift2 aconstr
+    (token "|" *> constr_id)
+    (option (TTuple []) (empty1 *> token "of" *> tyexp))
 
 let decl =
   let dlet =
