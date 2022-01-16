@@ -50,3 +50,22 @@
   val fibonacci = <fun>
   val x = 55
   $$$$
+  $ ./demoOcamlADT.exe <<-EOF
+  >  type person = | Age of int | Name of string
+  >  
+  >  let misha_age = Age 19
+  >  let misha_name = Name "Misha"
+  >  
+  >  let age = function | Age age -> age | Name _ -> 0
+  >  let test1 = age misha_age
+  >  let test2 = age misha_name
+  >  let test3 = age (Age 20)
+  >  let test4 = age (Name "Misha after 27 november")
+  val misha_age = Age 19
+  val misha_name = Name Misha
+  val age = <fun>
+  val test1 = 19
+  val test2 = 0
+  val test3 = 20
+  val test4 = 0
+  $$$$

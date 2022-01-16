@@ -66,6 +66,7 @@ let efun args rhs =
 
 let ccase p e = (p, e)
 let acase id p = (id, p)
+let pacase id p = PACase (acase id p)
 let aconstr id ty = (id, ty)
 
 (* binding constructor *)
@@ -151,23 +152,28 @@ let pconst = const >>| pconst
 type pdispatch =
   { tuple: pdispatch -> pattern t
   ; cons: pdispatch -> pattern t
-  ; pat: pdispatch -> pattern t }
+  ; pat: pdispatch -> pattern t
+  ; adt: pdispatch -> pattern t }
+
+let acase id p = (id, p)
+let pacase id p = PACase (acase id p)
 
 let pack =
-  let pat d = fix (fun _self -> trim (choice [d.tuple d; d.cons d])) in
+  let pat d = fix (fun _self -> trim (choice [d.tuple d; d.cons d; d.adt d])) in
   let tuple d =
     fix (fun _self ->
         trim
         @@ lift2 (fun hd tl -> hd :: tl) (d.cons d) (many1 (comma *> d.cons d))
         >>| ptuple ) in
-  let cons d =
+  let adt d =
     fix (fun _self ->
         let plist =
           trim (between lsb rsb (sep_by (token ";") (d.pat d))) >>| plist in
         let prim =
           trim @@ choice [pconst; pvar; pwild; plist; parens @@ d.pat d] in
-        trim @@ chainr1 prim popcons ) in
-  {tuple; cons; pat}
+        trim (lift2 pacase constr_id (empty1 *> d.adt d) <|> prim) ) in
+  let cons d = fix (fun _self -> chainr1 (d.adt d) popcons) in
+  {tuple; cons; pat; adt}
 
 let pattern = pack.pat pack
 
