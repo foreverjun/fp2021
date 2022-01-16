@@ -69,6 +69,8 @@
   val test3 = 20
   val test4 = 0
   $$$$
+(* Realization of RB tree was taken here:
+https://github.com/CompScienceClub/ocaml-red-black-trees/blob/master/src/red_black_tree.ml *)
   $ ./demoOcamlADT.exe <<-EOF
   >  type color = | R | B | BB
   >  type tree = | Empty of color | Node of color * tree * int * tree
