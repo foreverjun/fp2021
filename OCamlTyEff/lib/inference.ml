@@ -159,17 +159,6 @@ module Type = struct
     helper VarSet.empty
   ;;
 
-  let free_vars_eff kind =
-    let rec helper acc = function
-      | TInt | TString | TBool | TExc _ | TVar _ -> acc
-      | TTuple l -> List.fold_left l ~init:acc ~f:helper
-      | TList t | TRef t -> helper acc t
-      | TFun (l, eff, r) ->
-        helper (helper (VarSet.union (EffSet.free_vars kind eff) acc) l) r
-    in
-    helper VarSet.empty
-  ;;
-
   let free_vars_eff_counted kind =
     let rec helper acc = function
       | TInt | TString | TBool | TExc _ | TVar _ -> acc
@@ -644,12 +633,10 @@ let pp_env subst ppf env =
 
 let infer_ptrn =
   let rec helper env = function
+    | PVal b when List.Assoc.mem env ~equal:String.equal b -> fail (PtrnRebound b)
     | PVal b ->
-      if List.Assoc.mem env ~equal:String.equal b
-      then fail (PtrnRebound b)
-      else
-        let* tv = fresh_var Normal in
-        return (TypeEnv.extend env (b, S (VarSet.empty, VarSet.empty, tv)), tv)
+      let* tv = fresh_var Normal in
+      return (TypeEnv.extend env (b, S (VarSet.empty, VarSet.empty, tv)), tv)
     | PConst (CInt _) -> return (env, TInt)
     | PConst (CBool _) -> return (env, TBool)
     | PConst (CString _) -> return (env, TString)
