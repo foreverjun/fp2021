@@ -47,7 +47,7 @@ module R : sig
   end
 
   (** Creation of a fresh name from internal state *)
-  val fresh : unit -> int t
+  val fresh : int t
 
   val get_weak_s : subst t
   val set_weak_s : subst -> unit t
@@ -92,7 +92,7 @@ end = struct
     let iter xs ~f = fold_left xs ~init:(return ()) ~f:(fun () -> f)
   end
 
-  let fresh () (s, last) = (s, last + 1), Result.Ok last
+  let fresh (s, last) = (s, last + 1), Result.Ok last
   let get_weak_s (s, last) = (s, last), Result.Ok s
   let set_weak_s s (_, last) = (s, last), Result.Ok ()
   let run m = snd (m ((Weak, [], []), 0))
@@ -100,12 +100,12 @@ end
 
 let fresh_var kind =
   let open R in
-  fresh () >>| fun n -> TVar (kind, n)
+  fresh >>| fun n -> TVar (kind, n)
 ;;
 
 let fresh_var_eff kind =
   let open R in
-  fresh () >>| fun n -> EffVar (kind, n)
+  fresh >>| fun n -> EffVar (kind, n)
 ;;
 
 type fresh = int
