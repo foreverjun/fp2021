@@ -1,0 +1,35 @@
+(lang dune 2.8)
+
+(generate_opam_files true)
+
+(cram enable)
+
+(license LGPL-3.0-only)
+
+(authors "Mikhail Vintcukevich")
+
+(maintainers "https://github.com/Mishavint")
+
+(bug_reports "https://github.com/Mishavint/fp2021")
+
+(homepage "https://github.com/Mishavint/fp2021")
+
+(package
+ (name OcamlADT) ; FIXME and regenerate .opam file using 'dune build @install'
+ (synopsis "An interpreter for Ocaml")
+ (description
+  "Interpreter supports basic types, functions, recursion and algebraic types")
+ (version 0.1)
+ (depends
+  dune
+  angstrom
+  (ppx_inline_test :with-test)
+  qcheck-core
+  ppx_expect
+  ppx_deriving
+  ppx_show
+  (odoc :with-doc)
+  (ocamlformat :build)
+  base
+  ; After adding dependencies to 'dune' files and the same dependecies here too
+  ))

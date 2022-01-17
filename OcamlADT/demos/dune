@@ -1,0 +1,8 @@
+(executable
+ (name demoOcamlADT)
+ (modules demoOcamlADT)
+ (public_name demoOcamlADT)
+ (libraries OcamlADT.Lib stdio))
+
+(cram
+ (deps ./demoOcamlADT.exe))

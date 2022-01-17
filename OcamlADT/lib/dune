@@ -1,0 +1,8 @@
+(library
+ (name OcamlADT_lib)
+ (public_name OcamlADT.Lib)
+ (modules Ast Parser Interpret Pretty_printer)
+ (libraries base angstrom ppx_show.runtime)
+ (preprocess
+  (pps ppx_expect ppx_show ppx_deriving.eq))
+ (inline_tests))
