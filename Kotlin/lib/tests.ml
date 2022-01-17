@@ -360,7 +360,9 @@ let%test _ =
   |} in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (IntValue 1)
 ;;
 
 let%test _ =
@@ -371,7 +373,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 3)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (IntValue 3)
 ;;
 
 let%test _ =
@@ -382,7 +386,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (StringValue "foobar")
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (StringValue "foobar")
 ;;
 
 let%test _ =
@@ -407,7 +413,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue (-1))
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (IntValue (-1))
 ;;
 
 let%test _ =
@@ -432,7 +440,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 2)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (IntValue 2)
 ;;
 
 let%test _ =
@@ -457,7 +467,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (IntValue 1)
 ;;
 
 let%test _ =
@@ -468,7 +480,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (IntValue 1)
 ;;
 
 let%test _ =
@@ -479,7 +493,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 0)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (IntValue 0)
 ;;
 
 let%test _ =
@@ -490,7 +506,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (IntValue 1)
 ;;
 
 let%test _ =
@@ -529,7 +547,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -540,7 +560,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -551,7 +573,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -576,7 +600,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -587,7 +613,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -598,7 +626,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -621,7 +651,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -630,7 +662,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -653,7 +687,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -664,7 +700,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -675,7 +713,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -686,7 +726,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -697,7 +739,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -708,7 +752,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -719,7 +765,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -730,7 +778,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -782,7 +832,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -793,7 +845,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -804,7 +858,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -825,28 +881,35 @@ let%test _ =
   let ctx = interpret_expression ctx_with_standard_classes (Const (IntValue 1)) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (IntValue 1)
 ;;
 
 let%test _ =
   let ctx = interpret_expression ctx_with_standard_classes (Const (IntValue 1)) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (IntValue 1)
 ;;
 
 let%test _ =
   let ctx = interpret_expression ctx_with_standard_classes (Const (StringValue "foo")) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (StringValue "foo")
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (StringValue "foo")
 ;;
 
 let%test _ =
   let ctx = interpret_expression ctx_with_standard_classes (Const NullValue) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive NullValue
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression = Primitive NullValue
 ;;
 
 let%test _ =
@@ -859,8 +922,10 @@ let%test _ =
   match ctx with
   | Error _ -> raise Test_failed
   | Ok eval_ctx ->
-    eval_ctx.last_eval_expression = Primitive (IntValue 1)
-    && eval_ctx.last_derefered_variable = Some (rc, content)
+    (match eval_ctx.last_eval_expression with
+    | VariableRecord (rc1, var)
+      when var.value = Primitive (IntValue 1) && (rc1, var) = (rc, content) -> true
+    | _ -> raise Test_failed)
 ;;
 
 let%test _ =
@@ -892,7 +957,9 @@ let%test _ =
   let ctx = interpret_expression ctx_with_function (FunctionCall ("foo", [])) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (IntValue 1)
 ;;
 
 let%test _ =
@@ -950,7 +1017,9 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression
+    = Primitive (IntValue 1)
 ;;
 
 let%test _ =
@@ -970,7 +1039,8 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive NullValue
+  | Ok eval_ctx ->
+    get_value_of_evaluated_expression eval_ctx.last_eval_expression = Primitive NullValue
 ;;
 
 (*nullable тест*)

@@ -22,7 +22,8 @@ let interpert_repl_command ctx = function
   | "@help" -> print_endline help
   | "@print_environment" ->
     List.iter (get_all_environment ctx) ~f:(fun rc -> print_endline (show_record_t rc))
-  | "@last_eval_expression" -> print_endline (show_value ctx.last_eval_expression)
+  | "@last_eval_expression" ->
+    print_endline (show_evaluated_expression ctx.last_eval_expression)
   | str -> printf "No command found [%s]\n" str
 ;;
 
@@ -69,7 +70,7 @@ let rec repl buffered_lines ctx =
             print_as_repl_answer "Init expressions are not supported in REPL";
             ctx
           | Expression _ | Assign _ ->
-            print_as_repl_answer (show_value eval_ctx.last_eval_expression);
+            print_as_repl_answer (show_evaluated_expression eval_ctx.last_eval_expression);
             eval_ctx
           | If _ | While _ | FunDeclaration _
           | ClassDeclaration (_, _, _, _, _)

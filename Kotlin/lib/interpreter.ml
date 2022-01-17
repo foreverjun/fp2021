@@ -13,6 +13,12 @@ end
 module Interpret = struct
   open InterpreterResult
 
+  type evaluated_expression =
+    | Value of value
+    | Return of value
+    | VariableRecord of record_t * variable_t
+  [@@deriving show { with_path = false }]
+
   type scope_type =
     | Initialize
     | Function
@@ -21,26 +27,19 @@ module Interpret = struct
     | ThisDereferencedObject of object_t * context
     | Method of object_t
     | AnonymousFunction of object_t option
-  [@@deriving show]
+  [@@deriving show { with_path = false }]
 
   and context =
     { environment : record_t list * record_t list
     ; not_nullable_records : record_t list
-    ; last_eval_expression : value
-          (** Данная переменная используется для сохранения значения последленного исполненого Ast.expression (по умолчанию Unitialized) *)
-    ; last_return_value : value
-          (** Данная переменная используется для сохранения значения последнего исполненого return (по умолчанию Unitialized) *)
-    ; last_derefered_variable : (record_t * variable_t) option
-          (** Данная переменная используется для сохранения последней переменной, к которой обратились через VarIdentifier (по умолчанию None) *)
+    ; last_eval_expression : evaluated_expression
     ; scope : scope_type
     }
 
   let empty_ctx =
     { environment = [], []
     ; not_nullable_records = []
-    ; last_eval_expression = Unitialized None
-    ; last_return_value = Unitialized None
-    ; last_derefered_variable = None
+    ; last_eval_expression = Value (Unitialized None)
     ; scope = Initialize
     }
   ;;
@@ -78,6 +77,12 @@ module Interpret = struct
   let check_typename_is_nullable = function
     | Nullable _ -> true
     | _ -> false
+  ;;
+
+  let get_value_of_evaluated_expression = function
+    | Value value -> value
+    | Return value -> value
+    | VariableRecord (_, var) -> var.value
   ;;
 
   let get_all_environment ctx =
@@ -474,7 +479,11 @@ module Interpret = struct
          | AnonymousFunction _ ->
            raise
              (Return_exception
-                { ret_ctx with last_return_value = ret_ctx.last_eval_expression })
+                { ret_ctx with
+                  last_eval_expression =
+                    Return
+                      (get_value_of_evaluated_expression ret_ctx.last_eval_expression)
+                })
          | _ -> return ret_ctx
        with
       | Return_exception returned_ctx ->
@@ -484,7 +493,11 @@ module Interpret = struct
     | Return expression ->
       interpret_expression ctx expression
       >>= fun ret_ctx ->
-      return { ctx with last_return_value = ret_ctx.last_eval_expression }
+      return
+        { ctx with
+          last_eval_expression =
+            Return (get_value_of_evaluated_expression ret_ctx.last_eval_expression)
+        }
     | Expression expression -> interpret_expression ctx expression
     | ClassDeclaration (modifiers, name, constructor_args, super_call_option, statements)
       ->
@@ -568,7 +581,8 @@ module Interpret = struct
       | Some expr ->
         let* _ = test_typename_expression_nullable_correspondance ctx var_typename expr in
         interpret_expression ctx expr
-        >>= fun interpreted_ctx -> return interpreted_ctx.last_eval_expression)
+        >>= fun interpreted_ctx ->
+        return (get_value_of_evaluated_expression interpreted_ctx.last_eval_expression))
       >>= fun value ->
       (match
          define_in_ctx
@@ -585,12 +599,12 @@ module Interpret = struct
     | Assign (var_identifier_expression, assign_expression) ->
       interpret_expression ctx var_identifier_expression
       >>= fun identifier_ctx ->
-      (match identifier_ctx.last_derefered_variable with
-      | None ->
+      (match identifier_ctx.last_eval_expression with
+      | Value _ | Return _ ->
         fail
           (Interpreter
              (UnsupportedTypeOfExpressionOnLeftSideOfAssign var_identifier_expression))
-      | Some (rc, var) ->
+      | VariableRecord (rc, var) ->
         let* _ =
           test_typename_expression_nullable_correspondance
             ctx
@@ -599,13 +613,15 @@ module Interpret = struct
         in
         interpret_expression ctx assign_expression
         >>= fun assign_value_ctx ->
+        let assign_value =
+          get_value_of_evaluated_expression assign_value_ctx.last_eval_expression
+        in
         let update_rc_and_return_assign_value_ctx () =
-          var.value <- assign_value_ctx.last_eval_expression;
+          var.value <- assign_value;
           return assign_value_ctx
         in
         (match
-           ( check_typename_value_correspondance
-               (var.var_typename, assign_value_ctx.last_eval_expression)
+           ( check_typename_value_correspondance (var.var_typename, assign_value)
            , ctx.scope
            , var.value )
          with
@@ -616,13 +632,11 @@ module Interpret = struct
         | true, _, _ -> fail (Typing (VariableNotMutable rc.name))
         | false, _, _ ->
           fail
-            (Typing
-               (VariableValueTypeMismatch
-                  (rc.name, var.var_typename, assign_value_ctx.last_eval_expression)))))
+            (Typing (VariableValueTypeMismatch (rc.name, var.var_typename, assign_value)))))
     | If (log_expr, if_statement, else_statement) ->
       interpret_expression ctx log_expr
       >>= fun eval_ctx ->
-      (match eval_ctx.last_eval_expression with
+      (match get_value_of_evaluated_expression eval_ctx.last_eval_expression with
       | Primitive (BooleanValue log_val) when log_val ->
         interpret_statement eval_ctx if_statement
       | Primitive (BooleanValue log_val) when not log_val ->
@@ -633,7 +647,7 @@ module Interpret = struct
     | While (log_expr, while_statement) ->
       interpret_expression ctx log_expr
       >>= fun eval_ctx ->
-      (match eval_ctx.last_eval_expression with
+      (match get_value_of_evaluated_expression eval_ctx.last_eval_expression with
       | Primitive (BooleanValue log_val) when log_val ->
         interpret_statement eval_ctx while_statement
         >>= fun _ -> interpret_statement ctx stat
@@ -664,7 +678,7 @@ module Interpret = struct
     | Println print_expr ->
       interpret_expression ctx print_expr
       >>= fun eval_ctx ->
-      (match eval_ctx.last_eval_expression with
+      (match get_value_of_evaluated_expression eval_ctx.last_eval_expression with
       | Primitive (IntValue v) -> Stdio.print_endline (Int.to_string v)
       | Primitive (StringValue v) -> Stdio.print_endline v
       | Primitive (BooleanValue v) -> Stdio.print_endline (if v then "true" else "false")
@@ -682,7 +696,7 @@ module Interpret = struct
           args_count
           args_string
           (show_typename func.fun_typename));
-      return { ctx with last_eval_expression = Primitive NullValue }
+      return { ctx with last_eval_expression = Value (Primitive NullValue) }
     | AnonymousFunctionDeclaration (arguments, statement) ->
       let func =
         { identity_code = get_unique_identity_code ()
@@ -693,7 +707,7 @@ module Interpret = struct
         ; statement
         }
       in
-      return { ctx with last_eval_expression = AnonymousFunction func }
+      return { ctx with last_eval_expression = Value (AnonymousFunction func) }
     | FunctionCall (identifier, arg_expressions) ->
       let define_args define_ctx args exprs =
         let args_ctx =
@@ -717,8 +731,10 @@ module Interpret = struct
             in
             interpret_expression args_ctx arg_expr
             >>= fun eval_expr_ctx ->
-            if check_typename_value_correspondance
-                 (arg_typename, eval_expr_ctx.last_eval_expression)
+            let arg_evaluated_expr =
+              get_value_of_evaluated_expression eval_expr_ctx.last_eval_expression
+            in
+            if check_typename_value_correspondance (arg_typename, arg_evaluated_expr)
             then (
               match
                 define_in_ctx
@@ -729,7 +745,7 @@ module Interpret = struct
                       Variable
                         { var_typename = arg_typename
                         ; mutable_status = false
-                        ; value = eval_expr_ctx.last_eval_expression
+                        ; value = arg_evaluated_expr
                         }
                   }
               with
@@ -738,8 +754,7 @@ module Interpret = struct
             else
               fail
                 (Typing
-                   (VariableValueTypeMismatch
-                      (arg_name, arg_typename, eval_expr_ctx.last_eval_expression))))
+                   (VariableValueTypeMismatch (arg_name, arg_typename, arg_evaluated_expr))))
       in
       let eval_function new_ctx func func_name =
         match define_args new_ctx func.arguments arg_expressions with
@@ -747,26 +762,29 @@ module Interpret = struct
           fun_ctx
           >>= fun fun_ctx ->
           interpret_statement
-            { fun_ctx with last_return_value = Unitialized None }
+            { fun_ctx with last_eval_expression = Value (Unitialized None) }
             (Block func.statement)
           >>= fun func_eval_ctx ->
-          if check_typename_value_correspondance
-               (func.fun_typename, func_eval_ctx.last_return_value)
-          then
-            if (not (Poly.( = ) func.fun_typename Unit))
-               && Poly.( = ) func_eval_ctx.last_return_value (Unitialized None)
-            then fail (Interpreter (ExpectedReturnInFunction identifier))
-            else
-              return
-                { ctx with
-                  last_eval_expression = func_eval_ctx.last_return_value
-                ; last_return_value = Unitialized None
-                }
+          let check_function_return_is_unit func =
+            match func.fun_typename with
+            | Unit -> true
+            | _ -> false
+          in
+          let* func_return_value =
+            match func_eval_ctx.last_eval_expression with
+            | Return value -> return value
+            | Value _ when check_function_return_is_unit func -> return (Unitialized None)
+            | VariableRecord _ when check_function_return_is_unit func ->
+              return (Unitialized None)
+            | _ -> fail (Interpreter (ExpectedReturnInFunction identifier))
+          in
+          if check_typename_value_correspondance (func.fun_typename, func_return_value)
+          then return { ctx with last_eval_expression = Value func_return_value }
           else
             fail
               (Typing
                  (FunctionReturnTypeMismatch
-                    (identifier, func.fun_typename, func_eval_ctx.last_return_value)))
+                    (identifier, func.fun_typename, func_return_value)))
         | _ -> fail (Interpreter (FunctionArgumentsCountMismatch func_name))
       in
       get_function_from_ctx ctx identifier
@@ -811,8 +829,8 @@ module Interpret = struct
             >>= fun _ ->
             interpret_expression class_ctx expr
             >>= fun sup_ctx ->
-            return sup_ctx.last_eval_expression
-            >>= (function
+            let value = get_value_of_evaluated_expression sup_ctx.last_eval_expression in
+            (match value with
             | Object super_object ->
               return ({ new_object with super = Some super_object }, class_ctx)
             | _ ->
@@ -838,7 +856,8 @@ module Interpret = struct
                   | None -> return (Unitialized (Some initializing_object.identity_code))
                   | Some expr ->
                     let* eval_ctx = interpret_expression class_inner_ctx expr in
-                    return eval_ctx.last_eval_expression
+                    return
+                      (get_value_of_evaluated_expression eval_ctx.last_eval_expression)
                 in
                 match
                   define_in_object
@@ -896,7 +915,7 @@ module Interpret = struct
               let* checked_ctx = monadic_ctx in
               interpret_statement checked_ctx stat)
           >>= fun _ ->
-          return { ctx with last_eval_expression = Object object_with_methods }
+          return { ctx with last_eval_expression = Value (Object object_with_methods) }
         | _ -> fail (Interpreter (FunctionArgumentsCountMismatch class_data.classname)))
       | `Function (rc, func) ->
         let new_ctx = { ctx with environment = [], func.clojure; scope = Function } in
@@ -911,11 +930,11 @@ module Interpret = struct
             (Printf.sprintf "%s.%s" obj.obj_class.classname rc.name)
         in
         return { ctx with last_eval_expression = eval_ctx.last_eval_expression })
-    | Const x -> return { ctx with last_eval_expression = Primitive x }
+    | Const x -> return { ctx with last_eval_expression = Value (Primitive x) }
     | This ->
       (match ctx.scope with
       | ObjectInitialization obj | Method obj | AnonymousFunction (Some obj) ->
-        return { ctx with last_eval_expression = Object obj }
+        return { ctx with last_eval_expression = Value (Object obj) }
       | _ -> fail (Interpreter ThisIsNotDefined))
     | VarIdentifier identifier ->
       let* rc, var = get_var_from_ctx ctx identifier in
@@ -927,10 +946,7 @@ module Interpret = struct
         else ctx
       in
       return
-        { ctx_with_updated_not_null with
-          last_eval_expression = var.value
-        ; last_derefered_variable = Some (rc, var)
-        }
+        { ctx_with_updated_not_null with last_eval_expression = VariableRecord (rc, var) }
     | Dereference (obj_expression, der_expression)
     | ElvisDereference (obj_expression, der_expression) ->
       check_expression_is_nullable ctx obj_expression
@@ -944,12 +960,12 @@ module Interpret = struct
       (match obj_expression with
       | This ->
         let* this = get_this_from_ctx ctx in
-        return ({ ctx with last_eval_expression = Object this }, true)
+        return ({ ctx with last_eval_expression = Value (Object this) }, true)
       | _ ->
         interpret_expression ctx obj_expression
         >>= fun obj_expr_eval_ctx -> return (obj_expr_eval_ctx, false))
       >>= fun (eval_ctx, this_flag) ->
-      (match eval_ctx.last_eval_expression with
+      (match get_value_of_evaluated_expression eval_ctx.last_eval_expression with
       | Object obj ->
         let scope =
           match ctx.scope with
@@ -973,109 +989,147 @@ module Interpret = struct
       | Primitive NullValue | Unitialized _ ->
         (match expr with
         | ElvisDereference _ ->
-          return { ctx with last_eval_expression = Primitive NullValue }
+          return { ctx with last_eval_expression = Value (Primitive NullValue) }
         | _ -> fail (Interpreter (ExpressionExpectedToBeNotNull obj_expression)))
       | _ -> fail (Interpreter (ExpectedObjectToDereference obj_expression)))
     | Add (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
-      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
+      (match
+         ( get_value_of_evaluated_expression l_ctx.last_eval_expression
+         , get_value_of_evaluated_expression r_ctx.last_eval_expression )
+       with
       | Primitive (IntValue x), Primitive (IntValue y) ->
-        return { r_ctx with last_eval_expression = Primitive (IntValue (x + y)) }
+        return { r_ctx with last_eval_expression = Value (Primitive (IntValue (x + y))) }
       | Primitive (StringValue x), Primitive (StringValue y) ->
-        return { r_ctx with last_eval_expression = Primitive (StringValue (x ^ y)) }
+        return
+          { r_ctx with last_eval_expression = Value (Primitive (StringValue (x ^ y))) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | Mul (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
-      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
+      (match
+         ( get_value_of_evaluated_expression l_ctx.last_eval_expression
+         , get_value_of_evaluated_expression r_ctx.last_eval_expression )
+       with
       | Primitive (IntValue x), Primitive (IntValue y) ->
-        return { r_ctx with last_eval_expression = Primitive (IntValue (x * y)) }
+        return { r_ctx with last_eval_expression = Value (Primitive (IntValue (x * y))) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | Sub (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
-      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
+      (match
+         ( get_value_of_evaluated_expression l_ctx.last_eval_expression
+         , get_value_of_evaluated_expression r_ctx.last_eval_expression )
+       with
       | Primitive (IntValue x), Primitive (IntValue y) ->
-        return { r_ctx with last_eval_expression = Primitive (IntValue (x - y)) }
+        return { r_ctx with last_eval_expression = Value (Primitive (IntValue (x - y))) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | And (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
-      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
+      (match
+         ( get_value_of_evaluated_expression l_ctx.last_eval_expression
+         , get_value_of_evaluated_expression r_ctx.last_eval_expression )
+       with
       | Primitive (BooleanValue x), Primitive (BooleanValue y) ->
-        return { r_ctx with last_eval_expression = Primitive (BooleanValue (x && y)) }
+        return
+          { r_ctx with last_eval_expression = Value (Primitive (BooleanValue (x && y))) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | Or (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
-      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
+      (match
+         ( get_value_of_evaluated_expression l_ctx.last_eval_expression
+         , get_value_of_evaluated_expression r_ctx.last_eval_expression )
+       with
       | Primitive (BooleanValue x), Primitive (BooleanValue y) ->
-        return { r_ctx with last_eval_expression = Primitive (BooleanValue (x || y)) }
+        return
+          { r_ctx with last_eval_expression = Value (Primitive (BooleanValue (x || y))) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | Not x ->
       eval_un_arg x
       >>= fun x_ctx ->
-      (match x_ctx.last_eval_expression with
+      (match get_value_of_evaluated_expression x_ctx.last_eval_expression with
       | Primitive (BooleanValue x) ->
-        return { x_ctx with last_eval_expression = Primitive (BooleanValue (not x)) }
+        return
+          { x_ctx with last_eval_expression = Value (Primitive (BooleanValue (not x))) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | Equal (l, r) ->
       eval_bin_args l r ?not_null:(Some false)
       >>= fun (l_ctx, r_ctx) ->
-      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
+      (match
+         ( get_value_of_evaluated_expression l_ctx.last_eval_expression
+         , get_value_of_evaluated_expression r_ctx.last_eval_expression )
+       with
       | Primitive (IntValue x), Primitive (IntValue y) ->
-        return { r_ctx with last_eval_expression = Primitive (BooleanValue (x = y)) }
+        return
+          { r_ctx with last_eval_expression = Value (Primitive (BooleanValue (x = y))) }
       | Primitive (StringValue x), Primitive (StringValue y) ->
         return
           { r_ctx with
-            last_eval_expression = Primitive (BooleanValue (String.equal x y))
+            last_eval_expression = Value (Primitive (BooleanValue (String.equal x y)))
           }
       | Primitive (BooleanValue x), Primitive (BooleanValue y) ->
         return
-          { r_ctx with last_eval_expression = Primitive (BooleanValue (Bool.equal x y)) }
+          { r_ctx with
+            last_eval_expression = Value (Primitive (BooleanValue (Bool.equal x y)))
+          }
       | AnonymousFunction x, AnonymousFunction y ->
         return
           { r_ctx with
             last_eval_expression =
-              Primitive (BooleanValue (x.identity_code = y.identity_code))
+              Value (Primitive (BooleanValue (x.identity_code = y.identity_code)))
           }
       | Object x, Object y ->
         return
           { r_ctx with
             last_eval_expression =
-              Primitive (BooleanValue (x.identity_code = y.identity_code))
+              Value (Primitive (BooleanValue (x.identity_code = y.identity_code)))
           }
       | Primitive NullValue, Primitive NullValue
       | Primitive NullValue, Unitialized _
       | Unitialized _, Primitive NullValue
       | Unitialized _, Unitialized _ ->
-        return { r_ctx with last_eval_expression = Primitive (BooleanValue true) }
+        return { r_ctx with last_eval_expression = Value (Primitive (BooleanValue true)) }
       | Primitive NullValue, _ | _, Primitive NullValue ->
-        return { r_ctx with last_eval_expression = Primitive (BooleanValue false) }
-      | _ -> return { r_ctx with last_eval_expression = Primitive (BooleanValue false) })
+        return
+          { r_ctx with last_eval_expression = Value (Primitive (BooleanValue false)) }
+      | _ ->
+        return
+          { r_ctx with last_eval_expression = Value (Primitive (BooleanValue false)) })
     | Less (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
-      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
+      (match
+         ( get_value_of_evaluated_expression l_ctx.last_eval_expression
+         , get_value_of_evaluated_expression r_ctx.last_eval_expression )
+       with
       | Primitive (IntValue x), Primitive (IntValue y) ->
-        return { ctx with last_eval_expression = Primitive (BooleanValue (x < y)) }
+        return
+          { ctx with last_eval_expression = Value (Primitive (BooleanValue (x < y))) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | Div (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
-      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
+      (match
+         ( get_value_of_evaluated_expression l_ctx.last_eval_expression
+         , get_value_of_evaluated_expression r_ctx.last_eval_expression )
+       with
       | Primitive (IntValue x), Primitive (IntValue 0) ->
         fail (Interpreter (DivisionByZero expr))
       | Primitive (IntValue x), Primitive (IntValue y) ->
-        return { ctx with last_eval_expression = Primitive (IntValue (x / y)) }
+        return { ctx with last_eval_expression = Value (Primitive (IntValue (x / y))) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | Mod (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
-      (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
+      (match
+         ( get_value_of_evaluated_expression l_ctx.last_eval_expression
+         , get_value_of_evaluated_expression r_ctx.last_eval_expression )
+       with
       | Primitive (IntValue x), Primitive (IntValue y) ->
-        return { ctx with last_eval_expression = Primitive (IntValue (x % y)) }
+        return { ctx with last_eval_expression = Value (Primitive (IntValue (x % y))) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
   ;;
 
