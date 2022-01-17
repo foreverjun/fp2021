@@ -68,8 +68,8 @@ checks multiple functions
   > 
   > ; -----------------------------------------------------
   > 
-  > mov     rax, 60  ; exit syscall
-  > xor     rdi, rdi ; ret code 0
+  > mov rax, 60  ; exit syscall
+  > xor rdi, rdi ; ret code 0
   > syscall 
   > EOF
   ["0cond": (R64 0L),
@@ -119,8 +119,8 @@ checks multiple functions
   > cmp rbx, 0
   > jne @b
   >  ; ------------------------------------
-  > mov     rax, 60  ; exit syscall
-  > xor     rdi, rdi ; ret code 0
+  > mov rax, 60  ; exit syscall
+  > xor rdi, rdi ; ret code 0
   > syscall 
   > 
   > EOF
@@ -147,7 +147,91 @@ checks multiple functions
    "XMM7": (RSSE "\000"),
    ]
 
-4 XMM register
+4 Произведение матриц
+A: [1 2]  B: [6 4]
+.  [3 4]     [5 3]
+AxB: [16 10] =hex [10 0A]
+.    [38 24]      [26 18]
+=> 100A2618 => в RBP должно быть 269100568
+  $ ./demoAsm.exe <<-EOF
+  > ;--------------------------------------
+  > section .data
+  > A db 1,2,3,4 ; матрица 1
+  > B db 6,5,4,3 ; матрица 2 (T)
+  > n equ 2
+  > section .text
+  > _start: mov rsi, n
+  > push rax
+  > 
+  > loop1: cmp rsi, 0
+  > je end
+  > mov rsp, n
+  > dec rsi
+  >  
+  > loop2: cmp rsp, 0
+  > je loop1
+  > mov rbx, A
+  > shr rbx, 16 * (n - rsi - 1)
+  > and rbx, 0xffff
+  > mov rcx, B
+  > shr rcx, 16 * (n - rsp)
+  > dec rsp
+  > and rcx, 0xffff
+  > 
+  > xor rbp, rbp ; результат в регистре rbp
+  > mov rdx, 0xff
+  > mov rax, 0xff 
+  > 
+  > @b: and rdx, rbx
+  > and rax, rcx 
+  > imul rdx, rax 
+  > add rbp,rdx 
+  > shr rbx, 8
+  > shr rcx, 8
+  > mov rdx, 0xff
+  > mov rax, 0xff 
+  > cmp rbx, 0
+  > jne @b
+  > 
+  > pop rdi
+  > shl rdi, 8
+  > or rdi, rbp
+  > push rdi
+  > 
+  > jmp loop2
+  >  ; ------------------------------------
+  > end: pop rbp
+  > mov rax, 60  ; exit syscall
+  > xor rdi, rdi ; ret code 0
+  > syscall 
+  > 
+  > EOF
+  ["0cond": (R64 0L),
+   "0jump": (Ls ""),
+   "0retcode": (R64 0L),
+   "A": (Ls "\001\002\003\004"),
+   "B": (Ls "\006\005\004\003"),
+   "RAX": (R64 60L),
+   "RBP": (R64 269100568L),
+   "RBX": (R64 0L),
+   "RCX": (R64 0L),
+   "RDI": (R64 0L),
+   "RDX": (R64 255L),
+   "RSI": (R64 0L),
+   "RSP": (R64 0L),
+   "XMM0": (RSSE "\000"),
+   "XMM1": (RSSE "\000"),
+   "XMM2": (RSSE "\000"),
+   "XMM3": (RSSE "\000"),
+   "XMM4": (RSSE "\000"),
+   "XMM5": (RSSE "\000"),
+   "XMM6": (RSSE "\000"),
+   "XMM7": (RSSE "\000"),
+   "n": (Ls "\002"),
+   ]
+
+
+5 XMM register
 перемещение данных в регистры и сложение их.
 сумма в XMM2 регистре.
   $ ./demoAsm.exe <<-EOF

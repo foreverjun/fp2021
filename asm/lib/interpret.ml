@@ -358,6 +358,8 @@ module Eval (M : MonadError) = struct
       | "PUSH" -> (
         match e with
         | Label l -> return (env, l :: st)
+        | Reg r when reg64 r ->
+            find_reg64 env r >>| fun i -> (env, int64_to_string i :: st)
         | _ -> error "byte data exceeds bounds" )
       | "POP" -> (
         match e with
@@ -455,7 +457,7 @@ module Eval (M : MonadError) = struct
       | "ADD" -> helper (fun i s -> add s i)
       | "SUB" -> helper (fun i s -> sub s i)
       | "AND" -> helper (fun i s -> logand s i)
-      | "OR" -> helper (fun i s -> logand s i)
+      | "OR" -> helper (fun i s -> logor s i)
       | "XOR" -> helper (fun i s -> logxor s i)
       | "IMUL" ->
           helper (fun i s ->
