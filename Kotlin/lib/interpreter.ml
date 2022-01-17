@@ -2,6 +2,7 @@ open Base
 open Utils
 open Parser
 open Ast
+open Value_types
 
 module InterpreterResult = struct
   include Base.Result
@@ -46,11 +47,11 @@ module Interpret = struct
 
   let check_typename_value_correspondance = function
     | Dynamic, _ -> true
-    | FunctionType _, Ast.AnonymousFunction _ -> true
-    | (Int | Nullable Int), IntValue _ -> true
-    | (String | Nullable String), StringValue _ -> true
-    | (Boolean | Nullable Boolean), BooleanValue _ -> true
-    | Nullable _, NullValue -> true
+    | FunctionType _, Value_types.AnonymousFunction _ -> true
+    | (Int | Nullable Int), Primitive (IntValue _) -> true
+    | (String | Nullable String), Primitive (StringValue _) -> true
+    | (Boolean | Nullable Boolean), Primitive (BooleanValue _) -> true
+    | Nullable _, Primitive NullValue -> true
     | Unit, Unitialized _ -> true
     | (ClassIdentifier identifier | Nullable (ClassIdentifier identifier)), Object obj
       when String.equal obj.obj_class.classname identifier -> true
@@ -70,7 +71,7 @@ module Interpret = struct
   let check_record_is_override rc = check_record_contains_modifier rc Override
 
   let check_is_null = function
-    | NullValue | Unitialized _ -> true
+    | Primitive NullValue | Unitialized _ -> true
     | _ -> false
   ;;
 
@@ -622,8 +623,9 @@ module Interpret = struct
       interpret_expression ctx log_expr
       >>= fun eval_ctx ->
       (match eval_ctx.last_eval_expression with
-      | BooleanValue log_val when log_val -> interpret_statement eval_ctx if_statement
-      | BooleanValue log_val when not log_val ->
+      | Primitive (BooleanValue log_val) when log_val ->
+        interpret_statement eval_ctx if_statement
+      | Primitive (BooleanValue log_val) when not log_val ->
         (match else_statement with
         | None -> return ctx
         | Some stat -> interpret_statement eval_ctx stat)
@@ -632,10 +634,10 @@ module Interpret = struct
       interpret_expression ctx log_expr
       >>= fun eval_ctx ->
       (match eval_ctx.last_eval_expression with
-      | BooleanValue log_val when log_val ->
+      | Primitive (BooleanValue log_val) when log_val ->
         interpret_statement eval_ctx while_statement
         >>= fun _ -> interpret_statement ctx stat
-      | BooleanValue log_val when not log_val -> return eval_ctx
+      | Primitive (BooleanValue log_val) when not log_val -> return eval_ctx
       | _ -> fail (Typing (ExpectedBooleanValue log_expr)))
 
   and interpret_expression ctx expr =
@@ -663,10 +665,10 @@ module Interpret = struct
       interpret_expression ctx print_expr
       >>= fun eval_ctx ->
       (match eval_ctx.last_eval_expression with
-      | IntValue v -> Stdio.print_endline (Int.to_string v)
-      | StringValue v -> Stdio.print_endline v
-      | BooleanValue v -> Stdio.print_endline (if v then "true" else "false")
-      | NullValue | Unitialized _ -> Stdio.print_endline "null"
+      | Primitive (IntValue v) -> Stdio.print_endline (Int.to_string v)
+      | Primitive (StringValue v) -> Stdio.print_endline v
+      | Primitive (BooleanValue v) -> Stdio.print_endline (if v then "true" else "false")
+      | Primitive NullValue | Unitialized _ -> Stdio.print_endline "null"
       | Object obj ->
         Stdlib.Printf.printf "%s@%x\n" obj.obj_class.classname obj.identity_code
       | AnonymousFunction func ->
@@ -680,7 +682,7 @@ module Interpret = struct
           args_count
           args_string
           (show_typename func.fun_typename));
-      return { ctx with last_eval_expression = NullValue }
+      return { ctx with last_eval_expression = Primitive NullValue }
     | AnonymousFunctionDeclaration (arguments, statement) ->
       let func =
         { identity_code = get_unique_identity_code ()
@@ -909,7 +911,7 @@ module Interpret = struct
             (Printf.sprintf "%s.%s" obj.obj_class.classname rc.name)
         in
         return { ctx with last_eval_expression = eval_ctx.last_eval_expression })
-    | Const x -> return { ctx with last_eval_expression = x }
+    | Const x -> return { ctx with last_eval_expression = Primitive x }
     | This ->
       (match ctx.scope with
       | ObjectInitialization obj | Method obj | AnonymousFunction (Some obj) ->
@@ -968,106 +970,112 @@ module Interpret = struct
           failwith
             ("Should not reach. Parser should not parse such expression in dereference: "
             ^ show_expression der_expression))
-      | NullValue | Unitialized _ ->
+      | Primitive NullValue | Unitialized _ ->
         (match expr with
-        | ElvisDereference _ -> return { ctx with last_eval_expression = NullValue }
+        | ElvisDereference _ ->
+          return { ctx with last_eval_expression = Primitive NullValue }
         | _ -> fail (Interpreter (ExpressionExpectedToBeNotNull obj_expression)))
       | _ -> fail (Interpreter (ExpectedObjectToDereference obj_expression)))
     | Add (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
       (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
-      | IntValue x, IntValue y ->
-        return { r_ctx with last_eval_expression = IntValue (x + y) }
-      | StringValue x, StringValue y ->
-        return { r_ctx with last_eval_expression = StringValue (x ^ y) }
+      | Primitive (IntValue x), Primitive (IntValue y) ->
+        return { r_ctx with last_eval_expression = Primitive (IntValue (x + y)) }
+      | Primitive (StringValue x), Primitive (StringValue y) ->
+        return { r_ctx with last_eval_expression = Primitive (StringValue (x ^ y)) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | Mul (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
       (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
-      | IntValue x, IntValue y ->
-        return { r_ctx with last_eval_expression = IntValue (x * y) }
+      | Primitive (IntValue x), Primitive (IntValue y) ->
+        return { r_ctx with last_eval_expression = Primitive (IntValue (x * y)) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | Sub (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
       (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
-      | IntValue x, IntValue y ->
-        return { r_ctx with last_eval_expression = IntValue (x - y) }
+      | Primitive (IntValue x), Primitive (IntValue y) ->
+        return { r_ctx with last_eval_expression = Primitive (IntValue (x - y)) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | And (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
       (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
-      | BooleanValue x, BooleanValue y ->
-        return { r_ctx with last_eval_expression = BooleanValue (x && y) }
+      | Primitive (BooleanValue x), Primitive (BooleanValue y) ->
+        return { r_ctx with last_eval_expression = Primitive (BooleanValue (x && y)) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | Or (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
       (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
-      | BooleanValue x, BooleanValue y ->
-        return { r_ctx with last_eval_expression = BooleanValue (x || y) }
+      | Primitive (BooleanValue x), Primitive (BooleanValue y) ->
+        return { r_ctx with last_eval_expression = Primitive (BooleanValue (x || y)) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | Not x ->
       eval_un_arg x
       >>= fun x_ctx ->
       (match x_ctx.last_eval_expression with
-      | BooleanValue x ->
-        return { x_ctx with last_eval_expression = BooleanValue (not x) }
+      | Primitive (BooleanValue x) ->
+        return { x_ctx with last_eval_expression = Primitive (BooleanValue (not x)) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | Equal (l, r) ->
       eval_bin_args l r ?not_null:(Some false)
       >>= fun (l_ctx, r_ctx) ->
       (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
-      | IntValue x, IntValue y ->
-        return { r_ctx with last_eval_expression = BooleanValue (x = y) }
-      | StringValue x, StringValue y ->
-        return { r_ctx with last_eval_expression = BooleanValue (String.equal x y) }
-      | BooleanValue x, BooleanValue y ->
+      | Primitive (IntValue x), Primitive (IntValue y) ->
+        return { r_ctx with last_eval_expression = Primitive (BooleanValue (x = y)) }
+      | Primitive (StringValue x), Primitive (StringValue y) ->
         return
           { r_ctx with
-            last_eval_expression = BooleanValue ((x && y) || ((not x) && not y))
+            last_eval_expression = Primitive (BooleanValue (String.equal x y))
           }
+      | Primitive (BooleanValue x), Primitive (BooleanValue y) ->
+        return
+          { r_ctx with last_eval_expression = Primitive (BooleanValue (Bool.equal x y)) }
       | AnonymousFunction x, AnonymousFunction y ->
         return
           { r_ctx with
-            last_eval_expression = BooleanValue (x.identity_code = y.identity_code)
+            last_eval_expression =
+              Primitive (BooleanValue (x.identity_code = y.identity_code))
           }
       | Object x, Object y ->
         return
           { r_ctx with
-            last_eval_expression = BooleanValue (x.identity_code = y.identity_code)
+            last_eval_expression =
+              Primitive (BooleanValue (x.identity_code = y.identity_code))
           }
-      | NullValue, NullValue
-      | NullValue, Unitialized _
-      | Unitialized _, NullValue
+      | Primitive NullValue, Primitive NullValue
+      | Primitive NullValue, Unitialized _
+      | Unitialized _, Primitive NullValue
       | Unitialized _, Unitialized _ ->
-        return { r_ctx with last_eval_expression = BooleanValue true }
-      | NullValue, _ | _, NullValue ->
-        return { r_ctx with last_eval_expression = BooleanValue false }
-      | _ -> return { r_ctx with last_eval_expression = BooleanValue false })
+        return { r_ctx with last_eval_expression = Primitive (BooleanValue true) }
+      | Primitive NullValue, _ | _, Primitive NullValue ->
+        return { r_ctx with last_eval_expression = Primitive (BooleanValue false) }
+      | _ -> return { r_ctx with last_eval_expression = Primitive (BooleanValue false) })
     | Less (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
       (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
-      | IntValue x, IntValue y ->
-        return { ctx with last_eval_expression = BooleanValue (x < y) }
+      | Primitive (IntValue x), Primitive (IntValue y) ->
+        return { ctx with last_eval_expression = Primitive (BooleanValue (x < y)) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | Div (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
       (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
-      | IntValue x, IntValue y ->
-        return { ctx with last_eval_expression = IntValue (x / y) }
+      | Primitive (IntValue x), Primitive (IntValue 0) ->
+        fail (Interpreter (DivisionByZero expr))
+      | Primitive (IntValue x), Primitive (IntValue y) ->
+        return { ctx with last_eval_expression = Primitive (IntValue (x / y)) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
     | Mod (l, r) ->
       eval_bin_args l r
       >>= fun (l_ctx, r_ctx) ->
       (match l_ctx.last_eval_expression, r_ctx.last_eval_expression with
-      | IntValue x, IntValue y ->
-        return { ctx with last_eval_expression = IntValue (x % y) }
+      | Primitive (IntValue x), Primitive (IntValue y) ->
+        return { ctx with last_eval_expression = Primitive (IntValue (x % y)) }
       | _ -> fail (Typing (UnsupportedOperandTypes expr)))
   ;;
 

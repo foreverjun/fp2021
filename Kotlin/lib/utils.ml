@@ -1,10 +1,12 @@
 open Ast
+open Value_types
 
 type parser_error =
   | InvalidProgram (** Возникает, если не удалось распарсить программу *)
 [@@deriving show { with_path = false }]
 
 type interpreter_error =
+  | DivisionByZero of expression (** Возникает при попытке деления на 0 *)
   | ExpectedReturnInFunction of string
       (** Возникает, если у функции с типом, отличным от Unit, отсутствует return. Например, для функции [fun empty(): Int {}] при вызове выскочила бы эта ошибка*)
   | UnknownVariable of string

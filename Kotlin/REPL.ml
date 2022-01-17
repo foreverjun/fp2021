@@ -5,6 +5,7 @@ open Kotlin_lib.Utils
 open Kotlin_lib.Interpreter.Interpret
 open Kotlin_lib.Parser
 open Kotlin_lib.Parser.Statement
+open Kotlin_lib.Value_types
 
 exception End_of_input of string
 

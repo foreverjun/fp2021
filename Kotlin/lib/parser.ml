@@ -84,10 +84,17 @@ let parse_args =
 
 module rec Expression : sig
   val parse_var_identifier : char Opal.input -> (Ast.expression * char Opal.input) option
-  val parse_int_value : char Opal.input -> (Ast.value * char Opal.input) option
-  val parse_string_value : char Opal.input -> (Ast.value * char Opal.input) option
-  val parse_boolean_value : char Opal.input -> (Ast.value * char Opal.input) option
-  val parse_null_value : char Opal.input -> (Ast.value * char Opal.input) option
+  val parse_int_value : char Opal.input -> (Ast.primitive_value * char Opal.input) option
+
+  val parse_string_value
+    :  char Opal.input
+    -> (Ast.primitive_value * char Opal.input) option
+
+  val parse_boolean_value
+    :  char Opal.input
+    -> (Ast.primitive_value * char Opal.input) option
+
+  val parse_null_value : char Opal.input -> (Ast.primitive_value * char Opal.input) option
   val parse_const_value : char Opal.input -> (Ast.expression * char Opal.input) option
 
   val add_op

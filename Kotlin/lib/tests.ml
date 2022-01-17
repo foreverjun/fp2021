@@ -1,5 +1,6 @@
 open Ast
 open Parser
+open Value_types
 
 (* Тесты на парсер *)
 
@@ -359,7 +360,7 @@ let%test _ =
   |} in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
 ;;
 
 let%test _ =
@@ -370,7 +371,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 3
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 3)
 ;;
 
 let%test _ =
@@ -381,7 +382,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = StringValue "foobar"
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (StringValue "foobar")
 ;;
 
 let%test _ =
@@ -406,7 +407,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue (-1)
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue (-1))
 ;;
 
 let%test _ =
@@ -431,7 +432,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 2
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 2)
 ;;
 
 let%test _ =
@@ -456,7 +457,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
 ;;
 
 let%test _ =
@@ -467,7 +468,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
 ;;
 
 let%test _ =
@@ -478,7 +479,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 0
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 0)
 ;;
 
 let%test _ =
@@ -489,7 +490,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
 ;;
 
 let%test _ =
@@ -528,7 +529,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -539,7 +540,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -550,7 +551,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -575,7 +576,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -586,7 +587,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -597,7 +598,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -620,7 +621,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -629,7 +630,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -652,7 +653,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -663,7 +664,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -674,7 +675,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -685,7 +686,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -696,7 +697,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -707,7 +708,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -718,7 +719,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -729,64 +730,59 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
-  let ctx =
-    interpret_expression
-      ctx_with_standard_classes
-      (Equal
-         ( Const
-             (AnonymousFunction
+  let var1 =
+    { modifiers = []
+    ; name = "var1"
+    ; content =
+        Variable
+          { var_typename = FunctionType ([], Int)
+          ; mutable_status = false
+          ; value =
+              AnonymousFunction
                 { identity_code = 1
                 ; fun_typename = Int
                 ; clojure = []
                 ; enclosing_object = None
                 ; arguments = []
                 ; statement = []
-                })
-         , Const
-             (AnonymousFunction
+                }
+          }
+    }
+  in
+  let var2 =
+    { modifiers = []
+    ; name = "var2"
+    ; content =
+        Variable
+          { var_typename = FunctionType ([], Int)
+          ; mutable_status = false
+          ; value =
+              AnonymousFunction
                 { identity_code = 2
                 ; fun_typename = Int
                 ; clojure = []
                 ; enclosing_object = None
                 ; arguments = []
                 ; statement = []
-                }) ))
+                }
+          }
+    }
   in
-  match ctx with
-  | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
-;;
-
-let%test _ =
+  let ctx_with_vars =
+    { ctx_with_standard_classes with environment = [ var1; var2 ], [] }
+  in
   let ctx =
-    let obj_class =
-      { classname = "Foo"
-      ; clojure = []
-      ; constructor_args = []
-      ; super_constructor = None
-      ; field_initializers = []
-      ; method_initializers = []
-      ; init_statements = []
-      }
-    in
     interpret_expression
-      ctx_with_standard_classes
-      (Equal
-         ( Const
-             (Object
-                { identity_code = 1; super = None; obj_class; fields = []; methods = [] })
-         , Const
-             (Object
-                { identity_code = 2; super = None; obj_class; fields = []; methods = [] })
-         ))
+      ctx_with_vars
+      (Equal (VarIdentifier "var1", VarIdentifier "var2"))
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -797,7 +793,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue true
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue true)
 ;;
 
 let%test _ =
@@ -808,7 +804,7 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = BooleanValue false
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (BooleanValue false)
 ;;
 
 let%test _ =
@@ -829,39 +825,41 @@ let%test _ =
   let ctx = interpret_expression ctx_with_standard_classes (Const (IntValue 1)) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
 ;;
 
 let%test _ =
   let ctx = interpret_expression ctx_with_standard_classes (Const (IntValue 1)) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
 ;;
 
 let%test _ =
   let ctx = interpret_expression ctx_with_standard_classes (Const (StringValue "foo")) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = StringValue "foo"
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (StringValue "foo")
 ;;
 
 let%test _ =
   let ctx = interpret_expression ctx_with_standard_classes (Const NullValue) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = NullValue
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive NullValue
 ;;
 
 let%test _ =
-  let content = { var_typename = Int; mutable_status = false; value = IntValue 1 } in
+  let content =
+    { var_typename = Int; mutable_status = false; value = Primitive (IntValue 1) }
+  in
   let rc = { name = "foo"; modifiers = []; content = Variable content } in
   let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ], [] } in
   let ctx = interpret_expression ctx_with_variable (VarIdentifier "foo") in
   match ctx with
   | Error _ -> raise Test_failed
   | Ok eval_ctx ->
-    eval_ctx.last_eval_expression = IntValue 1
+    eval_ctx.last_eval_expression = Primitive (IntValue 1)
     && eval_ctx.last_derefered_variable = Some (rc, content)
 ;;
 
@@ -894,7 +892,7 @@ let%test _ =
   let ctx = interpret_expression ctx_with_function (FunctionCall ("foo", [])) in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
 ;;
 
 let%test _ =
@@ -935,7 +933,7 @@ let%test _ =
                           Variable
                             { var_typename = Int
                             ; mutable_status = false
-                            ; value = IntValue 1
+                            ; value = Primitive (IntValue 1)
                             }
                       }
                     ]
@@ -952,14 +950,16 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = IntValue 1
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive (IntValue 1)
 ;;
 
 let%test _ =
   let rc =
     { name = "foo"
     ; modifiers = []
-    ; content = Variable { var_typename = Int; mutable_status = false; value = NullValue }
+    ; content =
+        Variable
+          { var_typename = Int; mutable_status = false; value = Primitive NullValue }
     }
   in
   let ctx_with_object = { ctx_with_standard_classes with environment = [ rc ], [] } in
@@ -970,12 +970,14 @@ let%test _ =
   in
   match ctx with
   | Error _ -> raise Test_failed
-  | Ok eval_ctx -> eval_ctx.last_eval_expression = NullValue
+  | Ok eval_ctx -> eval_ctx.last_eval_expression = Primitive NullValue
 ;;
 
 (*nullable тест*)
 let%test _ =
-  let content = { var_typename = Int; mutable_status = false; value = IntValue 1 } in
+  let content =
+    { var_typename = Int; mutable_status = false; value = Primitive (IntValue 1) }
+  in
   let rc = { name = "foo"; modifiers = []; content = Variable content } in
   let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ], [] } in
   match check_expression_is_nullable ctx_with_variable (VarIdentifier "foo") with
@@ -985,7 +987,10 @@ let%test _ =
 
 let%test _ =
   let content =
-    { var_typename = Nullable Int; mutable_status = false; value = IntValue 1 }
+    { var_typename = Nullable Int
+    ; mutable_status = false
+    ; value = Primitive (IntValue 1)
+    }
   in
   let rc = { name = "foo"; modifiers = []; content = Variable content } in
   let ctx_with_variable = { ctx_with_standard_classes with environment = [ rc ], [] } in
@@ -1073,7 +1078,7 @@ let%test _ =
                           Variable
                             { var_typename = Int
                             ; mutable_status = false
-                            ; value = IntValue 1
+                            ; value = Primitive (IntValue 1)
                             }
                       }
                     ]
@@ -1129,7 +1134,7 @@ let%test _ =
                           Variable
                             { var_typename = Nullable Int
                             ; mutable_status = false
-                            ; value = IntValue 1
+                            ; value = Primitive (IntValue 1)
                             }
                       }
                     ]
@@ -1185,7 +1190,7 @@ let%test _ =
                           Variable
                             { var_typename = Int
                             ; mutable_status = false
-                            ; value = IntValue 1
+                            ; value = Primitive (IntValue 1)
                             }
                       }
                     ]

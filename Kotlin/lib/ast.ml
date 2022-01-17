@@ -28,61 +28,14 @@ type typename =
 [@@deriving show { with_path = false }]
 
 (** Значения, которые могут принимать переменные *)
-type value =
+type primitive_value =
   | IntValue of int
   | StringValue of string
   | BooleanValue of bool
-  | AnonymousFunction of function_t
-  | Object of object_t
   | NullValue
-  | Unitialized of int option
-(* Данное значение присваивается переменной, которая была объявлена без инициализации (например, [var x: Int]). При этом, если это не просто переменная, а поле объекта, тогда Unitialized будет содержать identity_code объекта, в котором поле было объявлено *)
+[@@deriving show { with_path = false }]
 
-and record_content =
-  | Variable of variable_t
-  | Function of function_t
-  | Class of class_t
-
-and record_t =
-  { name : string
-  ; modifiers : modifier list
-  ; content : record_content
-  }
-
-and variable_t =
-  { var_typename : typename
-  ; mutable_status : bool
-  ; mutable value : value
-  }
-
-and function_t =
-  { identity_code : int
-  ; fun_typename : typename
-  ; clojure : (record_t list[@opaque])
-  ; enclosing_object : (object_t option[@opaque])
-  ; arguments : (string * typename) list
-  ; statement : statement list
-  }
-
-and object_t =
-  { identity_code : int
-  ; super : object_t option
-  ; obj_class : class_t
-  ; fields : record_t list
-  ; methods : record_t list
-  }
-
-and class_t =
-  { classname : string
-  ; constructor_args : (string * typename) list
-  ; clojure : (record_t list[@opaque])
-  ; super_constructor : (class_t * expression) option
-  ; field_initializers : var_initializer list
-  ; method_initializers : fun_initializer list
-  ; init_statements : statement list
-  }
-
-and var_initializer =
+type var_initializer =
   { modifiers : modifier list
   ; var_modifier : variable_modifier
   ; identifier : string
@@ -109,7 +62,7 @@ and expression =
   | Not of expression (** !expression *)
   | Equal of expression * expression (** expression == expression *)
   | Less of expression * expression (** expression < expression *)
-  | Const of value (** Например: 1, "string", false *)
+  | Const of primitive_value (** Например: 1, "string", false *)
   | VarIdentifier of string
       (** Строки string, не заключенные в кавычки, преставляются как VarIdentifier ("string") *)
   | This (** Специальное выражение для вызова this внутри объекта *)
