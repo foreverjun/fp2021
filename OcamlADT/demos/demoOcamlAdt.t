@@ -127,3 +127,9 @@ https://github.com/CompScienceClub/ocaml-red-black-trees/blob/master/src/red_bla
   val test1 = true
   val test2 = false
   $$$$
+  $ ./demoOcamlADT.exe <<-EOF
+  > let rec fib n k = if n < 2 then n else fib (n-1) (fun l -> fib (n-2) (fun r -> k (l+r)))
+  > let ans = fib 5 (fun x -> x)
+  val fib = <fun>
+  val ans = 1
+  $$$$
