@@ -502,32 +502,22 @@ module Eval (M : MonadError) = struct
             | id when id = l -> return (hd :: tl)
             | _ -> find_label l tl )
           | _ -> find_label l tl ) in
-      function
-      | [] -> (
+      let ex_jmp env st foo =
         match MapString.find_opt "0retcode" env with
         | Some (R64 0L) -> return env
         | Some (R64 i) -> error ("Error " ^ to_string i)
         | _ -> (
           match MapString.find "0jump" env with
-          | Ls "" -> error "Segmentation fault (core dumped)"
+          | Ls "" -> foo ()
           | Ls s ->
               find_label s list
               >>= fun list -> helper (MapString.add "0jump" (Ls "") env) st list
-          | _ -> error "fatal error: can be only Ls" ) )
-      | hd :: tl -> (
+          | _ -> error "fatal error: can be only Ls" ) in
+      function
+      | [] -> ex_jmp env st (fun () -> error "Segmentation fault (core dumped)")
+      | hd :: tl ->
           inter_cmd env st hd
-          >>= fun (env, st) ->
-          match MapString.find_opt "0retcode" env with
-          | Some (R64 0L) -> return env
-          | Some (R64 i) -> error ("Error " ^ to_string i)
-          | _ -> (
-            match MapString.find "0jump" env with
-            | Ls "" -> helper env st tl
-            | Ls s ->
-                find_label s list
-                >>= fun list ->
-                helper (MapString.add "0jump" (Ls "") env) st list
-            | _ -> error "fatal error: can be only Ls" ) ) in
+          >>= fun (env, st) -> ex_jmp env st (fun () -> helper env st tl) in
     helper env [] list
 
   (** Main interpreter function. *)
