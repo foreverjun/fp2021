@@ -26,7 +26,7 @@
   >  let rec map f = function
   >  | [] -> []
   >  | h :: tl -> f h :: map f tl
-  >  
+  > 
   >  let x = [1;2;3]
   >  let y = map (fun x -> x + 3) [1;2;3]
   val map = <fun>
@@ -45,17 +45,17 @@
   >    1
   >  else
   >    fibonacci (n-1) + fibonacci (n-2)
-  >  
+  > 
   >  let x = fibonacci 10
   val fibonacci = <fun>
   val x = 55
   $$$$
   $ ./demoOcamlADT.exe <<-EOF
   >  type person = | Age of int | Name of string
-  >  
+  > 
   >  let misha_age = Age 19
   >  let misha_name = Name "Misha"
-  >  
+  > 
   >  let age = function | Age age -> age | Name _ -> 0
   >  let test1 = age misha_age
   >  let test2 = age misha_name
@@ -74,26 +74,26 @@ https://github.com/CompScienceClub/ocaml-red-black-trees/blob/master/src/red_bla
   $ ./demoOcamlADT.exe <<-EOF
   >  type color = | R | B | BB
   >  type tree = | Empty of color | Node of color * tree * int * tree
-  >  
+  > 
   >  let rec member x = function
   >    | Empty _ -> false
   >    | Node (_, l, q, r) ->
   >        if x = q then true else if q < x then member x r else member x l
-  >  
+  > 
   >  let bal_ins_l = function
   >    | Node (B, Node (R, Node (R, a, x, b), y, c), z, d) ->
   >        Node (R, Node (B, a, x, b), y, Node (B, c, z, d))
   >    | Node (B, Node (R, a, x, Node (R, b, y, c)), z, d) ->
   >        Node (R, Node (B, a, x, b), y, Node (B, c, z, d))
   >    | n -> n
-  >  
+  > 
   >  let bal_ins_r = function
   >    | Node (B, a, x, Node (R _, Node (R _, b, y, c), z, d)) ->
   >        Node (R, Node (B, a, x, b), y, Node (B, c, z, d))
   >    | Node (B _, a, x, Node (R, b, y, Node (R, c, z, d))) ->
   >        Node (R, Node (B, a, x, b), y, Node (B, c, z, d))
   >    | n -> n
-  >  
+  > 
   >  let ins x =
   >    let rec ins_int = function
   >      | Empty _ -> Node (R, Empty B, x, Empty B)
@@ -102,17 +102,17 @@ https://github.com/CompScienceClub/ocaml-red-black-trees/blob/master/src/red_bla
   >          else if q > x then bal_ins_l (Node (c, ins_int l, q, r))
   >          else Node (c, l, q, r) in
   >    ins_int
-  >  
+  > 
   >  let insert t x =
   >    match ins x t with
   >    | Empty _ -> Node (B, Empty B, 0, Empty B)
   >    | Node (_, q, l, r) -> Node (B, q, l, r)
-  >  
+  > 
   >  let root = insert (Empty B) 5
   >  let root = insert root 2
   >  let root = insert root 8
   >  let root = insert root 7
-  >  
+  > 
   >  let test1 = member 2 root
   >  let test2 = member 10 root
   val member = <fun>
