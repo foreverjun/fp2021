@@ -44,7 +44,6 @@ and expr =
   | EConst of const  (** 1                     *)
   | EBinOp of bin_op * expr * expr  (** 1 + 1                 *)
   | EVar of id  (** abc                   *)
-  | EList of expr list  (** [1; 2]                *)
   | ETuple of expr list  (** 1, 2                  *)
   | ECons of expr * expr  (** hd :: tl              *)
   | EIf of expr * expr * expr  (** if true then 1 else 0 *)

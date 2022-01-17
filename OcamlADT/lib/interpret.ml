@@ -173,7 +173,6 @@ end = struct
                 return (vbool b2)
             | _ -> fail (Incorrect_eval (Vtuple [value1; value2])) ) )
     | ETuple l -> all (List.map (fun e -> eval e env) l) >>| vtuple
-    | EList _ -> return (vlist [])
     | EIf (e1, e2, e3) -> (
         let* res = eval e1 env in
         match res with

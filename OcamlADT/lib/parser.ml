@@ -47,7 +47,6 @@ let cstring s = CString s
 
 let econst c = EConst c
 let evar id = EVar id
-let elist l = EList l
 let etuple pl = ETuple pl
 let econs e1 e2 = ECons (e1, e2)
 let eif e1 e2 e3 = EIf (e1, e2, e3)
