@@ -48,7 +48,7 @@ let rec pp_value fmt = function
 type interpret_err =
   | Division_by_zero
   | Unbound of string
-  | Match_exhaust
+  | Non_exhaust
   | Incorrect_eval of value
 [@@deriving eq, show {with_path= false}]
 
@@ -58,7 +58,7 @@ type interpret_ok = decl_binding list [@@deriving eq]
 let pp_interpret_err fmt = function
   | Unbound str -> fprintf fmt "Unbound value %s" str
   | Division_by_zero -> fprintf fmt "Division by zero"
-  | Match_exhaust -> fprintf fmt "This pattern matching is not exhaustive"
+  | Non_exhaust -> fprintf fmt "This pattern matching is not exhaustive"
   | Incorrect_eval value ->
       fprintf fmt "Value %a is of incorrect type" pp_value value
 
@@ -87,11 +87,7 @@ end = struct
   let rec pattern_bindings = function
     | PWild | PNil | PConst _ -> []
     | PVar name -> [name]
-    | PTuple pts ->
-        let rec helper = function
-          | [] -> []
-          | hd :: tl -> pattern_bindings hd @ helper tl in
-        helper pts
+    | PTuple pts -> List.concat_map (fun x -> pattern_bindings x) pts
     | PCons (patt1, patt2) -> pattern_bindings patt1 @ pattern_bindings patt2
     | PACase (_, pcase) -> pattern_bindings pcase
 
@@ -101,11 +97,11 @@ end = struct
     | PWild, _ -> return []
     | PVar name, v -> return [(name, v)]
     | PConst (CInt c), VInt v when c = v -> return []
-    | PConst (CInt _), VInt _ -> fail Match_exhaust
+    | PConst (CInt _), VInt _ -> fail Non_exhaust
     | PConst (CString c), VString v when c = v -> return []
-    | PConst (CString _), VString _ -> fail Match_exhaust
+    | PConst (CString _), VString _ -> fail Non_exhaust
     | PConst (CBool c), VBool v when c = v -> return []
-    | PConst (CBool _), VBool _ -> fail Match_exhaust
+    | PConst (CBool _), VBool _ -> fail Non_exhaust
     | PCons (patt1, patt2), VList (hd :: tl) ->
         pattern_decl_bindings patt1 hd
         >>= fun hd_match ->
@@ -119,10 +115,10 @@ end = struct
           >>= fun bind_hd ->
           pattern_decl_bindings (PTuple tl_pts) (Vtuple tl_vts)
           >>= fun bind_tl -> return (bind_hd @ bind_tl)
-      | _ -> fail Match_exhaust )
+      | _ -> fail Non_exhaust )
     | PACase (pconstr, p), VAdt (vconstr, v) when pconstr = vconstr ->
         pattern_decl_bindings p v
-    | _ -> fail Match_exhaust
+    | _ -> fail Non_exhaust
 
   let rec check_pattern pattern value =
     match (pattern, value) with
@@ -207,7 +203,7 @@ end = struct
         match
           List.find_opt (fun (pattern, _) -> check_pattern pattern value) cases
         with
-        | None -> fail Match_exhaust
+        | None -> fail Non_exhaust
         | Some (pattern, expr) ->
             let* binds = pattern_decl_bindings pattern value in
             eval expr (extend_env env binds) )

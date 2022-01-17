@@ -155,9 +155,6 @@ type pdispatch =
   ; pat: pdispatch -> pattern t
   ; adt: pdispatch -> pattern t }
 
-let acase id p = (id, p)
-let pacase id p = PACase (acase id p)
-
 let pack =
   let pat d = fix (fun _self -> trim (choice [d.tuple d; d.cons d; d.adt d])) in
   let tuple d =
