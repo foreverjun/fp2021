@@ -15,15 +15,26 @@ let factorial_algorithm =
 
   fun fact_cps(n: Int, k: (Int) -> Int ): Int {
     if (n > 1)
-      return fact_cps(n - 1, { l -> k(l*n) } )
+      return fact_cps(n - 1, { l: Int -> k(l * n) } )
     else
       return k(1)
+  }
+
+  fun fact_seq(m: Int): Int {
+    var acc: Int = 1
+    var n: Int = m
+    while (n > 1) {
+      acc = acc * n
+      n = n - 1
+    }
+    return acc
   }
 
   fun main() {
     println("Factorial of number 5:")
     println(fact(5))
-    println(fact_cps(5, {n->n}))
+    println(fact_cps(5, {n: Int -> n}))
+    println(fact_seq(5))
   }
 
 |}
