@@ -254,13 +254,7 @@ module Interpret = struct
     | _ -> None
   ;;
 
-  let last_identity = ref 0
-
-  let get_unique_identity_code () =
-    let code = !last_identity in
-    last_identity := code + 1;
-    code
-  ;;
+  let get_unique_identity_code () = Random.int Int.max_value
 
   let get_var_from_ctx ctx identifier =
     let get_var_from_dereference_helper obj this_flag =
