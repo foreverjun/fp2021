@@ -40,6 +40,8 @@ Use `dune promote` after you change things that should runned
   Test failed: (Typing (ExpressionExpectedToBeNotNullable (VarIdentifier "nullVariable")))
   |-> test flow_sensitive_typing4
   120
+  |-> test LOOP
+  120
 
   $ ./demoInvalidProgramParse.exe
   Test failed: (Parser InvalidProgram)

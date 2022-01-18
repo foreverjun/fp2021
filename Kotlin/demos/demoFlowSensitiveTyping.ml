@@ -104,3 +104,26 @@ let () =
   | Ok _ -> ()
   | Error err -> print_test_failed err
 ;;
+
+module _ = struct
+  let prog =
+    {|
+
+  fun fact(n: Int): Int {
+    return 1
+  }
+
+  fun main() {
+    println(fact(5))
+  }
+
+  |}
+  ;;
+
+  let () =
+    print_test_name "LOOP";
+    match parse_and_run flow_sensitive_typing4 with
+    | Ok _ -> ()
+    | Error err -> print_test_failed err
+  ;;
+end
