@@ -41,7 +41,7 @@ Use `dune promote` after you change things that should runned
   |-> test flow_sensitive_typing4
   120
   |-> test LOOP
-  120
+  1
 
   $ ./demoInvalidProgramParse.exe
   Test failed: (Parser InvalidProgram)

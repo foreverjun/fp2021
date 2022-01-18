@@ -122,7 +122,7 @@ module _ = struct
 
   let () =
     print_test_name "LOOP";
-    match parse_and_run flow_sensitive_typing4 with
+    match parse_and_run prog with
     | Ok _ -> ()
     | Error err -> print_test_failed err
   ;;
