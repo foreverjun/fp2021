@@ -8,6 +8,15 @@ open Kotlin_lib.Utils
 let factorial_algorithm =
   {|
 
+  fun fixpoint(f: ((Int) -> Int, Int) -> Int): (Int) -> Int {
+    return { eta: Int -> f(fixpoint(f), eta) }
+  }
+
+  fun fact_with_fixpoint(n: Int): Int {
+    val fixpointed_fact: (Int) -> Int = fixpoint({self: (Int) -> Int, x: Int -> if(x <= 1) 1 else x * self(x - 1)})
+    return fixpointed_fact(n)
+  }
+
   fun fact(n: Int): Int {
     if(n > 1) return n * fact(n - 1)
     else return 1
@@ -35,6 +44,7 @@ let factorial_algorithm =
     println(fact(5))
     println(fact_cps(5, {n: Int -> n}))
     println(fact_seq(5))
+    println(fact_with_fixpoint(5))
   }
 
 |}

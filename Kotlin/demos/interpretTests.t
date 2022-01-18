@@ -28,6 +28,7 @@ Use `dune promote` after you change things that should runned
   120
   120
   120
+  120
 
   $ ./demoFlowSensitiveTyping.exe
   |-> test flow_sensitive_typing1
