@@ -13,9 +13,17 @@ let factorial_algorithm =
     else return 1
   }
 
+  fun fact_cps(n: Int, k: (Int) -> Int ): Int {
+    if (n > 1)
+      return fact_cps(n - 1, { l -> k(l*n) } )
+    else
+      return k(1)
+  }
+
   fun main() {
     println("Factorial of number 5:")
     println(fact(5))
+    println(fact_cps(5, {n->n}))
   }
 
 |}

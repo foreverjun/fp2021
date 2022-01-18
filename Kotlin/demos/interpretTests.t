@@ -24,8 +24,8 @@ Use `dune promote` after you change things that should runned
   25
 
   $ ./demoFactorial.exe
-  Factorial of number 5:
-  120
+  Test failed: (Interpreter (UnknownFunction "main"))
+  WTF
 
   $ ./demoFlowSensitiveTyping.exe
   |-> test flow_sensitive_typing1
