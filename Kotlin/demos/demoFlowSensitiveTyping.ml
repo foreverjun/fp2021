@@ -127,3 +127,30 @@ module _ = struct
     | Error err -> print_test_failed err
   ;;
 end
+
+module _ = struct
+  let prog =
+    {|
+    fun loop(acc : (Int) ->Int, i: Int): (Int) ->Int {
+      if (i>0)
+        return loop({ m:Int -> 1 + acc(m)}, i-1)
+      else return acc
+    }
+    fun plus(n: Int): (Int) -> Int {
+      return loop ({ k:Int -> k}, n)
+    }
+
+    fun main() {
+      println(plus(5)(8))
+    }
+  |}
+  ;;
+
+  (* expecting 13 *)
+  let () =
+    print_test_name "plus via many +1";
+    match parse_and_run prog with
+    | Ok _ -> ()
+    | Error err -> print_test_failed err
+  ;;
+end
