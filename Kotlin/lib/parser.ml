@@ -1,7 +1,9 @@
 open Ast
 open Opal
 
-let apply_parser parser input = parse parser (LazyStream.of_string input)
+let apply_parser parser input =
+  parse (parser << spaces << eof ()) (LazyStream.of_string input)
+;;
 
 let reserved_keywords =
   [ "class"

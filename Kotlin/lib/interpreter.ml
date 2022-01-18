@@ -1145,7 +1145,7 @@ let parse_and_run input =
     Base.Option.value_exn (Base.Result.ok (load_standard_classes empty_ctx))
   in
   match apply_parser initialize_block_statement input with
-  | None -> Error (Parser InvalidProgram)
+  | None -> Result.fail (Parser InvalidProgram)
   | Some statement ->
     (match interpret_statement ctx_with_standard_classes statement with
     | Error err -> Error err
