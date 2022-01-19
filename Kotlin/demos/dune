@@ -1,0 +1,37 @@
+(executable
+ (name demoBFS)
+ (modules demoBFS)
+ (public_name demoBFS)
+ (libraries Kotlin.Lib))
+
+(executable
+ (name demoIteratorMap)
+ (modules demoIteratorMap)
+ (public_name demoIteratorMap)
+ (libraries Kotlin.Lib))
+
+(executable
+ (name demoFactorial)
+ (modules demoFactorial)
+ (public_name demoFactorial)
+ (libraries Kotlin.Lib))
+
+(executable
+ (name demoFlowSensitiveTyping)
+ (modules demoFlowSensitiveTyping)
+ (public_name demoFlowSensitiveTyping)
+ (libraries Kotlin.Lib))
+
+(executable
+ (name demoInvalidProgramParse)
+ (modules demoInvalidProgramParse)
+ (public_name demoInvalidProgramParse)
+ (libraries Kotlin.Lib))
+
+(cram
+ (deps
+  ./demoBFS.exe
+  ./demoIteratorMap.exe
+  ./demoFactorial.exe
+  ./demoFlowSensitiveTyping.exe
+  ./demoInvalidProgramParse.exe))

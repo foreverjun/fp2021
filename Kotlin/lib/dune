@@ -1,0 +1,8 @@
+(library
+ (name kotlin_lib)
+ (public_name Kotlin.Lib)
+ (modules Std Ast Value_types Interpreter Parser utils Tests)
+ (libraries base stdio opal)
+ (preprocess
+  (pps ppx_expect ppx_deriving.show))
+ (inline_tests))

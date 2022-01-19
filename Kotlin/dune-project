@@ -1,0 +1,33 @@
+(lang dune 2.8)
+
+(generate_opam_files true)
+
+(cram enable)
+
+(license LGPL-3.0-only)
+
+(authors "Stepan Trefilov")
+
+(maintainers "https://github.com/IAmFunkyFrog")
+
+(bug_reports "https://github.com/IAmFunkyFrog/fp2021/pulls")
+
+(homepage "https://github.com/IAmFunkyFrog/fp2021/tree/kotlin/Kotlin")
+
+(package
+ (name Kotlin) ; FIXME and regenerate .opam file using 'dune build @install'
+ (synopsis "An interpreter for kotlin")
+ (description
+  "Kotlin language interpreter with OOP and anonymous functions support")
+ (version 0.1)
+ (depends
+  dune
+  qcheck-core
+  ppx_expect
+  ppx_deriving
+  (odoc :with-doc)
+  (ocamlformat :build)
+  base
+  opal
+  ; After adding dependencies to 'dune' files and the same dependecies here too
+  ))
