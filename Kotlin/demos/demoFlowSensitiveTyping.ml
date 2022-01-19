@@ -141,7 +141,8 @@ module _ = struct
     }
 
     fun main() {
-      println(plus(5)(8))
+      val plus5: (Int) -> Int = plus(5)
+      println(plus5(8))
     }
   |}
   ;;

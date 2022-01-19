@@ -42,6 +42,8 @@ Use `dune promote` after you change things that should runned
   120
   |-> test LOOP
   1
+  |-> test plus via many +1
+  13
 
   $ ./demoInvalidProgramParse.exe
   Test failed: (Parser InvalidProgram)
