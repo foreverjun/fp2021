@@ -1,0 +1,30 @@
+(lang dune 2.9.1)
+
+(generate_opam_files true)
+
+(cram enable)
+
+(license LGPL-3.0-only)
+
+(authors "Andrey Tarbeev")
+
+(maintainers "Andrey Tarbeev")
+
+(bug_reports "https://github.com/SofuriHafe/fp2021/issues")
+
+(homepage "https://github.com/SofuriHafe/fp2021")
+
+(package
+ (name Ruby)
+ (synopsis "A Smol Ruby Language")
+ (description "A 2021-2022 functional programming course homework.")
+ (version 0.01)
+ (depends
+  base
+  dune
+  angstrom
+  ppx_expect
+  ppx_deriving
+  (odoc :with-doc)
+  (ocamlformat :build)
+  (ppx_inline_test :with-test)))
