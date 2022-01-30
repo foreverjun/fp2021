@@ -15,7 +15,7 @@ jobs:
         ocaml-compiler:
           #- 4.10.x
           #- ocaml-variants.4.11.2+flambda
-          - ocaml-variants.4.12.0+options,ocaml-option-flambda
+          - ocaml-variants.4.12.1+options,ocaml-option-flambda
         opam-disable-sandboxing:
           - true
         dune-cache:
@@ -74,18 +74,18 @@ jobs:
 
       - name: Checking ocamlformat
         run: |
-          cd ${{ env.latest }} && opam exec -- dune build @fmt
+          cd ${{ env.latest }} && opam exec -- dune build @fmt --profile=release
 
       - name: Compiling ${{ env.latest }}...
-        run: cd ${{ env.latest }} && opam exec -- dune build
+        run: cd ${{ env.latest }} && opam exec -- dune build --profile=release
 
       - name: Running tests in ${{ env.latest }}...
-        run: cd ${{ env.latest }} && opam exec -- dune runtest
+        run: cd ${{ env.latest }} && opam exec -- dune runtest --profile=release
 
       - name: Build API documentation for ${{ env.latest }}...
         run: |
           opam install odoc --yes
-          cd ${{ env.latest }} && opam exec -- dune build @doc
+          cd ${{ env.latest }} && opam exec -- dune build @doc --profile=release
 
       - uses: reviewdog/action-setup@v1
 

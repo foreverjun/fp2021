@@ -66,18 +66,18 @@ jobs:
 
       - name: Checking ocamlformat
         run: |
-          cd ${{ env.latest }} && opam exec -- dune build @fmt
+          cd ${{ env.latest }} && opam exec -- dune build @fmt --profile=release
 
       - run: |
-          cd ${{ env.latest }} && opam exec -- dune build
+          cd ${{ env.latest }} && opam exec -- dune build --profile=release
 
       - run: |
-          cd ${{ env.latest }} && opam exec -- dune runtest
+          cd ${{ env.latest }} && opam exec -- dune runtest --profile=release
 
       - name: Build API documentation
         run: |
           opam install odoc --yes
-          cd ${{ env.latest }} && opam exec -- dune build @doc
+          cd ${{ env.latest }} && opam exec -- dune build @doc --profile=release
 
       - name: Deploy API documentation
         uses: peaceiris/actions-gh-pages@v3
@@ -111,39 +111,3 @@ jobs:
       #  run: >
       #    cat ${{ env.latest }}/${{ env.RDJSON_FILE_PATH }} |
       #    reviewdog -f=rdjsonl -filter-mode nofilter -reporter=github-pr-check
-
-      #- name: Deploy found lints
-      #  uses: peaceiris/actions-gh-pages@v3
-      #  with:
-      #    deploy_key: ${{ secrets.ACTIONS_DEPLOY_KEY }}
-      #    publish_dir: ${{ env.latest }}/${{ env.RDJSON_DIR_PATH }}
-      #    external_repository: Kakadu/fp2021-ci-reports
-      #    publish_branch: master
-      #    keep_files: true
-      #    destination_dir: 2021/${{ github.event.pull_request.user.login }}
-
-      ##########################################################################
-#      - id: get-comment-body
-#        # run: |
-#          body=$(cat comment-body.md)
-#          body="${body//'%'/'%25'}"
-#          body="${body//$'\n'/'%0A'}"
-#          body="${body//$'\r'/'%0D'}"
-#          echo ::set-output name=body::$body
-
-#      - name: Find Comment
-#        uses: peter-evans/find-comment@v1
-#        id: fc
-#        if: ${{ always() }}
-#        with:
-#          issue-number: ${{ github.event.number }}
-#          body-includes: CI summary (пока заглушка)
-#          comment-author: github-actions[bot]
-
-#      - name: Create comment
-#        uses: peter-evans/create-or-update-comment@v1
-#        with:
-#          comment-id: ${{ steps.fc.outputs.comment-id }}
-#          edit-mode: replace
-#          issue-number: ${{ github.event.number }}
-#          body: ${{ steps.get-comment-body.outputs.body }}
