@@ -17,4 +17,4 @@
  (libraries lambda_lib stdio))
 
 (cram
- (deps ./demoNO.exe ./demoAO.exe ./demoParse.exe))
+ (deps ./demoNO.exe ./demoAO.exe ./demoParse.exe ../REPL.exe))

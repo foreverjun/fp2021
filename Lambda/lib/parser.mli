@@ -1,9 +1,13 @@
+type error = [ `ParsingError of string ]
+
+val pp_error : Format.formatter -> [< `ParsingError of string ] -> unit
+
 (** Main entry of parser *)
-val parse : string -> (char Ast.t, string) result
+val parse : string -> (Ast.name Ast.t, error) result
 
 type dispatch =
-  { apps : dispatch -> char Ast.t Angstrom.t
-  ; single : dispatch -> char Ast.t Angstrom.t
+  { apps : dispatch -> Ast.name Ast.t Angstrom.t
+  ; single : dispatch -> Ast.name Ast.t Angstrom.t
   }
 
 (* A collection of miniparsers *)

@@ -1,7 +1,9 @@
 
-  $ ./REPL.exe <<EOF
-  > let rec fac n =
-  >   if n<=1 then 1
-  >   else n * (fac (n-1))
-  > ;;
-  REPL not implemented
+  $ ./REPL.exe
+  $ ./REPL.exe -help
+  $ ./REPL.exe -cbv - <<EOF
+  > \f.x
+  Result: Abs (f, Var (x))
+  $ ./REPL.exe -no - <<EOF
+  > (\x.\y.x)(\u.u)((\x. x x)(\x.x x))
+  Result: Abs (f, Var (x))
