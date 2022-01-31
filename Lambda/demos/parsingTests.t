@@ -7,4 +7,4 @@ answer is correct
   $ ./demoParse.exe <<-EOF
   > (λf.λx. f (x x))
   > EOF
-  Abs (f, Abs (x, App (Var (f), App (Var (x), Var (x)))))
+  (Abs (f, (Abs (x, (App ((Var f), (App ((Var x), (Var x)))))))))

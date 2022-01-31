@@ -12,13 +12,13 @@
     --help  Display this list of options
   $ ./REPL.exe -cbv - <<EOF
   > \f.x
-  Parsed result: Abs (f, Var (x))
-  Evaluated result: Abs (f, Var (x))
+  Parsed result: (Abs (f, (Var x)))
+  Evaluated result: (Abs (f, (Var x)))
   $ ./REPL.exe -no - <<EOF
   > (\x.\y.x)(\u.u)((\x. x x)(\x.x x))
-  Parsed result: App
-                 (App (Abs (x, Abs (y, Var (x))), Abs (u, Var (u))),
-                  App
-                  (Abs (x, App (Var (x), Var (x))),
-                   Abs (x, App (Var (x), Var (x)))))
-  Evaluated result: Abs (u, Var (u))
+  Parsed result: (App (
+                    (App ((Abs (x, (Abs (y, (Var x))))), (Abs (u, (Var u))))),
+                    (App ((Abs (x, (App ((Var x), (Var x))))),
+                       (Abs (x, (App ((Var x), (Var x)))))))
+                    ))
+  Evaluated result: (Abs (u, (Var u)))
