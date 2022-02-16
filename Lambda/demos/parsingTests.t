@@ -1,3 +1,6 @@
+Copyright 2021-2022, Kakadu and contributors
+SPDX-License-Identifier: CC0-1.0
+
 Tests about parsing go here. It's expected that programs parse something and
 output a parse tree.
 For example, where your test correctness of AST it's recommend to put both
