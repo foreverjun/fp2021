@@ -58,15 +58,6 @@ and pattern =
 and binding = bool * pattern * expr
 and case = pattern * expr
 
-type tyexpr =
-  |TInt
-  |TBool
-  |TString
-  |TList of tyexpr
-  |TTuple of tyexpr list
-  |TArrow of tyexpr * tyexpr
-[@@deriving eq, show {with_path= false}]
-
 type decl = 
   |DLet of binding
 [@@deriving eq, show {with_path= false}]
