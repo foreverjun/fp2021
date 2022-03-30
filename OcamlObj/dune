@@ -7,7 +7,6 @@
    (:standard -warn-error -A -w -58))))
 
 (executable
-
  (name REPL)
  (public_name REPL)
  (modules REPL)
