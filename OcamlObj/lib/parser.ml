@@ -49,7 +49,7 @@ let ebinopr bin_operator expr1 expr2 = EBinopr (bin_operator, expr1, expr2)
 let evar name = EVar name
 let etuple exprl = ETuple exprl
 let eif expr1 expr2 expr3 = EIf (expr1, expr2, expr3)
-let _elet binding expr = ELet (binding, expr)
+let elet binding expr = ELet (binding, expr)
 let efunction cases = EFun (PVar "match", EMatch (EVar "match", cases))
 let efun ptrn expr = EFun (ptrn, expr)
 let efun args rhs = List.fold_right args ~f:efun ~init:rhs
@@ -220,7 +220,7 @@ type edispatch =
              pattern
              (lift2 efun (empty *> many pattern <* token "=") (d.exp d <* token "in"))
       in
-      trim @@ lift2 _elet (binding) (d.exp d)
+      trim @@ lift2 elet (binding) (d.exp d)
     in
     let eobj =
       let emethod = 

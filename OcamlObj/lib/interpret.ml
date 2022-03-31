@@ -18,7 +18,6 @@ type value =
   | VList of value list
   | Vtuple of value list
   | VFun of pattern * expr * env
-  | VAdt of string * value
 [@@deriving eq]
 
 and env = value option ref BindsMap.t
@@ -28,7 +27,6 @@ let vstring s = VString s
 let vbool b = VBool b
 let vtuple t = Vtuple t
 let vlist l = VList l
-let vadt s v = VAdt (s, v)
 
 let rec pp_value fmt = function
   | VInt i -> fprintf fmt "%d" i
@@ -43,7 +41,6 @@ let rec pp_value fmt = function
         (pp_print_list ~pp_sep:(fun _ _ -> fprintf fmt "; ") pp_value)
         l
   | VFun _ -> fprintf fmt "<fun>"
-  | VAdt (constr, value) -> fprintf fmt "%s %a" constr pp_value value
 
 type interpret_err =
   | Division_by_zero
