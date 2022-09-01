@@ -1,0 +1,4 @@
+    "files.associations": {
+        "*.ml": "ocaml",
+        "*.mli": "ocaml"
+    }

@@ -6,7 +6,7 @@ open OcamlADT_lib.Parser
 let x = EVar "a"
 let () = print_endline "REPL not implemented"
 
-(* let () =
+let () =
      match
        parse_with progr
          {|
@@ -40,4 +40,4 @@ let () = print_endline "REPL not implemented"
       |}
      with
      | Ok ok -> printf "%a\n" pp_interpret_ok ok
-     | Error err -> printf "%a\n" pp_interpret_err err *)
+     | Error err -> printf "%a\n" pp_interpret_err err

@@ -1,0 +1,6 @@
+profile=janestreet
+sequence-style=terminator
+{
+    "ocamlformat.path": "/home/kalashmat/.opam/4.13.1/bin/ocamlformat"
+}
+

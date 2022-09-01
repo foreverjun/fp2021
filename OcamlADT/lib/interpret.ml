@@ -65,9 +65,9 @@ let pp_interpret_err fmt = function
 let pp_decl_binding fmt (name, value) =
   fprintf fmt "val %s = %a" name pp_value value
 
-let pp_interpret_ok = pp_print_list ~pp_sep:pp_force_newline pp_decl_binding
+let pp_interpret_ok list = pp_print_list ~pp_sep:pp_force_newline pp_decl_binding list
 
-module Interpret (M : MONAD_FAIL) : sig
+module Interpret (  M : MONAD_FAIL) : sig
   val run : program -> (interpret_ok, interpret_err) M.t
 end = struct
   open M
@@ -321,7 +321,7 @@ let%test _ =
     {|
      let y = if 5 > 4 then true else false
    |}
-    [("y", VBool true)]
+    [("у", VBool true)]
 
 let%test _ =
   test_run_interpret

@@ -18,6 +18,7 @@ type value =
   | VList of value list
   | Vtuple of value list
   | VFun of pattern * expr * env
+  | VObject of value list
 [@@deriving eq]
 
 and env = value option ref BindsMap.t

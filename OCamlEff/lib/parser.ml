@@ -299,7 +299,7 @@ type edispatch =
   }
 
 let pack =
-  let exp d = fix @@ fun _self -> trim @@ d.key d <|> d.tuple d <|> d.op d in
+  let exp d = fix @@ fun _self -> trim @@ choice [d.key d ; d.tuple d ; d.op d] in
   let key d =
     fix
     @@ fun _self ->
